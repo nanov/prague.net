@@ -4694,59 +4694,77 @@ public class CacheGenerator : IIncrementalGenerator {
 		var dericherClassName = $"{simpleTypeName}Dericher";
 
 		w.Summary($"Dericher for {simpleTypeName} - extracts values from entity and adds them to Kafka headers.");
+		var info = enrichInfo;
 		w.Class($"internal static class {dericherClassName}", (ref CodeWriter w) => {
+			// Managed Headers overload — used by dump/restore.
 			w.Attribute("System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)");
 			w.Method($"public static void Derich({typeName} entity, Headers headers)", (ref CodeWriter w) => {
-				// Generate header deriching - extract values from entity and add to headers
-				if (enrichInfo.HeaderProperties.Count > 0) {
-					foreach (var prop in enrichInfo.HeaderProperties) {
-						w.Line($"// Add {prop.HeaderName} header from {prop.PropertyName} property");
-
-						// Generate serialization based on property type
-						if (prop.PropertyType == "int") {
-							w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}));");
-						}
-						else if (prop.PropertyType == "int?") {
-							w.If($"entity.{prop.PropertyName}.HasValue", (ref CodeWriter w) => {
-								w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}.Value));");
-							});
-						}
-						else if (prop.PropertyType == "long") {
-							w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}));");
-						}
-						else if (prop.PropertyType == "long?") {
-							w.If($"entity.{prop.PropertyName}.HasValue", (ref CodeWriter w) => {
-								w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}.Value));");
-							});
-						}
-						else if (IsType(prop.PropertyType, "string")) {
-							w.If($"entity.{prop.PropertyName} != null", (ref CodeWriter w) => {
-								w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeString(entity.{prop.PropertyName}));");
-							});
-						}
-						else if (prop.PropertyType == "System.Guid" || prop.PropertyType == "global::System.Guid") {
-							w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeGuid(entity.{prop.PropertyName}));");
-						}
-						else if (prop.PropertyType == "System.Guid?" || prop.PropertyType == "global::System.Guid?") {
-							w.If($"entity.{prop.PropertyName}.HasValue", (ref CodeWriter w) => {
-								w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeGuid(entity.{prop.PropertyName}.Value));");
-							});
-						}
-						else {
-							// For other types, use MessagePack serializer
-							w.If($"entity.{prop.PropertyName} != null", (ref CodeWriter w) => {
-								w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}));");
-							});
-						}
-					}
-				}
-				else {
-					// No-op dericher - no header properties to add
-					w.Line("// No header properties to derich");
-				}
+				EmitDerichBody(ref w, info);
+			});
+			w.Line();
+			// Inline KafkaHeaders overload — used by the raw produce path. The header-value byte[]s
+			// convert implicitly to ReadOnlyMemory<byte>, so the body is identical.
+			w.Attribute("System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)");
+			w.Method($"public static void Derich({typeName} entity, ref Confluent.Kafka.KafkaHeaders headers)", (ref CodeWriter w) => {
+				EmitDerichBody(ref w, info);
 			});
 		});
 		w.Line();
+	}
+
+	/// <summary>
+	///   Emits the shared body of both <c>Derich</c> overloads: appends each <c>[DataCacheHeader]</c>
+	///   property's serialized bytes to <c>headers</c>. <c>byte[]</c> binds to both
+	///   <c>Headers.Add(string, byte[])</c> and <c>KafkaHeaders.Add(string, ReadOnlyMemory&lt;byte&gt;)</c>.
+	/// </summary>
+	private static void EmitDerichBody(ref CodeWriter w, EnrichInfo enrichInfo) {
+		// Generate header deriching - extract values from entity and add to headers
+		if (enrichInfo.HeaderProperties.Count > 0) {
+			foreach (var prop in enrichInfo.HeaderProperties) {
+				w.Line($"// Add {prop.HeaderName} header from {prop.PropertyName} property");
+
+				// Generate serialization based on property type
+				if (prop.PropertyType == "int") {
+					w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}));");
+				}
+				else if (prop.PropertyType == "int?") {
+					w.If($"entity.{prop.PropertyName}.HasValue", (ref CodeWriter w) => {
+						w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}.Value));");
+					});
+				}
+				else if (prop.PropertyType == "long") {
+					w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}));");
+				}
+				else if (prop.PropertyType == "long?") {
+					w.If($"entity.{prop.PropertyName}.HasValue", (ref CodeWriter w) => {
+						w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}.Value));");
+					});
+				}
+				else if (IsType(prop.PropertyType, "string")) {
+					w.If($"entity.{prop.PropertyName} != null", (ref CodeWriter w) => {
+						w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeString(entity.{prop.PropertyName}));");
+					});
+				}
+				else if (prop.PropertyType == "System.Guid" || prop.PropertyType == "global::System.Guid") {
+					w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeGuid(entity.{prop.PropertyName}));");
+				}
+				else if (prop.PropertyType == "System.Guid?" || prop.PropertyType == "global::System.Guid?") {
+					w.If($"entity.{prop.PropertyName}.HasValue", (ref CodeWriter w) => {
+						w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeGuid(entity.{prop.PropertyName}.Value));");
+					});
+				}
+				else {
+					// For other types, use MessagePack serializer
+					w.If($"entity.{prop.PropertyName} != null", (ref CodeWriter w) => {
+						w.Line($"headers.Add(\"{prop.HeaderName}\", Prague.Kafka.SerDe.HeadersSerDe.SerializeMessagePack(entity.{prop.PropertyName}));");
+					});
+				}
+			}
+		}
+		else {
+			// No-op dericher - no header properties to add
+			w.Line("// No header properties to derich");
+		}
 	}
 
 	private static void GenerateIEnrichableImplementation(ref CodeWriter w, EnrichInfo enrichInfo) {
@@ -4776,6 +4794,12 @@ public class CacheGenerator : IIncrementalGenerator {
 				w.Attribute("System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)");
 				w.Method($"public static void Derich({typeName} entity, Confluent.Kafka.Headers headers)", (ref CodeWriter w) => {
 					w.Line($"Prague.Kafka.Internal.{simpleTypeName}Dericher.Derich(entity, headers);");
+				});
+				w.Line();
+				w.Summary("Allocation-free dericher for the raw produce path.");
+				w.Attribute("System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)");
+				w.Method($"public static void Derich({typeName} entity, ref Confluent.Kafka.KafkaHeaders headers)", (ref CodeWriter w) => {
+					w.Line($"Prague.Kafka.Internal.{simpleTypeName}Dericher.Derich(entity, ref headers);");
 				});
 			});
 		});
