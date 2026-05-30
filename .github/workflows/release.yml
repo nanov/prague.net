@@ -1,0 +1,151 @@
+name: Release
+run-name: Release (bump=${{ inputs.bump }}, prerelease=${{ inputs.prerelease }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump'
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: 'Create a prerelease (-pre.N). Uncheck for a stable release.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: version-tag
+  cancel-in-progress: false
+
+jobs:
+  # HARD GATE: the tag/release (and therefore publish.yml) only happen if ALL tests are green.
+  test:
+    runs-on: ubuntu-latest   # has Docker preinstalled -> Testcontainers.Kafka integration tests run
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore Prague.Tests.slnf
+
+      - name: Build
+        run: dotnet build Prague.Tests.slnf -c Release --no-restore
+
+      # Full suite: Core, DI, Generated, Kafka.Tests, Kafka.IntegrationTests. Any red -> this job
+      # fails -> `release` (needs: test) is skipped -> no tag/release -> publish.yml never fires.
+      - name: Test
+        run: dotnet test Prague.Tests.slnf -c Release --no-build
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Determine version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          IS_PRERELEASE="${{ inputs.prerelease }}"
+          BUMP="${{ inputs.bump }}"
+          PROPS_FILE="./Directory.Build.props"
+
+          # Bootstrap fallback when no GitHub releases exist yet.
+          PROPS_VERSION=$(grep -oP '<Version>\K[^<]+' "$PROPS_FILE" | tr -d ' \t\r\n')
+          if [[ ! "$PROPS_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: invalid <Version> in $PROPS_FILE: '$PROPS_VERSION'" >&2
+            exit 1
+          fi
+
+          bump_version() {  # $1=M.m.p  $2=kind -> echoes bumped version
+            IFS='.' read -r MA MI PA <<< "$1"
+            case "$2" in
+              major) echo "$((MA + 1)).0.0" ;;
+              minor) echo "${MA}.$((MI + 1)).0" ;;
+              patch) echo "${MA}.${MI}.$((PA + 1))" ;;
+              *) echo "Error: bad bump kind '$2'" >&2; return 1 ;;
+            esac
+          }
+          ver_ge() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]; }  # $1 >= $2 ?
+
+          REL=$(gh release list --limit 200 --json tagName,isPrerelease,isDraft)
+          LATEST_RELEASE=$(echo "$REL" \
+            | jq -r '.[] | select(.isDraft == false and .isPrerelease == false) | .tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -n1 || true)
+          LATEST_PRE=$(echo "$REL" \
+            | jq -r '.[] | select(.isDraft == false and .isPrerelease == true) | .tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-pre\.[0-9]+$' | sed 's/^v//' | sort -V | tail -n1 || true)
+
+          if [[ "${IS_PRERELEASE,,}" == "true" ]]; then
+            PRE_BASE=""
+            [[ -n "$LATEST_PRE" ]] && PRE_BASE="${LATEST_PRE%%-pre.*}"
+            # Reuse the in-flight prerelease base only while it is still ahead of the latest full
+            # release (else it was already promoted -> start fresh by bumping the release).
+            if [[ -n "$PRE_BASE" ]] && { [[ -z "$LATEST_RELEASE" ]] || ! ver_ge "$LATEST_RELEASE" "$PRE_BASE"; }; then
+              BASE="$PRE_BASE"
+              echo "Reusing in-flight prerelease base $BASE"
+            elif [[ -n "$LATEST_RELEASE" ]]; then
+              BASE="$(bump_version "$LATEST_RELEASE" "$BUMP")"
+              echo "Bumping latest release $LATEST_RELEASE ($BUMP) -> $BASE"
+            else
+              BASE="$PROPS_VERSION"
+              echo "No releases; using props base $BASE"
+            fi
+            PRE_N=$(( $(git tag -l "v${BASE}-pre.*" | wc -l | tr -d ' ') + 1 ))
+            VERSION="${BASE}-pre.${PRE_N}"
+          else
+            if [[ -n "$LATEST_RELEASE" ]]; then
+              BASE="$(bump_version "$LATEST_RELEASE" "$BUMP")"
+              echo "Bumping latest release $LATEST_RELEASE ($BUMP) -> $BASE"
+            else
+              BASE="$PROPS_VERSION"
+              echo "No releases; using props base $BASE"
+            fi
+            VERSION="$BASE"
+          fi
+
+          TAG="v${VERSION}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Error: tag $TAG already exists" >&2
+            exit 1
+          fi
+
+          {
+            echo "VERSION=$VERSION"
+            echo "TAG=$TAG"
+            echo "IS_PRERELEASE=${IS_PRERELEASE,,}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Computed version: $VERSION (tag $TAG)"
+
+      - name: Create tag and GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: ${{ steps.version.outputs.TAG }}
+          prerelease: ${{ steps.version.outputs.IS_PRERELEASE }}
+          generate_release_notes: true
+          target_commitish: ${{ github.sha }}
+          token: ${{ secrets.RELEASE_TOKEN }}   # PAT -> the tag push triggers publish.yml
+
+      - name: Summary
+        run: echo "Released **${{ steps.version.outputs.TAG }}**" >> "$GITHUB_STEP_SUMMARY"

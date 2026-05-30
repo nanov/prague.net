@@ -1,0 +1,66 @@
+name: Publish to NuGet
+run-name: Publish ${{ github.ref_name }}
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4   # checks out the pushed tag (already tested in release.yml)
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore Prague.Publish.slnf
+
+      - name: Build
+        run: |
+          dotnet build Prague.Publish.slnf -c Release --no-restore \
+            -p:ContinuousIntegrationBuild=true \
+            -p:Version=${{ steps.version.outputs.VERSION }}
+
+      - name: Pack
+        run: |
+          mkdir -p artifacts
+          dotnet pack Prague.Publish.slnf -c Release --no-build --output artifacts \
+            -p:PackageVersion=${{ steps.version.outputs.VERSION }}
+
+      - name: Push to NuGet
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pkgs=(artifacts/*.nupkg)
+          if [[ ${#pkgs[@]} -eq 0 ]]; then
+            echo "No .nupkg files produced — check <IsPackable> settings." >&2
+            exit 1
+          fi
+          for f in "${pkgs[@]}"; do
+            echo "Pushing $f"
+            dotnet nuget push "$f" \
+              --source "https://api.nuget.org/v3/index.json" \
+              --api-key "${{ secrets.NUGET_API_KEY }}" \
+              --skip-duplicate
+          done
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/*.nupkg
