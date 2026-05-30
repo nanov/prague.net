@@ -1,0 +1,94 @@
+name: base-test
+
+on:
+  workflow_call:
+    inputs:
+      dotnet_version:
+        description: '.NET SDK version'
+        default: '9.0.x'
+        required: false
+        type: string
+      solution_path:
+        description: 'Path to *.sln / *.slnf (must include test projects)'
+        required: true
+        type: string
+      run_int_tests:
+        description: 'Run integration tests (projects with *Integration* in the name)'
+        default: true
+        required: false
+        type: boolean
+      publish_results:
+        description: 'Upload and publish test results via test-reporter'
+        default: true
+        required: false
+        type: boolean
+    secrets:
+      packages_read_token:
+        description: 'Token for reading GitHub Packages NuGet feed (restore-time auth)'
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+  checks: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_version }}
+
+      - name: Configure NuGet
+        run: |
+          mkdir -p packages
+          dotnet new nugetconfig --name nuget.config --output ./packages
+          TOKEN="${{ secrets.packages_read_token }}"
+          if [[ -n "$TOKEN" ]]; then
+            dotnet nuget add source \
+              --name github \
+              --username "${{ github.actor }}" \
+              --password "$TOKEN" \
+              --store-password-in-clear-text \
+              "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+              --configfile ./packages/nuget.config
+          fi
+
+      - name: Restore
+        run: dotnet restore ${{ inputs.solution_path }} --configfile ./packages/nuget.config
+
+      - name: Build
+        run: dotnet build ${{ inputs.solution_path }} --configuration Release --no-restore
+
+      - name: Run tests
+        run: |
+          set -euo pipefail
+          mkdir -p TestResults
+
+          for proj in $(find tests -name "*Tests*.csproj" -not -path "*/obj/*" -not -path "*/bin/*" | sort -r); do
+            NAME=$(basename "$proj" .csproj)
+            if [[ "$NAME" == *Integration* && "${{ inputs.run_int_tests }}" != "true" ]]; then
+              echo "Skipping integration tests: $NAME"
+              continue
+            fi
+            echo "Running: $NAME"
+            dotnet test "$proj" --no-build --no-restore --configuration Release \
+              --logger "trx;LogFileName=${NAME}.trx" --results-directory TestResults
+          done
+
+      - name: Publish Test Results
+        if: always() && inputs.publish_results
+        uses: dorny/test-reporter@v3
+        with:
+          name: Test Results
+          path: "**/TestResults/*.trx"
+          reporter: dotnet-trx
+          list-tests: 'all'
+          fail-on-error: 'false'
+          token: ${{ github.token }}

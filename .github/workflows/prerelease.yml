@@ -1,0 +1,65 @@
+name: Prerelease
+run-name: Prerelease (tests=${{ inputs.run_tests }}, prerelease=${{ inputs.prerelease }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Base version (e.g. 0.2.0). Leave empty to auto-bump patch from Directory.Build.props + latest matching tag.'
+        required: false
+        type: string
+      prerelease:
+        description: 'Create a prerelease (appends -<label>.<run_number>). Uncheck for a stable release.'
+        default: true
+        required: false
+        type: boolean
+      pre_label:
+        description: 'Prerelease label'
+        default: 'pre'
+        required: false
+        type: choice
+        options:
+          - pre
+          - rc
+          - alpha
+          - beta
+      run_tests:
+        description: 'Run tests before publishing'
+        default: false
+        required: false
+        type: boolean
+
+concurrency:
+  group: version-tag
+  cancel-in-progress: false
+
+jobs:
+  test:
+    if: inputs.run_tests
+    permissions:
+      contents: read
+      packages: read
+      checks: write
+    uses: ./.github/workflows/base-test.yml
+    with:
+      solution_path: Prague.Tests.slnf
+    secrets:
+      packages_read_token: ${{ secrets.SERVICE_USER_TOKEN }}
+
+  publish:
+    needs: [test]
+    if: |
+      always() &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/base-publish.yml
+    with:
+      solution_path: Prague.Publish.slnf
+      prerelease: ${{ inputs.prerelease }}
+      pre_label: ${{ inputs.pre_label }}
+      version: ${{ inputs.version }}
+    secrets:
+      push_token: ${{ secrets.SERVICE_USER_TOKEN }}
+      packages_write_token: ${{ secrets.GITHUB_TOKEN }}

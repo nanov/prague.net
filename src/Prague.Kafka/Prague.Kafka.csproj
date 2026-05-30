@@ -1,0 +1,41 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Title>It's like cache...</Title>
+    <Authors>Dimitar Nanov</Authors>
+    <IsPackable>true</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Prague.Generated.Tests"/>
+    <InternalsVisibleTo Include="Prague.Kafka.TestAdaptor"/>
+    <InternalsVisibleTo Include="Prague.Kafka.TestAdaptor.Tests"/>
+    <InternalsVisibleTo Include="Prague.Benchmarks"/>
+    <InternalsVisibleTo Include="Prague.Kafka.IntegrationTests"/>
+    <InternalsVisibleTo Include="Prague.Kafka.Tests"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Confluent.Kafka" Version="2.12.0"/>
+    <PackageReference Include="MessagePack" Version="3.1.4"/>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.11"/>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.11"/>
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.11"/>
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="9.0.11"/>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.11"/>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.11"/>
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.11"/>
+    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" Version="3.0.1"/>
+    <PackageReference Include="OpenTelemetry.Api" Version="1.15.*"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Prague.Attributes\Prague.Attributes.csproj"/>
+    <ProjectReference Include="..\Prague.Core\Prague.Core.csproj"/>
+  </ItemGroup>
+
+</Project>

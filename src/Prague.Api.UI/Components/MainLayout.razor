@@ -1,0 +1,78 @@
+@inherits LayoutComponentBase
+@inject IDataCacheRegistry CacheRegistry
+
+<style>
+    .mud-navmenu.mud-navmenu-default .mud-nav-link.active:not(.mud-nav-link-disabled) {
+        background-color: transparent;
+    }
+</style>
+
+<MudThemeProvider Theme="@_nordTheme" IsDarkMode="true"/>
+<MudPopoverProvider/>
+<MudDialogProvider/>
+<MudSnackbarProvider/>
+
+<MudLayout>
+    <MudDrawer Open="true" Elevation="1" Variant="@DrawerVariant.Persistent">
+        <MudDrawerHeader Class="pa-4">
+            <a href="/prague/dashboard" style="display: block; width: 100%;">
+                <img src="logo.png" alt="Prague Logo" style="width: 100%; height: auto; cursor: pointer;"/>
+            </a>
+        </MudDrawerHeader>
+        <MudNavMenu>
+            @foreach (var cache in CacheRegistry.GetCaches()) {
+                <MudNavLink Href="@($"/prague/caches/{cache.Name}")" Icon="@Icons.Material.Filled.Storage"
+                            IconColor="Color.Secondary">@cache.Name</MudNavLink>
+            }
+        </MudNavMenu>
+    </MudDrawer>
+    <MudMainContent Class="px-6 py-6">
+        @Body
+    </MudMainContent>
+</MudLayout>
+
+@code {
+
+    private readonly MudTheme _nordTheme = new() {
+        PaletteLight = new PaletteLight(),
+        PaletteDark = new PaletteDark {
+            Primary = "#88C0D0",
+            Secondary = "#81A1C1",
+            Tertiary = "#5E81AC",
+            Info = "#8FBCBB",
+            Success = "#A3BE8C",
+            Warning = "#EBCB8B",
+            Error = "#BF616A",
+            Dark = "#2E3440",
+            DarkLighten = "#3B4252",
+            DarkDarken = "#2E3440",
+            Background = "#2E3440",
+            BackgroundGray = "#3B4252",
+            Surface = "#232831",
+            DrawerBackground = "#232831",
+            DrawerText = "#ECEFF4",
+            AppbarBackground = "#2E3440",
+            AppbarText = "#ECEFF4",
+            TextPrimary = "#ECEFF4",
+            TextSecondary = "#D8DEE9",
+            TextDisabled = "#4C566A",
+            ActionDefault = "#D8DEE9",
+            ActionDisabled = "#4C566A",
+            ActionDisabledBackground = "#4C566A",
+            Divider = "#4C566A",
+            DividerLight = "#434C5E",
+            TableLines = "#434C5E",
+            TableStriped = "#3B4252",
+            LinesDefault = "#4C566A",
+            LinesInputs = "#4C566A",
+            HoverOpacity = 0.06
+        },
+        LayoutProperties = new LayoutProperties {
+            DefaultBorderRadius = "8px",
+            DrawerWidthLeft = "240px",
+            DrawerWidthRight = "240px",
+            AppbarHeight = "64px"
+        }
+    };
+
+}

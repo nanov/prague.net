@@ -1,0 +1,14 @@
+{
+  "solution": {
+    "path": "Prague.sln",
+    "projects": [
+      "src\\Prague\\Prague.csproj",
+      "src\\Prague.Api\\Prague.Api.csproj",
+      "src\\Prague.Api.UI\\Prague.Api.UI.csproj",
+      "src\\Prague.Attributes\\Prague.Attributes.csproj",
+      "src\\Prague.Codegen\\Prague.Codegen.csproj",
+      "src\\Prague.Core\\Prague.Core.csproj",
+      "src\\Prague.Kafka\\Prague.Kafka.csproj"
+    ]
+  }
+}

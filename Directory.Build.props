@@ -1,0 +1,18 @@
+<Project>
+    <PropertyGroup>
+        <!-- Central version management for all packages -->
+        <Version>0.1.0</Version>
+
+        <!-- Common package metadata -->
+        <Authors>Dimitar Nanov</Authors>
+        <Company>Prague</Company>
+        <Title>It's like cache...</Title>
+        <Product>Prague Caching for the masses</Product>
+        <Copyright>Copyright © 2026 Dimitar Nanov</Copyright>
+
+        <!-- Common settings -->
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+</Project>

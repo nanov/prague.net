@@ -1,0 +1,17 @@
+<#@ assembly name="System.Core" #>
+<#+
+	// Shared configuration constants for T4 templates
+	// This file is included by multiple .tt files to ensure consistency
+
+	/// <summary>
+	/// Maximum number of joins supported by the query builder infrastructure.
+	/// Used by CandidatesResultSet.tt and JoinQueryBuilders.tt
+	/// </summary>
+	public const int MaxJoins = 5;
+
+	/// <summary>
+	/// Maximum number of join results supported.
+	/// Used by JoinResults.tt - can be higher than MaxJoins for extensibility
+	/// </summary>
+	public const int MaxJoinResults = 15;
+#>

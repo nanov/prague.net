@@ -1,0 +1,76 @@
+name: Build and deploy Prague website
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site + docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: www/site/package-lock.json
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore .NET solution
+        run: dotnet restore Prague.Publish.slnf
+
+      - name: Install DocFX
+        run: dotnet tool update -g docfx
+
+      - name: Build landing (Vite)
+        working-directory: www/site
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build docs (DocFX)
+        working-directory: www/docs
+        run: docfx docfx.json
+
+      - name: Assemble _site
+        run: |
+          mkdir -p _site
+          cp -R www/site/dist/. _site/
+          mkdir -p _site/docs
+          cp -R www/docs/_site/. _site/docs/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

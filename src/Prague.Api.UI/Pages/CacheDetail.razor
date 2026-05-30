@@ -1,0 +1,306 @@
+@page "/prague/caches/{CacheName}"
+@using System.Text.Json
+@using System.Text.Json.Serialization.Metadata
+@using System.Web
+@implements IDisposable
+@inject IDataCacheRegistry CacheRegistry
+
+<PageTitle>@AppName - Prague - @CacheName</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">@CacheName</MudText>
+
+@if (_cacheInfo != null) {
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <form method="get" action="@($"/prague/caches/{CacheName}")">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1;">
+                    <MudField Label="Query" Variant="Variant.Outlined">
+	                    @* ReSharper disable once Asp.Entity *@
+	                    <input type="text" name="q" value="@Query" placeholder="e.g. ProductId=123&OfferId=456"
+                               style="width: 100%; background: transparent; border: none; outline: none; color: inherit; font: inherit;"/>
+                    </MudField>
+                </div>
+                <MudIconButton ButtonType="ButtonType.Submit" Icon="@Icons.Material.Filled.Search"
+                               Color="Color.Primary"/>
+            </div>
+        </form>
+    </MudPaper>
+
+    @if (_itemsList?.Count > 0) {
+        <MudText Typo="Typo.h6" Class="mb-2">Results</MudText>
+        <MudTable Items="_itemsList" Dense="true" Hover="true" Elevation="1" Class="mb-4" T="object">
+            <HeaderContent>
+                <MudTh Style="width: 100px;"><a href="@BuildSortUrl("offset")" style="display: flex; align-items: center; gap: 4px; text-decoration: none; color: inherit;">Offset @SortIcon("offset")</a></MudTh>
+                <MudTh Style="white-space: nowrap;"><a href="@BuildSortUrl("timestamp")" style="display: flex; align-items: center; gap: 4px; text-decoration: none; color: inherit;">Timestamp @SortIcon("timestamp")</a></MudTh>
+                <MudTh Style="white-space: nowrap;"><a href="@BuildSortUrl("key")" style="display: flex; align-items: center; gap: 4px; text-decoration: none; color: inherit;">Key @SortIcon("key")</a></MudTh>
+                <MudTh Style="width: 100%;">Value</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <code style="font-size: 0.85em;">@GetOffset(context)</code>
+                </MudTd>
+                <MudTd Style="white-space: nowrap;">
+                    <code style="font-size: 0.85em;">@GetTimestamp(context)</code>
+                </MudTd>
+                <MudTd Style="white-space: nowrap;">
+                    <span class="result-row" style="cursor: pointer;" data-json="@GetValueJsonEscaped(context)"
+                          data-key="@GetKey(context)">@GetKey(context)</span>
+                </MudTd>
+                <MudTd Style="max-width: 0;">
+                    <code class="result-row"
+                          style="font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; cursor: pointer;"
+                          data-json="@GetValueJsonEscaped(context)"
+                          data-key="@GetKey(context)">@GetValueJson(context)</code>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+
+    <MudText Typo="Typo.h6" Class="mb-2">Queryable Fields</MudText>
+    <MudTable Items="_cacheInfo.Value.QueryableFields" Dense="true" Hover="true" Elevation="1">
+        <HeaderContent>
+            <MudTh>Field Name</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Indexed</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Name</MudTd>
+            <MudTd>@context.TypeDisplayName</MudTd>
+            <MudTd>
+                <MudIcon Icon="@(context.IsIndexed ? Icons.Material.Filled.Check : Icons.Material.Filled.Close)"
+                         Color="@(context.IsIndexed ? Color.Success : Color.Default)"/>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+else {
+    <MudAlert Severity="Severity.Warning">Cache "@CacheName" not found.</MudAlert>
+}
+
+<div id="jsonDrawer"
+     style="position: fixed; top: 0; right: -500px; width: 500px; height: 100vh; background: var(--mud-palette-surface); box-shadow: -2px 0 8px rgba(0,0,0,0.3); transition: right 0.3s ease; z-index: 1300; display: flex; flex-direction: column;">
+    <div
+        style="display: flex; align-items: center; padding: 16px; border-bottom: 1px solid var(--mud-palette-lines-default);">
+        <h6 id="drawerKey" style="margin: 0; flex: 1;"></h6>
+        <button onclick="closeDrawer()"
+                style="background: none; border: none; cursor: pointer; padding: 8px; color: inherit;">
+            <svg style="width: 24px; height: 24px;" viewBox="0 0 24 24">
+                <path fill="currentColor"
+                      d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+            </svg>
+        </button>
+    </div>
+    <div style="flex: 1; overflow: auto; padding: 16px;">
+        <pre id="drawerJson"
+             style="margin: 0; font-size: 0.85em; background: var(--mud-palette-background-gray); padding: 16px; border-radius: 4px; white-space: pre-wrap; word-break: break-word;"></pre>
+    </div>
+</div>
+<div id="drawerOverlay" onclick="closeDrawer()"
+     style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 1299; display: none;"></div>
+
+<style>
+    .json-key {
+        color: #88c0d0;
+    }
+
+    .json-string {
+        color: #a3be8c;
+    }
+
+    .json-number {
+        color: #b48ead;
+    }
+
+    .json-boolean {
+        color: #d08770;
+    }
+
+    .json-null {
+        color: #bf616a;
+    }
+</style>
+
+<script>
+    function highlightJson(json) {
+        return json
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g, function (match) {
+                if (/:$/.test(match)) {
+                    return '<span class="json-key">' + match.slice(0, -1) + '</span>:';
+                }
+                return '<span class="json-string">' + match + '</span>';
+            })
+            .replace(/\b(-?\d+\.?\d*)\b/g, '<span class="json-number">$1</span>')
+            .replace(/\b(true|false)\b/g, '<span class="json-boolean">$1</span>')
+            .replace(/\bnull\b/g, '<span class="json-null">null</span>');
+    }
+
+    function decodeHtml(html) {
+        const txt = document.createElement('textarea');
+        txt.innerHTML = html;
+        return txt.value;
+    }
+
+    function openDrawer(key, json) {
+        document.getElementById('drawerKey').textContent = key;
+        try {
+            const decoded = decodeHtml(json);
+            const formatted = JSON.stringify(JSON.parse(decoded), null, 2);
+            document.getElementById('drawerJson').innerHTML = highlightJson(formatted);
+        } catch (e) {
+            document.getElementById('drawerJson').textContent = json;
+        }
+        document.getElementById('jsonDrawer').style.right = '0';
+        document.getElementById('drawerOverlay').style.display = 'block';
+    }
+
+    function closeDrawer() {
+        document.getElementById('jsonDrawer').style.right = '-500px';
+        document.getElementById('drawerOverlay').style.display = 'none';
+    }
+
+    document.addEventListener('click', function (e) {
+        const row = e.target.closest('.result-row');
+        if (row) {
+            openDrawer(row.dataset.key, row.dataset.json);
+        }
+    });
+</script>
+
+@* ReSharper disable once CSharpWarnings::CS1591 *@
+@code {
+    private static readonly string AppName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "App";
+
+    private static readonly JsonSerializerOptions _jsonOptions = new() {
+        WriteIndented = false,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+    };
+
+    [Parameter] public string CacheName { get; set; } = string.Empty;
+
+    [SupplyParameterFromQuery(Name = "q")] public string? Query { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? Sort { get; set; }
+    [SupplyParameterFromQuery(Name = "dir")] public string? Dir { get; set; }
+
+    private CacheInfo? _cacheInfo;
+    private IQueryResults? _queryResults;
+    private List<object>? _itemsList;
+
+    protected override void OnParametersSet() {
+        _queryResults?.Dispose();
+        _cacheInfo = CacheRegistry.GetCaches().FirstOrDefault(c => c.Name == CacheName);
+
+        if (_cacheInfo != null) {
+            try {
+                _queryResults = _cacheInfo.Value.ExecuteQuery(Query ?? "");
+                var items = _queryResults?.AsEnumerable() ?? [];
+
+                // Apply sorting
+                if (!string.IsNullOrEmpty(Sort)) {
+                    var ascending = Dir != "desc";
+                    items = Sort switch {
+                        "offset" => ascending
+                            ? items.OrderBy(GetOffsetRaw)
+                            : items.OrderByDescending(GetOffsetRaw),
+                        "timestamp" => ascending
+                            ? items.OrderBy(GetTimestampRaw)
+                            : items.OrderByDescending(GetTimestampRaw),
+                        "key" => ascending
+                            ? items.OrderBy(GetKey)
+                            : items.OrderByDescending(GetKey),
+                        _ => items
+                    };
+                }
+
+                _itemsList = items.ToList();
+            }
+            catch {
+                _queryResults = null;
+                _itemsList = null;
+            }
+        }
+    }
+
+    private string BuildSortUrl(string column) {
+        var newDir = (Sort == column && Dir != "desc") ? "desc" : "asc";
+        var queryParts = new List<string>();
+        if (!string.IsNullOrEmpty(Query)) queryParts.Add($"q={HttpUtility.UrlEncode(Query)}");
+        queryParts.Add($"sort={column}");
+        queryParts.Add($"dir={newDir}");
+        return $"/prague/caches/{CacheName}?{string.Join("&", queryParts)}";
+    }
+
+    private MarkupString SortIcon(string column) {
+        if (Sort != column) return new MarkupString("<span style=\"opacity: 0.3;\">↕</span>");
+        return Dir == "desc"
+            ? new MarkupString("<span>↓</span>")
+            : new MarkupString("<span>↑</span>");
+    }
+
+    public void Dispose() {
+        _queryResults?.Dispose();
+    }
+
+    private string GetKey(object? item) {
+        if (item == null || _cacheInfo == null) return "";
+        return _cacheInfo.Value.GetKey(item).ToString() ?? "";
+    }
+
+    private string GetTimestamp(object? item) {
+        if (item is IPragueMetadataSettable settable) {
+            var metadata = settable.__PragueMetadata__;
+            if (metadata.Timestamp > 0) {
+                var dt = DateTimeOffset.FromUnixTimeMilliseconds(metadata.Timestamp);
+                return dt.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            }
+        }
+        return "-";
+    }
+
+    private string GetOffset(object? item) {
+        if (item is IPragueMetadataSettable settable) {
+            var metadata = settable.__PragueMetadata__;
+            return metadata.Offset.ToString();
+        }
+        return "-";
+    }
+
+    private long GetOffsetRaw(object? item) {
+        if (item is IPragueMetadataSettable settable)
+            return settable.__PragueMetadata__.Offset;
+        return 0;
+    }
+
+    private long GetTimestampRaw(object? item) {
+        if (item is IPragueMetadataSettable settable)
+            return settable.__PragueMetadata__.Timestamp;
+        return 0;
+    }
+
+    private string GetValueJson(object item) {
+        try {
+            var json = JsonSerializer.Serialize(item, _jsonOptions);
+            if (json.Length > 200) {
+                return json.Substring(0, 200) + "...";
+            }
+
+            return json;
+        }
+        catch {
+            return item.ToString() ?? "";
+        }
+    }
+
+    private string GetValueJsonEscaped(object item) {
+        try {
+            var json = JsonSerializer.Serialize(item, _jsonOptions);
+            return HttpUtility.HtmlAttributeEncode(json);
+        }
+        catch {
+            return HttpUtility.HtmlAttributeEncode(item.ToString() ?? "");
+        }
+    }
+
+}

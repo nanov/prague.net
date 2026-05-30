@@ -1,0 +1,12 @@
+<Project>
+    <PropertyGroup>
+        <!-- Automatically exclude generated files from compilation -->
+        <DefaultItemExcludes>$(DefaultItemExcludes);Generated\**</DefaultItemExcludes>
+    </PropertyGroup>
+
+    <!-- Optional: Users can enable to see generated files -->
+    <PropertyGroup Condition="'$(PragueCacheShowGeneratedFiles)' == 'true'">
+        <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+        <CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
+    </PropertyGroup>
+</Project>

@@ -1,0 +1,34 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Title>It's like cache...</Title>
+    <Authors>Dimitar Nanov</Authors>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Prague.Core.Tests"/>
+    <InternalsVisibleTo Include="Prague.Generated.Tests"/>
+    <InternalsVisibleTo Include="Prague.Benchmarks"/>
+    <InternalsVisibleTo Include="Prague.Kafka"/>
+    <InternalsVisibleTo Include="Prague.Kafka.IntegrationTests"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Prague.Attributes\Prague.Attributes.csproj"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="JoinQueryBuilders.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+    </None>
+    <None Update="JoinResults.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+    </None>
+  </ItemGroup>
+
+</Project>

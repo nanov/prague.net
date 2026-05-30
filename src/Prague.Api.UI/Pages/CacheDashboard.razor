@@ -1,0 +1,165 @@
+@page "/prague/dashboard"
+@inject KafkaCachesStatistics Statistics
+
+<PageTitle>@AppName - Prague - Dashboard</PageTitle>
+
+<div class="d-flex justify-space-between align-center mb-6">
+    <div>
+        <MudText Typo="Typo.h4" Class="mb-1">Cache Statistics</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Real-time monitoring of your data caches</MudText>
+    </div>
+    <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => StateHasChanged())"/>
+</div>
+
+@if (Statistics != null && Statistics.Consumers.Any()) {
+    <MudGrid Spacing="3" Class="mb-6">
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2">
+                <MudCardContent>
+                    <div class="d-flex justify-space-between align-center">
+                        <div>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Consumers</MudText>
+                            <MudText Typo="Typo.h4" Class="mt-2">@Statistics.Consumers.Count</MudText>
+                        </div>
+                        <MudIcon Icon="@Icons.Material.Filled.Groups" Color="Color.Primary" Size="Size.Large"/>
+                    </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2">
+                <MudCardContent>
+                    <div class="d-flex justify-space-between align-center">
+                        <div>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Caches</MudText>
+                            <MudText Typo="Typo.h4"
+                                     Class="mt-2">@Statistics.Consumers.Sum(c => c.Value.Caches.Count)</MudText>
+                        </div>
+                        <MudIcon Icon="@Icons.Material.Filled.Storage" Color="Color.Success" Size="Size.Large"/>
+                    </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2">
+                <MudCardContent>
+                    <div class="d-flex justify-space-between align-center">
+                        <div>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Total Items (Live)</MudText>
+                            <MudText Typo="Typo.h4"
+                                     Class="mt-2">@Statistics.Consumers.SelectMany(c => c.Value.Caches).Sum(cache => (long)cache.Value.LiveSize)</MudText>
+                        </div>
+                        <MudIcon Icon="@Icons.Material.Filled.Inventory" Color="Color.Info" Size="Size.Large"/>
+                    </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2">
+                <MudCardContent>
+                    <div class="d-flex justify-space-between align-center">
+                        <div>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Total Index Keys (Live)</MudText>
+                            <MudText Typo="Typo.h4"
+                                     Class="mt-2">@Statistics.Consumers.SelectMany(c => c.Value.Caches).SelectMany(c => c.Value.Indexes).Sum(i => (long)i.Value.LiveKeysSize)</MudText>
+                        </div>
+                        <MudIcon Icon="@Icons.Material.Filled.Key" Color="Color.Warning" Size="Size.Large"/>
+                    </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+
+    @foreach (var consumer in Statistics.Consumers) {
+        <MudCard Elevation="2" Class="mb-4">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">@consumer.Key</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Initial Load: @consumer.Value.InitialLoadTime.TotalMilliseconds.ToString("N0") ms</MudText>
+                </CardHeaderContent>
+                <CardHeaderActions>
+                    <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Default"/>
+                </CardHeaderActions>
+            </MudCardHeader>
+            <MudCardContent Class="pa-0">
+                <MudTable Items="@consumer.Value.Caches.Values" Hover="true" Elevation="0" Striped="true" @bind-SelectedItem="_selectedCache" OnRowClick="@OnRowClick" T="KafkaDataCacheStatistics">
+                    <HeaderContent>
+                        <MudTh>Topic</MudTh>
+                        <MudTh>Live Size</MudTh>
+                        <MudTh>Snapshot Size</MudTh>
+                        <MudTh>Live Index Keys</MudTh>
+                        <MudTh>Indexes</MudTh>
+                        <MudTh>Collected At</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Topic">
+                            <MudText Typo="Typo.body2" Class="font-weight-medium">@context.TopicName</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Live Size">
+                            <MudText Typo="Typo.body2" Color="Color.Primary">@context.LiveSize.ToString("N0")</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Snapshot Size">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">@context.Size.ToString("N0")</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Live Index Keys">
+                            <MudText Typo="Typo.body2" Color="Color.Warning">@context.Indexes.Sum(i => (long)i.Value.LiveKeysSize).ToString("N0")</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Indexes">
+                            <MudText Typo="Typo.body2">@context.Indexes.Count</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Collected">
+                            <MudText Typo="Typo.body2"
+                                     Color="Color.Secondary">@context.CollectedAt.ToString("HH:mm:ss")</MudText>
+                        </MudTd>
+                    </RowTemplate>
+                    <ChildRowContent>
+                        @if (_selectedCache == context && context.Indexes.Any()) {
+                            <MudTr>
+                                <td colspan="6" class="pa-4" style="background-color: var(--mud-palette-background-grey);">
+                                    <MudText Typo="Typo.subtitle2" Class="mb-2">Index Statistics</MudText>
+                                    <MudSimpleTable Dense="true" Hover="true" Bordered="true" Style="background-color: var(--mud-palette-surface);">
+                                        <thead>
+                                            <tr>
+                                                <th>Index Name</th>
+                                                <th>Type</th>
+                                                <th>Live Keys</th>
+                                                <th>Snapshot Keys</th>
+                                                <th>Live Values</th>
+                                                <th>Snapshot Values</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var index in context.Indexes) {
+                                                <tr>
+                                                    <td>@index.Key</td>
+                                                    <td>@index.Value.Type</td>
+                                                    <td style="color: var(--mud-palette-primary);">@index.Value.LiveKeysSize.ToString("N0")</td>
+                                                    <td style="color: var(--mud-palette-text-secondary);">@index.Value.KeysSize.ToString("N0")</td>
+                                                    <td style="color: var(--mud-palette-warning);">@index.Value.LiveValuesSize.ToString("N0")</td>
+                                                    <td style="color: var(--mud-palette-text-secondary);">@index.Value.ValuesSize.ToString("N0")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </MudSimpleTable>
+                                </td>
+                            </MudTr>
+                        }
+                    </ChildRowContent>
+                </MudTable>
+            </MudCardContent>
+        </MudCard>
+    }
+}
+else {
+    <MudAlert Severity="Severity.Info" Class="mt-4">No cache statistics available.</MudAlert>
+}
+
+@code {
+    private static readonly string AppName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "App";
+
+    private KafkaDataCacheStatistics? _selectedCache;
+
+    private void OnRowClick(TableRowClickEventArgs<KafkaDataCacheStatistics> args) {
+        _selectedCache = _selectedCache == args.Item ? null : args.Item;
+    }
+}

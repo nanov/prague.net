@@ -1,0 +1,235 @@
+name: base-publish
+
+on:
+  workflow_call:
+    inputs:
+      dotnet_version:
+        description: '.NET SDK version'
+        default: '9.0.x'
+        required: false
+        type: string
+      solution_path:
+        description: 'Path to *.sln / *.slnf for build + pack'
+        required: true
+        type: string
+      props_path:
+        description: 'Path to Directory.Build.props containing <Version>'
+        default: './Directory.Build.props'
+        required: false
+        type: string
+      prerelease:
+        description: 'Create a prerelease (appends -<pre_label>.<run_number>)'
+        default: false
+        required: false
+        type: boolean
+      pre_label:
+        description: 'Prerelease label (e.g. pre, rc, alpha, beta)'
+        default: 'pre'
+        required: false
+        type: string
+      version:
+        description: 'Base version override (e.g. 0.2.0). If empty, auto-bumps patch from <Version> in props + latest matching tag.'
+        default: ''
+        required: false
+        type: string
+    secrets:
+      push_token:
+        description: 'Token with contents:write for pushing tags and creating releases'
+        required: true
+      packages_write_token:
+        description: 'Token for reading + pushing to GitHub Packages NuGet feed'
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.push_token }}
+
+      - name: Configure Git author
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine version
+        run: |
+          set -euo pipefail
+
+          IS_PRERELEASE="${{ inputs.prerelease }}"
+          PRE_LABEL="${{ inputs.pre_label }}"
+          VERSION_OVERRIDE="${{ inputs.version }}"
+          PROPS_FILE="${{ inputs.props_path }}"
+
+          if [[ -n "$VERSION_OVERRIDE" ]]; then
+            if [[ ! "$VERSION_OVERRIDE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: invalid version override '$VERSION_OVERRIDE' — expected Major.Minor.Patch" >&2
+              exit 1
+            fi
+            BASE_VERSION="$VERSION_OVERRIDE"
+            echo "Using requested version: ${BASE_VERSION}"
+          else
+            if [[ ! -f "$PROPS_FILE" ]]; then
+              echo "Error: $PROPS_FILE not found" >&2
+              exit 1
+            fi
+
+            CURRENT_VERSION=$(grep -oP '<Version>\K[^<]+' "$PROPS_FILE" | tr -d ' \t\r\n')
+
+            if [[ ! "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+) ]]; then
+              echo "Error: invalid version in $PROPS_FILE: '$CURRENT_VERSION'" >&2
+              exit 1
+            fi
+
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PREFIX="v${MAJOR}.${MINOR}"
+
+            LATEST_TAG=$(git tag --list "${PREFIX}.*" --sort=-version:refname | head -n 1 || echo "")
+            if [[ -n "$LATEST_TAG" ]]; then
+              LATEST_PATCH=$(echo "$LATEST_TAG" | sed -E "s/^${PREFIX}\.([0-9]+).*/\1/")
+              NEW_PATCH=$((LATEST_PATCH + 1))
+              echo "Latest tag ${LATEST_TAG} → bumping patch to ${NEW_PATCH}"
+            else
+              NEW_PATCH=0
+              echo "No prior ${PREFIX}.* tags → starting at patch 0"
+            fi
+
+            BASE_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          fi
+
+          if [[ "${IS_PRERELEASE,,}" == "true" ]]; then
+            VERSION="${BASE_VERSION}-${PRE_LABEL}.${{ github.run_number }}"
+          else
+            VERSION="${BASE_VERSION}"
+          fi
+
+          TAG="v${VERSION}"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Error: tag $TAG already exists" >&2
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "IS_PRERELEASE=${IS_PRERELEASE,,}" >> $GITHUB_ENV
+          echo "Computed version: $VERSION"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_version }}
+
+      - name: Configure NuGet
+        run: |
+          mkdir -p packages
+          dotnet new nugetconfig --name nuget.config --output ./packages
+          dotnet nuget add source \
+            --name github \
+            --username "${{ github.actor }}" \
+            --password "${{ secrets.packages_write_token }}" \
+            --store-password-in-clear-text \
+            "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --configfile ./packages/nuget.config
+
+      - name: Restore
+        run: dotnet restore ${{ inputs.solution_path }} --configfile ./packages/nuget.config
+
+      - name: Build
+        run: |
+          dotnet build ${{ inputs.solution_path }} \
+            --configuration Release --no-restore \
+            -p:Version=${VERSION}
+
+      - name: Pack
+        run: |
+          mkdir -p nupkgs
+          dotnet pack ${{ inputs.solution_path }} \
+            --configuration Release --no-build --no-restore --output nupkgs \
+            -p:PackageVersion=${VERSION}
+
+      - name: Push packages
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pkgs=(./nupkgs/*.nupkg)
+          if [[ ${#pkgs[@]} -eq 0 ]]; then
+            echo "No .nupkg files produced — check <IsPackable> settings." >&2
+            exit 1
+          fi
+          for f in "${pkgs[@]}"; do
+            echo "Pushing $f"
+            dotnet nuget push "$f" \
+              --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+              --api-key "${{ secrets.packages_write_token }}" \
+              --skip-duplicate
+          done
+
+      - name: Create tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.push_token }}
+        run: |
+          set -euo pipefail
+
+          git tag "$TAG"
+          git push origin "$TAG"
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              --prerelease
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes
+          fi
+
+      - name: Rollback on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.packages_write_token }}
+        run: |
+          set -uo pipefail
+          echo "Rolling back ${TAG:-<unknown>}..."
+
+          # Delete published NuGet package versions
+          shopt -s nullglob
+          for f in ./nupkgs/*.nupkg; do
+            PKG_NAME=$(basename "$f" | sed -E 's/\.[0-9]+\.[0-9]+\.[0-9]+.*//' | tr '[:upper:]' '[:lower:]')
+            echo "Checking ${PKG_NAME} for version ${VERSION}"
+            VERSION_ID=$(gh api \
+              "/users/${{ github.repository_owner }}/packages/nuget/${PKG_NAME}/versions" \
+              --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null || echo "")
+            if [[ -n "$VERSION_ID" ]]; then
+              gh api --method DELETE \
+                "/users/${{ github.repository_owner }}/packages/nuget/${PKG_NAME}/versions/${VERSION_ID}" \
+                2>/dev/null && echo "  Deleted version ID ${VERSION_ID}" || echo "  Failed to delete"
+            else
+              echo "  Version not found in registry, skipping"
+            fi
+          done
+
+          # Delete release and tag if created
+          if [[ -n "${TAG:-}" ]]; then
+            GH_TOKEN="${{ secrets.push_token }}" gh release delete "$TAG" --yes 2>/dev/null \
+              && echo "Deleted release $TAG" \
+              || echo "No release to delete"
+            git push origin --delete "$TAG" 2>/dev/null \
+              && echo "Deleted tag $TAG" \
+              || echo "No tag to delete"
+          fi
+
+          echo "Rollback complete"
+
+      - name: Summary
+        run: echo "Published **$TAG** ($VERSION)" >> $GITHUB_STEP_SUMMARY

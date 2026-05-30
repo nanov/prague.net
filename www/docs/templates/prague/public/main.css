@@ -1,0 +1,756 @@
+/* Prague DocFX theme — 1:1 translation of Docs.tsx (branding kit) */
+
+:root,
+[data-bs-theme="light"] {
+	--brand-orange: #F27D26;
+	--brand-orange-dim: #c5631b;
+	--brand-black: #141414;
+	--brand-gray: #E4E3E0;
+	--brand-fog: #F9F9F8;
+
+	--font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+	--font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+	--nav-h: 56px;        /* h-14 */
+	--sidebar-w: 288px;   /* w-72 */
+	--affix-w: 256px;     /* w-64 */
+
+	--bs-body-font-family: var(--font-sans);
+	--bs-font-monospace: var(--font-mono);
+	--bs-body-bg: #ffffff;
+	--bs-body-color: var(--brand-black);
+	--bs-link-color: var(--brand-orange);
+	--bs-link-hover-color: var(--brand-orange-dim);
+	--bs-primary: var(--brand-orange);
+	--bs-border-color: rgba(20, 20, 20, 0.1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	font-family: var(--font-sans);
+	font-size: 14px;
+	color: var(--brand-black);
+	background: #fff;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+body.prague-docs {
+	overflow: hidden;
+}
+
+code, pre, kbd, samp { font-family: var(--font-mono); }
+
+::selection { background: var(--brand-orange); color: #fff; }
+
+a { color: inherit; text-decoration: none; }
+
+/* ────────────────────────────── shell ────────────────────────────── */
+
+.prague-shell {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+	background: #fff;
+}
+
+/* ────────────────────────────── top nav ────────────────────────────── */
+
+.prague-nav {
+	height: var(--nav-h);
+	border-bottom: 1px solid rgba(20, 20, 20, 0.1);
+	background: #fff;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0 24px;
+	flex-shrink: 0;
+	box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+	z-index: 60;
+}
+
+.prague-nav-left {
+	display: flex;
+	align-items: center;
+	gap: 32px;
+}
+
+.prague-brand {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding-right: 32px;
+	border-right: 1px solid rgba(20, 20, 20, 0.05);
+}
+
+.prague-brand-mark {
+	width: 32px;
+	height: 32px;
+	background: var(--brand-black);
+	border-radius: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 4px;
+}
+
+.prague-brand-mark img {
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	filter: invert(1);
+}
+
+.prague-brand-text {
+	font-weight: 700;
+	font-style: italic;
+	text-transform: uppercase;
+	letter-spacing: -0.02em;
+	font-size: 0.875rem;
+}
+
+.prague-nav-tabs {
+	display: none;
+	gap: 24px;
+}
+
+@media (min-width: 768px) {
+	.prague-nav-tabs { display: flex; align-items: center; }
+}
+
+.prague-nav-tab {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	color: rgba(20, 20, 20, 0.4);
+	padding: 4px 0;
+	transition: color 120ms ease;
+}
+
+.prague-nav-tab:hover { color: var(--brand-black); }
+
+.prague-nav-tab.is-active { color: var(--brand-orange); }
+
+.prague-nav-right {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.prague-search {
+	position: relative;
+	display: none;
+}
+
+@media (min-width: 640px) {
+	.prague-search { display: block; }
+}
+
+.prague-search-icon {
+	position: absolute;
+	left: 12px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 12px;
+	height: 12px;
+	color: rgba(20, 20, 20, 0.3);
+	pointer-events: none;
+}
+
+.prague-search input {
+	background: rgba(20, 20, 20, 0.05);
+	border: none;
+	border-radius: 9999px;
+	padding: 6px 16px 6px 36px;
+	font-size: 12px;
+	color: var(--brand-black);
+	font-family: var(--font-sans);
+	width: 192px;
+	transition: width 160ms ease, box-shadow 160ms ease;
+}
+
+.prague-search input:focus {
+	outline: none;
+	width: 256px;
+	box-shadow: 0 0 0 1px var(--brand-orange);
+}
+
+.prague-nav-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: 9999px;
+	color: rgba(20, 20, 20, 0.5);
+	transition: background 120ms ease, color 120ms ease;
+}
+
+.prague-nav-icon svg {
+	width: 16px;
+	height: 16px;
+}
+
+.prague-nav-icon:hover {
+	background: rgba(20, 20, 20, 0.05);
+	color: var(--brand-black);
+}
+
+/* ────────────────────────────── body grid ────────────────────────────── */
+
+.prague-body {
+	flex: 1;
+	display: flex;
+	overflow: hidden;
+}
+
+/* ────────────────────────────── left sidebar ────────────────────────────── */
+
+.prague-sidebar {
+	width: var(--sidebar-w);
+	flex-shrink: 0;
+	background: #fff;
+	border-right: 1px solid rgba(20, 20, 20, 0.05);
+	display: flex;
+	flex-direction: column;
+	padding-top: 24px;
+}
+
+@media (max-width: 1023px) {
+	.prague-sidebar { display: none; }
+}
+
+.prague-sidebar-title {
+	margin: 0 0 16px;
+	padding: 0 24px;
+	font-size: 10px;
+	font-weight: 700;
+	font-style: italic;
+	text-transform: uppercase;
+	letter-spacing: 0.2em;
+	color: rgba(20, 20, 20, 0.4);
+}
+
+.prague-sidebar-nav {
+	flex: 1;
+	overflow-y: auto;
+	padding: 0 12px;
+}
+
+.prague-sidebar-nav::-webkit-scrollbar { width: 5px; }
+.prague-sidebar-nav::-webkit-scrollbar-thumb { background: rgba(20, 20, 20, 0.1); border-radius: 10px; }
+.prague-sidebar-nav::-webkit-scrollbar-thumb:hover { background: rgba(20, 20, 20, 0.2); }
+
+.prague-sidebar-footer {
+	padding: 24px;
+	border-top: 1px solid rgba(20, 20, 20, 0.05);
+}
+
+.prague-version-pill {
+	padding: 12px;
+	background: rgba(242, 125, 38, 0.05);
+	border: 1px solid rgba(242, 125, 38, 0.1);
+	border-radius: 6px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	font-size: 10px;
+	font-family: var(--font-mono);
+	font-weight: 700;
+	color: var(--brand-orange);
+}
+
+.prague-version-pill svg { width: 12px; height: 12px; }
+
+/* ── toc items injected by docfx ── */
+
+.prague-sidebar-nav ul,
+.prague-sidebar-nav ol {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+/* group / section labels */
+.prague-sidebar-nav > ul > li {
+	margin-bottom: 24px;
+}
+
+.prague-sidebar-nav > ul > li > a,
+.prague-sidebar-nav > ul > li > span {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0 12px;
+	margin-bottom: 8px;
+	font-size: 11px;
+	font-weight: 700;
+	color: rgba(20, 20, 20, 0.8);
+	text-transform: none;
+}
+
+.prague-sidebar-nav > ul > li > a::before,
+.prague-sidebar-nav > ul > li > .expand-stub::before {
+	content: "▾";
+	font-size: 9px;
+	color: rgba(20, 20, 20, 0.3);
+	display: inline-block;
+	margin-right: 4px;
+}
+
+/* child items */
+.prague-sidebar-nav > ul > li ul {
+	margin-left: 16px;
+	border-left: 1px solid rgba(20, 20, 20, 0.05);
+}
+
+.prague-sidebar-nav > ul > li ul li a {
+	display: block;
+	padding: 6px 16px;
+	font-size: 12px;
+	color: rgba(20, 20, 20, 0.5);
+	border-left: 2px solid transparent;
+	margin-left: -1px;
+	transition: color 100ms ease, background 100ms ease, border-color 100ms ease;
+}
+
+.prague-sidebar-nav > ul > li ul li a:hover {
+	color: var(--brand-black);
+	background: rgba(20, 20, 20, 0.05);
+}
+
+.prague-sidebar-nav li.active > a {
+	color: var(--brand-orange);
+	font-weight: 700;
+	border-left-color: var(--brand-orange);
+	background: transparent;
+}
+
+.prague-sidebar-nav .expand-stub {
+	display: none; /* the chevron is included via ::before above */
+}
+
+/* hide docfx's filter input — we use the top-bar search */
+.sidefilter,
+.toc-filter { display: none; }
+
+/* ────────────────────────────── main content ────────────────────────────── */
+
+.prague-main {
+	flex: 1;
+	display: flex;
+	overflow: hidden;
+}
+
+.prague-content {
+	flex: 1;
+	overflow-y: auto;
+	background: #fff;
+	padding: 48px 24px;
+}
+
+@media (min-width: 1024px) {
+	.prague-content { padding: 48px 64px; }
+}
+
+.prague-content::-webkit-scrollbar { width: 5px; }
+.prague-content::-webkit-scrollbar-thumb { background: rgba(20, 20, 20, 0.1); border-radius: 10px; }
+
+.prague-article {
+	max-width: 768px;
+	margin: 0 auto;
+}
+
+.prague-article-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	margin-bottom: 32px;
+	padding-bottom: 16px;
+	border-bottom: 1px solid rgba(20, 20, 20, 0.05);
+	gap: 24px;
+}
+
+.prague-article-header h1 {
+	margin: 0;
+	font-size: 2.25rem;
+	font-weight: 900;
+	font-style: italic;
+	text-transform: uppercase;
+	letter-spacing: -0.03em;
+	color: var(--brand-black);
+	line-height: 1.05;
+}
+
+.prague-article-actions {
+	display: flex;
+	gap: 16px;
+	flex-shrink: 0;
+}
+
+.prague-article-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	color: rgba(20, 20, 20, 0.4);
+	transition: opacity 120ms ease;
+}
+
+.prague-article-action:hover { color: var(--brand-black); }
+
+.prague-article-action svg { width: 12px; height: 12px; }
+
+/* ── prose styles inside article body ── */
+
+.prague-article-body {
+	color: rgba(20, 20, 20, 0.85);
+	line-height: 1.7;
+	font-size: 15px;
+}
+
+.prague-article-body > p:first-child {
+	font-size: 1.25rem;
+	color: rgba(20, 20, 20, 0.6);
+	font-weight: 300;
+	line-height: 1.55;
+}
+
+.prague-article-body h2 {
+	font-size: 1.5rem;
+	font-weight: 700;
+	font-style: italic;
+	text-transform: uppercase;
+	letter-spacing: -0.02em;
+	margin: 48px 0 24px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid rgba(20, 20, 20, 0.05);
+	color: var(--brand-black);
+}
+
+.prague-article-body h3 {
+	font-size: 1.125rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: -0.01em;
+	margin: 40px 0 16px;
+}
+
+.prague-article-body h4 {
+	font-size: 1rem;
+	font-weight: 700;
+	margin: 24px 0 12px;
+}
+
+.prague-article-body p { margin: 0 0 16px; }
+
+.prague-article-body a {
+	color: var(--brand-orange);
+	border-bottom: 1px solid transparent;
+	transition: border-color 120ms ease;
+}
+
+.prague-article-body a:hover { border-bottom-color: var(--brand-orange); }
+
+.prague-article-body strong { font-weight: 700; color: var(--brand-black); }
+
+.prague-article-body ul,
+.prague-article-body ol {
+	padding-left: 1.5rem;
+	margin: 0 0 16px;
+}
+
+.prague-article-body li { margin: 6px 0; }
+
+.prague-article-body blockquote {
+	margin: 24px 0;
+	padding: 24px;
+	background: rgba(242, 125, 38, 0.05);
+	border-left: 4px solid var(--brand-orange);
+	border-radius: 0 12px 12px 0;
+	font-style: italic;
+	color: rgba(20, 20, 20, 0.7);
+}
+
+.prague-article-body blockquote p:last-child { margin: 0; }
+
+/* inline code */
+.prague-article-body code {
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+	background: rgba(20, 20, 20, 0.05);
+	padding: 2px 6px;
+	border-radius: 4px;
+	color: var(--brand-orange);
+}
+
+/* code blocks — light card with language label header (matches CodeBlock in Docs.tsx) */
+.prague-article-body pre {
+	margin: 24px 0;
+	background: rgba(20, 20, 20, 0.05);
+	border: 1px solid rgba(20, 20, 20, 0.1);
+	border-radius: 12px;
+	overflow: hidden;
+	padding: 0;
+}
+
+.prague-article-body pre code {
+	display: block;
+	padding: 16px 20px;
+	background: transparent;
+	color: var(--brand-black);
+	font-size: 13px;
+	line-height: 1.6;
+	white-space: pre;
+	overflow-x: auto;
+	border-radius: 0;
+}
+
+.prague-article-body pre::before {
+	content: attr(data-lang);
+	display: block;
+	padding: 8px 16px;
+	background: rgba(20, 20, 20, 0.1);
+	border-bottom: 1px solid rgba(20, 20, 20, 0.05);
+	font-size: 10px;
+	font-family: var(--font-mono);
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.15em;
+	color: rgba(20, 20, 20, 0.5);
+}
+
+/* tables */
+.prague-article-body table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 24px 0;
+	font-size: 14px;
+	text-align: left;
+}
+
+.prague-article-body thead tr {
+	background: rgba(20, 20, 20, 0.05);
+	border-bottom: 1px solid rgba(20, 20, 20, 0.1);
+}
+
+.prague-article-body thead th {
+	padding: 12px 16px;
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	color: rgba(20, 20, 20, 0.4);
+}
+
+.prague-article-body tbody td {
+	padding: 16px;
+	border-bottom: 1px solid rgba(20, 20, 20, 0.05);
+	vertical-align: top;
+}
+
+.prague-article-body tbody tr:hover { background: rgba(20, 20, 20, 0.02); }
+
+/* article footer */
+
+.prague-article-footer {
+	max-width: 768px;
+	margin: 80px auto 0;
+	padding-top: 32px;
+	border-top: 1px solid rgba(20, 20, 20, 0.05);
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 10px;
+	font-family: var(--font-mono);
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	color: rgba(20, 20, 20, 0.4);
+}
+
+.prague-article-nav { display: flex; gap: 16px; align-items: center; }
+
+.prague-article-nav a {
+	color: rgba(20, 20, 20, 0.5);
+	transition: color 120ms ease;
+}
+
+.prague-article-nav a:hover { color: var(--brand-orange); }
+
+/* ────────────────────────────── right affix ────────────────────────────── */
+
+.prague-affix {
+	width: var(--affix-w);
+	flex-shrink: 0;
+	background: var(--brand-fog);
+	border-left: 1px solid rgba(20, 20, 20, 0.05);
+	padding: 32px;
+	overflow-y: auto;
+	height: 100%;
+}
+
+@media (max-width: 1279px) {
+	.prague-affix { display: none; }
+}
+
+.prague-affix-title {
+	margin: 0 0 24px;
+	font-size: 10px;
+	font-weight: 700;
+	font-style: italic;
+	text-transform: uppercase;
+	letter-spacing: 0.2em;
+	color: rgba(20, 20, 20, 0.4);
+}
+
+.prague-affix-nav ul,
+.prague-affix-nav ol {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.prague-affix-nav li {
+	margin: 12px 0;
+}
+
+.prague-affix-nav a {
+	display: block;
+	padding: 2px 16px;
+	font-size: 11px;
+	color: rgba(20, 20, 20, 0.4);
+	border-left: 2px solid transparent;
+	transition: color 120ms ease, border-color 120ms ease;
+}
+
+.prague-affix-nav a:hover { color: var(--brand-black); }
+
+.prague-affix-nav li.active > a,
+.prague-affix-nav .active > a {
+	color: var(--brand-orange);
+	font-weight: 700;
+	border-left-color: var(--brand-orange);
+}
+
+/* "Need help" panel */
+
+.prague-help {
+	margin-top: 80px;
+	padding: 24px;
+	background: rgba(242, 125, 38, 0.05);
+	border: 1px solid rgba(242, 125, 38, 0.1);
+	border-radius: 16px;
+}
+
+.prague-help-icon {
+	width: 20px;
+	height: 20px;
+	color: var(--brand-orange);
+	margin-bottom: 12px;
+}
+
+.prague-help h5 {
+	margin: 0 0 8px;
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: -0.02em;
+}
+
+.prague-help p {
+	margin: 0 0 16px;
+	font-size: 10px;
+	font-style: italic;
+	color: rgba(20, 20, 20, 0.6);
+	line-height: 1.5;
+}
+
+.prague-help-button {
+	display: block;
+	width: 100%;
+	padding: 8px;
+	background: var(--brand-black);
+	color: #fff;
+	font-size: 9px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	text-align: center;
+	border-radius: 4px;
+	box-shadow: 0 10px 15px -3px rgba(20, 20, 20, 0.1);
+	transition: background 120ms ease;
+}
+
+.prague-help-button:hover { background: var(--brand-orange); }
+
+/* ────────────────────────────── search results overlay ────────────────────────────── */
+
+.prague-search-results {
+	position: fixed;
+	top: var(--nav-h);
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 50;
+	background: #fff;
+	padding: 32px;
+	overflow-y: auto;
+}
+
+/* ────────────────────────────── api-page tweaks (managed reference) ────────────────────────────── */
+
+.prague-article-body .level1,
+.prague-article-body .level2,
+.prague-article-body .level3 {
+	margin: 24px 0;
+	padding: 20px;
+	background: rgba(20, 20, 20, 0.02);
+	border: 1px solid rgba(20, 20, 20, 0.05);
+	border-radius: 12px;
+}
+
+.prague-article-body .source,
+.prague-article-body .inheritance,
+.prague-article-body .implements,
+.prague-article-body .inheritedMembers {
+	font-size: 0.8rem;
+	opacity: 0.7;
+}
+
+.prague-article-body .source { font-family: var(--font-mono); }
+
+.prague-article-body dl.parameters dt,
+.prague-article-body dl.typelist dt {
+	font-weight: 700;
+	font-family: var(--font-mono);
+	font-size: 0.85rem;
+	margin-top: 12px;
+}
+
+.prague-article-body dl.parameters dd {
+	margin: 4px 0 12px;
+	padding-left: 12px;
+	border-left: 2px solid rgba(20, 20, 20, 0.1);
+}
+
+/* docfx-injected breadcrumb (we'll keep it hidden — the page header H1 is enough) */
+#breadcrumb { display: none; }
+
+/* hide modern's leftover navbar/affix bootstrap markup we don't use */
+header.bg-body,
+.navbar,
+.actionbar,
+.theme-switcher-mobile,
+.toc-offcanvas .offcanvas-header,
+footer.border-top { display: none; }
+
+/* override docfx.min.css container constraints */
+.container-xxl { max-width: none !important; padding: 0 !important; margin: 0 !important; }

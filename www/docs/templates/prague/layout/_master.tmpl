@@ -1,0 +1,139 @@
+{{!Prague custom DocFX layout — mirrors the Docs.tsx component from the branding kit}}
+{{!include(/^public/.*/)}}
+{{!include(favicon.ico)}}
+{{!include(logo.svg)}}
+<!DOCTYPE html>
+<html {{#_lang}}lang="{{_lang}}"{{/_lang}}>
+	<head>
+		<meta charset="utf-8">
+		{{#redirect_url}}<meta http-equiv="refresh" content="0;URL='{{redirect_url}}'">{{/redirect_url}}
+		{{^redirect_url}}
+			<title>{{#title}}{{title}}{{/title}}{{^title}}{{>partials/title}}{{/title}} {{#_appTitle}}| {{_appTitle}}{{/_appTitle}}</title>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			{{#description}}<meta name="description" content="{{description}}">{{/description}}
+			<link rel="icon" href="{{_rel}}{{{_appFaviconPath}}}{{^_appFaviconPath}}favicon.ico{{/_appFaviconPath}}">
+			<link rel="preconnect" href="https://fonts.googleapis.com">
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+			<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap">
+			<link rel="stylesheet" href="{{_rel}}public/docfx.min.css">
+			<link rel="stylesheet" href="{{_rel}}public/main.css">
+			<meta name="docfx:navrel" content="{{_navRel}}">
+			<meta name="docfx:tocrel" content="{{_tocRel}}">
+			{{#_enableSearch}}<meta name="docfx:rel" content="{{_rel}}">{{/_enableSearch}}
+			{{#docurl}}<meta name="docfx:docurl" content="{{docurl}}">{{/docurl}}
+			<meta name="loc:inThisArticle" content="In this article">
+			<meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+			<meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+			<meta name="loc:tocFilter" content="Filter by title">
+			<meta name="loc:nextArticle" content="Next">
+			<meta name="loc:prevArticle" content="Previous">
+			<meta name="loc:themeLight" content="Light">
+			<meta name="loc:themeDark" content="Dark">
+			<meta name="loc:themeAuto" content="Auto">
+			<meta name="loc:changeTheme" content="Change theme">
+			<meta name="loc:copy" content="Copy">
+			<script type="module" src="./{{_rel}}public/docfx.min.js"></script>
+			<script>
+				const theme = localStorage.getItem('theme') || 'light'
+				document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+			</script>
+		{{/redirect_url}}
+	</head>
+
+	{{^redirect_url}}
+	<body class="prague-docs" data-layout="{{_layout}}{{layout}}" data-yaml-mime="{{yamlmime}}">
+		<div class="prague-shell">
+
+			<nav class="prague-nav">
+				<div class="prague-nav-left">
+					<a class="prague-brand" href="{{_appLogoUrl}}{{^_appLogoUrl}}{{_rel}}index.html{{/_appLogoUrl}}">
+						<span class="prague-brand-mark">
+							<img src="{{_rel}}{{{_appLogoPath}}}{{^_appLogoPath}}logo.svg{{/_appLogoPath}}" alt="Prague">
+						</span>
+						<span class="prague-brand-text">Prague</span>
+					</a>
+					<div class="prague-nav-tabs">
+						<a href="{{_rel}}articles/getting-started/introduction.html" class="prague-nav-tab is-active">Documentation</a>
+						<a href="{{_rel}}api/" class="prague-nav-tab">API Reference</a>
+						{{#_pragueHomeUrl}}<a href="{{_pragueHomeUrl}}" class="prague-nav-tab">← Back to home</a>{{/_pragueHomeUrl}}
+					</div>
+				</div>
+				<div class="prague-nav-right">
+					{{#_enableSearch}}
+					<form class="prague-search" role="search" id="search">
+						<svg class="prague-search-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5"/><path d="M11 11l3 3"/></svg>
+						<input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+					</form>
+					{{/_enableSearch}}
+					{{#_pragueGithubUrl}}<a class="prague-nav-icon" href="{{_pragueGithubUrl}}" aria-label="GitHub">
+						<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 12.5l-1 1m6-9l3 3-6 6-3-3 6-6zM3 13l1-3 2 2-3 1z"/></svg>
+					</a>{{/_pragueGithubUrl}}
+				</div>
+			</nav>
+
+			<div class="prague-body">
+				<aside class="prague-sidebar" id="tocOffcanvas">
+					<h3 class="prague-sidebar-title">Table of Contents</h3>
+					<nav class="prague-sidebar-nav toc" id="toc"></nav>
+					<div class="prague-sidebar-footer">
+						<div class="prague-version-pill">
+							<span>Prague v{{_pragueVersion}}{{^_pragueVersion}}0.1.0{{/_pragueVersion}}</span>
+							<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 2h3v3M10 2L5 7M3 4v6a1 1 0 0 0 1 1h6"/></svg>
+						</div>
+					</div>
+				</aside>
+
+				<div class="prague-main">
+					<div class="prague-content">
+						<article class="prague-article" data-uid="{{uid}}">
+							<header class="prague-article-header">
+								<h1>{{#title}}{{title}}{{/title}}{{^title}}{{>partials/title}}{{/title}}</h1>
+								<div class="prague-article-actions">
+									{{#docurl}}<a href="{{docurl}}" class="prague-article-action">
+										<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 1h4l3 3v7H3V1zM7 1v3h3"/></svg>
+										Improve this Doc
+									</a>{{/docurl}}
+									{{#sourceurl}}<a href="{{sourceurl}}" class="prague-article-action">
+										<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 3L1 6l3 3M8 3l3 3-3 3"/></svg>
+										View Source
+									</a>{{/sourceurl}}
+								</div>
+							</header>
+
+							<div class="prague-article-body">
+								{{!body}}
+							</div>
+						</article>
+
+						<div class="prague-article-footer">
+							<div class="prague-article-meta">
+								{{#updated_at}}Last Updated: {{updated_at}}{{/updated_at}}{{^updated_at}}Prague Documentation{{/updated_at}}
+							</div>
+							{{^_disableNextArticle}}
+							<div class="prague-article-nav" id="nextArticle"></div>
+							{{/_disableNextArticle}}
+						</div>
+					</div>
+
+					{{^_disableAffix}}
+					<aside class="prague-affix">
+						<h4 class="prague-affix-title">In this article</h4>
+						<nav class="prague-affix-nav" id="affix"></nav>
+						<div class="prague-help">
+							<svg class="prague-help-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 3h10v12l-5-2.5L4 15V3z"/></svg>
+							<h5>Need Help?</h5>
+							<p>Join our discussions for real-time support from the maintainers.</p>
+							{{#_pragueGithubUrl}}<a class="prague-help-button" href="{{_pragueGithubUrl}}/discussions">Join Community</a>{{/_pragueGithubUrl}}
+						</div>
+					</aside>
+					{{/_disableAffix}}
+				</div>
+			</div>
+		</div>
+
+		{{#_enableSearch}}
+		<div class="container-xxl search-results prague-search-results" id="search-results"></div>
+		{{/_enableSearch}}
+	</body>
+	{{/redirect_url}}
+</html>

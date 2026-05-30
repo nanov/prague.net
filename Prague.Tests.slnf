@@ -1,0 +1,22 @@
+{
+  "solution": {
+    "path": "Prague.sln",
+    "projects": [
+      "src\\Prague\\Prague.csproj",
+      "src\\Prague.Api\\Prague.Api.csproj",
+      "src\\Prague.Api.UI\\Prague.Api.UI.csproj",
+      "src\\Prague.Attributes\\Prague.Attributes.csproj",
+      "src\\Prague.Codegen\\Prague.Codegen.csproj",
+      "src\\Prague.Core\\Prague.Core.csproj",
+      "src\\Prague.Kafka\\Prague.Kafka.csproj",
+      "src\\Prague.Kafka.TestAdaptor\\Prague.Kafka.TestAdaptor.csproj",
+      "tests\\Prague.Core.Tests\\Prague.Core.Tests.csproj",
+      "tests\\Prague.DI.Tests\\Prague.DI.Tests.csproj",
+      "tests\\Prague.Generated.Tests\\Prague.Generated.Tests.csproj",
+      "tests\\Prague.Kafka.TestAdaptor.Tests\\Prague.Kafka.TestAdaptor.Tests.csproj",
+      "tests\\Prague.Tests.Models\\Prague.Tests.Models.csproj",
+      "tests\\Prague.Kafka.IntegrationTests\\Prague.Kafka.IntegrationTests.csproj",
+      "tests\\Prague.Kafka.Tests\\Prague.Kafka.Tests.csproj"
+    ]
+  }
+}

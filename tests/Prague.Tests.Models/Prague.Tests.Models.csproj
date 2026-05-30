@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
+    <!-- Suppress nullable warnings in test models -->
+    <NoWarn>$(NoWarn);CS8618;CS8602;CS8600;CS8604;CS8625;CS8601;CS8603</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack.Annotations" Version="3.1.4"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Prague.Core/Prague.Core.csproj"/>
+    <ProjectReference Include="../../src/Prague.Attributes/Prague.Attributes.csproj"/>
+    <ProjectReference Include="../../src/Prague.Codegen/Prague.Codegen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+  </ItemGroup>
+
+</Project>

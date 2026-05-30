@@ -1,0 +1,11 @@
+@using Prague.Api.UI.Components
+<Router AppAssembly="@typeof(CacheApp).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)"/>
+        <FocusOnNavigate RouteData="@routeData" Selector="h1"/>
+    </Found>
+</Router>
+
+@code {
+
+}

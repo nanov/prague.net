@@ -1,0 +1,659 @@
+{
+  "name": "Prague Kafka — Overview",
+  "description": "OpenTelemetry metrics emitted by Prague.Kafka.AddPragueKafkaInstrumentation(). Health, throughput, sizes per consumer and cache.",
+  "relativeTimeFrame": "3600s",
+  "filters": [],
+  "annotations": [],
+  "variables": [
+    {
+      "name": "k8s_cluster_name",
+      "displayName": "k8s_cluster_name",
+      "displayType": "VARIABLE_DISPLAY_TYPE_UNSPECIFIED",
+      "definition": {
+        "multiSelect": {
+          "selected": [],
+          "source": {
+            "query": {
+              "query": {
+                "metricsQuery": {
+                  "type": {
+                    "labelValue": {
+                      "metricName": { "stringValue": "prague_kafka_consumer_health" },
+                      "labelName": { "stringValue": "k8s_cluster_name" },
+                      "labelFilters": []
+                    }
+                  }
+                }
+              },
+              "refreshStrategy": "REFRESH_STRATEGY_UNSPECIFIED",
+              "valueDisplayOptions": {}
+            }
+          },
+          "valuesOrderDirection": "ORDER_DIRECTION_ASC",
+          "selectionOptions": {
+            "selectionType": "SELECTION_TYPE_MULTI_ALL"
+          }
+        }
+      }
+    },
+    {
+      "name": "k8s_deployment_name",
+      "displayName": "k8s_deployment_name",
+      "displayType": "VARIABLE_DISPLAY_TYPE_UNSPECIFIED",
+      "definition": {
+        "multiSelect": {
+          "selected": [],
+          "source": {
+            "query": {
+              "query": {
+                "metricsQuery": {
+                  "type": {
+                    "labelValue": {
+                      "metricName": { "stringValue": "prague_kafka_consumer_health" },
+                      "labelName": { "stringValue": "k8s_deployment_name" },
+                      "labelFilters": []
+                    }
+                  }
+                }
+              },
+              "refreshStrategy": "REFRESH_STRATEGY_UNSPECIFIED",
+              "valueDisplayOptions": {}
+            }
+          },
+          "valuesOrderDirection": "ORDER_DIRECTION_ASC",
+          "selectionOptions": {
+            "selectionType": "SELECTION_TYPE_MULTI_ALL"
+          }
+        }
+      }
+    },
+    {
+      "name": "k8s_pod_name",
+      "displayName": "k8s_pod_name",
+      "displayType": "VARIABLE_DISPLAY_TYPE_UNSPECIFIED",
+      "definition": {
+        "multiSelect": {
+          "selected": [],
+          "source": {
+            "query": {
+              "query": {
+                "metricsQuery": {
+                  "type": {
+                    "labelValue": {
+                      "metricName": { "stringValue": "prague_kafka_consumer_health" },
+                      "labelName": { "stringValue": "k8s_pod_name" },
+                      "labelFilters": []
+                    }
+                  }
+                }
+              },
+              "refreshStrategy": "REFRESH_STRATEGY_UNSPECIFIED",
+              "valueDisplayOptions": {}
+            }
+          },
+          "valuesOrderDirection": "ORDER_DIRECTION_ASC",
+          "selectionOptions": {
+            "selectionType": "SELECTION_TYPE_MULTI_ALL"
+          }
+        }
+      }
+    },
+    {
+      "name": "consumer",
+      "displayName": "consumer",
+      "displayType": "VARIABLE_DISPLAY_TYPE_UNSPECIFIED",
+      "definition": {
+        "multiSelect": {
+          "selected": [],
+          "source": {
+            "query": {
+              "query": {
+                "metricsQuery": {
+                  "type": {
+                    "labelValue": {
+                      "metricName": { "stringValue": "prague_kafka_consumer_health" },
+                      "labelName": { "stringValue": "consumer" },
+                      "labelFilters": []
+                    }
+                  }
+                }
+              },
+              "refreshStrategy": "REFRESH_STRATEGY_UNSPECIFIED",
+              "valueDisplayOptions": {}
+            }
+          },
+          "valuesOrderDirection": "ORDER_DIRECTION_ASC",
+          "selectionOptions": {
+            "selectionType": "SELECTION_TYPE_MULTI_ALL"
+          }
+        }
+      }
+    },
+    {
+      "name": "cache",
+      "displayName": "cache",
+      "displayType": "VARIABLE_DISPLAY_TYPE_UNSPECIFIED",
+      "definition": {
+        "multiSelect": {
+          "selected": [],
+          "source": {
+            "query": {
+              "query": {
+                "metricsQuery": {
+                  "type": {
+                    "labelValue": {
+                      "metricName": { "stringValue": "prague_kafka_cache_health" },
+                      "labelName": { "stringValue": "cache" },
+                      "labelFilters": []
+                    }
+                  }
+                }
+              },
+              "refreshStrategy": "REFRESH_STRATEGY_UNSPECIFIED",
+              "valueDisplayOptions": {}
+            }
+          },
+          "valuesOrderDirection": "ORDER_DIRECTION_ASC",
+          "selectionOptions": {
+            "selectionType": "SELECTION_TYPE_MULTI_ALL"
+          }
+        }
+      }
+    }
+  ],
+  "layout": {
+    "sections": [
+      {
+        "id": { "value": "11111111-0000-0000-0000-000000000001" },
+        "rows": [
+          {
+            "id": { "value": "21111111-0000-0000-0000-000000000001" },
+            "appearance": { "height": 12 },
+            "widgets": [
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000001" },
+                "title": "Unhealthy consumers",
+                "definition": {
+                  "gauge": {
+                    "query": {
+                      "metrics": {
+                        "promqlQuery": { "value": "sum(prague_kafka_consumer_health{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\"} == bool 0) or vector(0)" },
+                        "aggregation": "AGGREGATION_UNSPECIFIED",
+                        "filters": [],
+                        "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                        "promqlQueryType": "PROM_QL_QUERY_TYPE_INSTANT"
+                      }
+                    },
+                    "min": 0,
+                    "max": 10,
+                    "showInnerArc": true,
+                    "showOuterArc": false,
+                    "unit": "UNIT_NUMBER",
+                    "thresholds": [
+                      { "from": 0, "color": "var(--c-severity-log-info)" },
+                      { "from": 1, "color": "var(--c-severity-log-warning)" },
+                      { "from": 2, "color": "var(--c-severity-log-error)" }
+                    ],
+                    "thresholdBy": "THRESHOLD_BY_BACKGROUND",
+                    "decimal": 0,
+                    "thresholdType": "THRESHOLD_TYPE_ABSOLUTE",
+                    "legend": { "isVisible": false, "columns": [], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "legendBy": "LEGEND_BY_GROUPS",
+                    "displaySeriesName": false,
+                    "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED"
+                  }
+                }
+              },
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000002" },
+                "title": "Unhealthy caches",
+                "definition": {
+                  "gauge": {
+                    "query": {
+                      "metrics": {
+                        "promqlQuery": { "value": "sum(prague_kafka_cache_health{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\"} == bool 0) or vector(0)" },
+                        "aggregation": "AGGREGATION_UNSPECIFIED",
+                        "filters": [],
+                        "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                        "promqlQueryType": "PROM_QL_QUERY_TYPE_INSTANT"
+                      }
+                    },
+                    "min": 0,
+                    "max": 10,
+                    "showInnerArc": true,
+                    "showOuterArc": false,
+                    "unit": "UNIT_NUMBER",
+                    "thresholds": [
+                      { "from": 0, "color": "var(--c-severity-log-info)" },
+                      { "from": 1, "color": "var(--c-severity-log-warning)" },
+                      { "from": 2, "color": "var(--c-severity-log-error)" }
+                    ],
+                    "thresholdBy": "THRESHOLD_BY_BACKGROUND",
+                    "decimal": 0,
+                    "thresholdType": "THRESHOLD_TYPE_ABSOLUTE",
+                    "legend": { "isVisible": false, "columns": [], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "legendBy": "LEGEND_BY_GROUPS",
+                    "displaySeriesName": false,
+                    "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED"
+                  }
+                }
+              },
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000003" },
+                "title": "Total cache rows",
+                "definition": {
+                  "gauge": {
+                    "query": {
+                      "metrics": {
+                        "promqlQuery": { "value": "sum(prague_kafka_cache_size__item_{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\"})" },
+                        "aggregation": "AGGREGATION_UNSPECIFIED",
+                        "filters": [],
+                        "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                        "promqlQueryType": "PROM_QL_QUERY_TYPE_INSTANT"
+                      }
+                    },
+                    "min": 0,
+                    "max": 1000000,
+                    "showInnerArc": false,
+                    "showOuterArc": false,
+                    "unit": "UNIT_NUMBER",
+                    "thresholds": [{ "from": 0, "color": "var(--c-severity-log-verbose)" }],
+                    "thresholdBy": "THRESHOLD_BY_BACKGROUND",
+                    "decimal": 0,
+                    "thresholdType": "THRESHOLD_TYPE_RELATIVE",
+                    "legend": { "isVisible": false, "columns": [], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "legendBy": "LEGEND_BY_GROUPS",
+                    "displaySeriesName": false,
+                    "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED"
+                  }
+                }
+              },
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000004" },
+                "title": "Messages received / sec",
+                "definition": {
+                  "gauge": {
+                    "query": {
+                      "metrics": {
+                        "promqlQuery": { "value": "sum(rate(prague_kafka_cache_messages_received__message__total{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\"}[1m]))" },
+                        "aggregation": "AGGREGATION_UNSPECIFIED",
+                        "filters": [],
+                        "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                        "promqlQueryType": "PROM_QL_QUERY_TYPE_INSTANT"
+                      }
+                    },
+                    "min": 0,
+                    "max": 10000,
+                    "showInnerArc": false,
+                    "showOuterArc": false,
+                    "unit": "UNIT_NUMBER",
+                    "thresholds": [{ "from": 0, "color": "var(--c-severity-log-verbose)" }],
+                    "thresholdBy": "THRESHOLD_BY_BACKGROUND",
+                    "decimal": 1,
+                    "thresholdType": "THRESHOLD_TYPE_RELATIVE",
+                    "legend": { "isVisible": false, "columns": [], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "legendBy": "LEGEND_BY_GROUPS",
+                    "displaySeriesName": false,
+                    "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": { "value": "21111111-0000-0000-0000-00000000000f" },
+            "appearance": { "height": 14 },
+            "widgets": [
+              {
+                "id": { "value": "31111111-0000-0000-0000-00000000000d" },
+                "title": "Consumer status",
+                "definition": {
+                  "hexagon": {
+                    "query": {
+                      "metrics": {
+                        "promqlQuery": { "value": "sum by (consumer, k8s_deployment_name, k8s_pod_name) (prague_kafka_consumer_health{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\"})" },
+                        "filters": [],
+                        "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                        "promqlQueryType": "PROM_QL_QUERY_TYPE_INSTANT",
+                        "aggregation": "AGGREGATION_UNSPECIFIED"
+                      }
+                    },
+                    "min": 0,
+                    "max": 1,
+                    "unit": "UNIT_UNSPECIFIED",
+                    "thresholds": [
+                      { "from": 0, "color": "var(--c-severity-log-error)" },
+                      { "from": 1, "color": "var(--c-severity-log-info)" }
+                    ],
+                    "decimal": 0,
+                    "thresholdType": "THRESHOLD_TYPE_ABSOLUTE",
+                    "legend": { "isVisible": true, "columns": [], "groupByQuery": true, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "legendBy": "LEGEND_BY_GROUPS",
+                    "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED"
+                  }
+                }
+              },
+              {
+                "id": { "value": "31111111-0000-0000-0000-00000000000e" },
+                "title": "Cache status",
+                "definition": {
+                  "hexagon": {
+                    "query": {
+                      "metrics": {
+                        "promqlQuery": { "value": "sum by (consumer, cache, k8s_deployment_name, k8s_pod_name) (prague_kafka_cache_health{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\"})" },
+                        "filters": [],
+                        "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                        "promqlQueryType": "PROM_QL_QUERY_TYPE_INSTANT",
+                        "aggregation": "AGGREGATION_UNSPECIFIED"
+                      }
+                    },
+                    "min": 0,
+                    "max": 1,
+                    "unit": "UNIT_UNSPECIFIED",
+                    "thresholds": [
+                      { "from": 0, "color": "var(--c-severity-log-error)" },
+                      { "from": 1, "color": "var(--c-severity-log-info)" }
+                    ],
+                    "decimal": 0,
+                    "thresholdType": "THRESHOLD_TYPE_ABSOLUTE",
+                    "legend": { "isVisible": true, "columns": [], "groupByQuery": true, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "legendBy": "LEGEND_BY_GROUPS",
+                    "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": { "value": "21111111-0000-0000-0000-000000000002" },
+            "appearance": { "height": 18 },
+            "widgets": [
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000005" },
+                "title": "Consumer health (1 = healthy, 0 = unhealthy)",
+                "definition": {
+                  "lineChart": {
+                    "legend": { "isVisible": true, "columns": ["LEGEND_COLUMN_LAST"], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "tooltip": { "showLabels": false, "type": "TOOLTIP_TYPE_ALL" },
+                    "queryDefinitions": [
+                      {
+                        "id": "41111111-0000-0000-0000-000000000001",
+                        "query": {
+                          "metrics": {
+                            "promqlQuery": { "value": "prague_kafka_consumer_health{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\"}" },
+                            "filters": [],
+                            "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                            "seriesLimitType": "METRICS_SERIES_LIMIT_TYPE_UNSPECIFIED"
+                          }
+                        },
+                        "seriesNameTemplate": "{{consumer}}",
+                        "seriesCountLimit": "20",
+                        "unit": "UNIT_UNSPECIFIED",
+                        "scaleType": "SCALE_TYPE_LINEAR",
+                        "name": "health",
+                        "isVisible": true,
+                        "colorScheme": "classic",
+                        "resolution": { "interval": "15s" },
+                        "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED",
+                        "decimal": 0
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000006" },
+                "title": "Cache health (1 = healthy, 0 = unhealthy)",
+                "definition": {
+                  "lineChart": {
+                    "legend": { "isVisible": true, "columns": ["LEGEND_COLUMN_LAST"], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "tooltip": { "showLabels": false, "type": "TOOLTIP_TYPE_ALL" },
+                    "queryDefinitions": [
+                      {
+                        "id": "41111111-0000-0000-0000-000000000002",
+                        "query": {
+                          "metrics": {
+                            "promqlQuery": { "value": "prague_kafka_cache_health{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\"}" },
+                            "filters": [],
+                            "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                            "seriesLimitType": "METRICS_SERIES_LIMIT_TYPE_UNSPECIFIED"
+                          }
+                        },
+                        "seriesNameTemplate": "{{consumer}} / {{cache}}",
+                        "seriesCountLimit": "50",
+                        "unit": "UNIT_UNSPECIFIED",
+                        "scaleType": "SCALE_TYPE_LINEAR",
+                        "name": "health",
+                        "isVisible": true,
+                        "colorScheme": "classic",
+                        "resolution": { "interval": "15s" },
+                        "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED",
+                        "decimal": 0
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": { "value": "21111111-0000-0000-0000-000000000003" },
+            "appearance": { "height": 18 },
+            "widgets": [
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000007" },
+                "title": "Messages received — rate / sec, by cache",
+                "definition": {
+                  "lineChart": {
+                    "legend": { "isVisible": true, "columns": ["LEGEND_COLUMN_LAST", "LEGEND_COLUMN_AVG", "LEGEND_COLUMN_MAX"], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "tooltip": { "showLabels": false, "type": "TOOLTIP_TYPE_ALL" },
+                    "queryDefinitions": [
+                      {
+                        "id": "41111111-0000-0000-0000-000000000003",
+                        "query": {
+                          "metrics": {
+                            "promqlQuery": { "value": "sum by (consumer, cache) (rate(prague_kafka_cache_messages_received__message__total{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\"}[1m]))" },
+                            "filters": [],
+                            "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                            "seriesLimitType": "METRICS_SERIES_LIMIT_TYPE_UNSPECIFIED"
+                          }
+                        },
+                        "seriesNameTemplate": "{{consumer}} / {{cache}}",
+                        "seriesCountLimit": "50",
+                        "unit": "UNIT_UNSPECIFIED",
+                        "scaleType": "SCALE_TYPE_LINEAR",
+                        "name": "msg/s",
+                        "isVisible": true,
+                        "colorScheme": "classic",
+                        "resolution": { "interval": "15s" },
+                        "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED",
+                        "decimal": 1
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000008" },
+                "title": "Cache size (live rows), by cache",
+                "definition": {
+                  "lineChart": {
+                    "legend": { "isVisible": true, "columns": ["LEGEND_COLUMN_LAST", "LEGEND_COLUMN_MAX"], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "tooltip": { "showLabels": false, "type": "TOOLTIP_TYPE_ALL" },
+                    "queryDefinitions": [
+                      {
+                        "id": "41111111-0000-0000-0000-000000000004",
+                        "query": {
+                          "metrics": {
+                            "promqlQuery": { "value": "prague_kafka_cache_size__item_{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\"}" },
+                            "filters": [],
+                            "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                            "seriesLimitType": "METRICS_SERIES_LIMIT_TYPE_UNSPECIFIED"
+                          }
+                        },
+                        "seriesNameTemplate": "{{consumer}} / {{cache}}",
+                        "seriesCountLimit": "50",
+                        "unit": "UNIT_UNSPECIFIED",
+                        "scaleType": "SCALE_TYPE_LINEAR",
+                        "name": "rows",
+                        "isVisible": true,
+                        "colorScheme": "classic",
+                        "resolution": { "interval": "15s" },
+                        "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED",
+                        "decimal": 0
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": { "value": "21111111-0000-0000-0000-000000000004" },
+            "appearance": { "height": 18 },
+            "widgets": [
+              {
+                "id": { "value": "31111111-0000-0000-0000-000000000009" },
+                "title": "Broker RTT p99 (max across brokers), by consumer",
+                "definition": {
+                  "lineChart": {
+                    "legend": { "isVisible": true, "columns": ["LEGEND_COLUMN_LAST", "LEGEND_COLUMN_AVG", "LEGEND_COLUMN_MAX"], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "tooltip": { "showLabels": false, "type": "TOOLTIP_TYPE_ALL" },
+                    "queryDefinitions": [
+                      {
+                        "id": "41111111-0000-0000-0000-000000000005",
+                        "query": {
+                          "metrics": {
+                            "promqlQuery": { "value": "prague_kafka_consumer_broker_rtt_p99_ms{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\"}" },
+                            "filters": [],
+                            "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                            "seriesLimitType": "METRICS_SERIES_LIMIT_TYPE_UNSPECIFIED"
+                          }
+                        },
+                        "seriesNameTemplate": "{{consumer}}",
+                        "seriesCountLimit": "20",
+                        "unit": "UNIT_MILLISECONDS",
+                        "scaleType": "SCALE_TYPE_LINEAR",
+                        "name": "rtt p99 (ms)",
+                        "isVisible": true,
+                        "colorScheme": "classic",
+                        "resolution": { "interval": "15s" },
+                        "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED",
+                        "decimal": 1
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": { "value": "31111111-0000-0000-0000-00000000000a" },
+                "title": "Partitions assigned, by consumer",
+                "definition": {
+                  "lineChart": {
+                    "legend": { "isVisible": true, "columns": ["LEGEND_COLUMN_LAST"], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "tooltip": { "showLabels": false, "type": "TOOLTIP_TYPE_ALL" },
+                    "queryDefinitions": [
+                      {
+                        "id": "41111111-0000-0000-0000-000000000006",
+                        "query": {
+                          "metrics": {
+                            "promqlQuery": { "value": "prague_kafka_consumer_partitions_assigned__partition_{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\"}" },
+                            "filters": [],
+                            "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                            "seriesLimitType": "METRICS_SERIES_LIMIT_TYPE_UNSPECIFIED"
+                          }
+                        },
+                        "seriesNameTemplate": "{{consumer}}",
+                        "seriesCountLimit": "20",
+                        "unit": "UNIT_UNSPECIFIED",
+                        "scaleType": "SCALE_TYPE_LINEAR",
+                        "name": "partitions",
+                        "isVisible": true,
+                        "colorScheme": "classic",
+                        "resolution": { "interval": "15s" },
+                        "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED",
+                        "decimal": 0
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": { "value": "21111111-0000-0000-0000-000000000005" },
+            "appearance": { "height": 18 },
+            "widgets": [
+              {
+                "id": { "value": "31111111-0000-0000-0000-00000000000b" },
+                "title": "Index size — keys, by (cache, index)",
+                "definition": {
+                  "lineChart": {
+                    "legend": { "isVisible": true, "columns": ["LEGEND_COLUMN_LAST"], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "tooltip": { "showLabels": false, "type": "TOOLTIP_TYPE_ALL" },
+                    "queryDefinitions": [
+                      {
+                        "id": "41111111-0000-0000-0000-000000000007",
+                        "query": {
+                          "metrics": {
+                            "promqlQuery": { "value": "prague_kafka_cache_index_size__item_{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\", kind=\"keys\"}" },
+                            "filters": [],
+                            "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                            "seriesLimitType": "METRICS_SERIES_LIMIT_TYPE_UNSPECIFIED"
+                          }
+                        },
+                        "seriesNameTemplate": "{{cache}} / {{index}}",
+                        "seriesCountLimit": "100",
+                        "unit": "UNIT_UNSPECIFIED",
+                        "scaleType": "SCALE_TYPE_LINEAR",
+                        "name": "keys",
+                        "isVisible": true,
+                        "colorScheme": "classic",
+                        "resolution": { "interval": "15s" },
+                        "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED",
+                        "decimal": 0
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": { "value": "31111111-0000-0000-0000-00000000000c" },
+                "title": "Index size — values, by (cache, index)",
+                "definition": {
+                  "lineChart": {
+                    "legend": { "isVisible": true, "columns": ["LEGEND_COLUMN_LAST"], "groupByQuery": false, "placement": "LEGEND_PLACEMENT_AUTO" },
+                    "tooltip": { "showLabels": false, "type": "TOOLTIP_TYPE_ALL" },
+                    "queryDefinitions": [
+                      {
+                        "id": "41111111-0000-0000-0000-000000000008",
+                        "query": {
+                          "metrics": {
+                            "promqlQuery": { "value": "prague_kafka_cache_index_size__item_{k8s_cluster_name=~\"{{k8s_cluster_name}}\", k8s_deployment_name=~\"{{k8s_deployment_name}}\", k8s_pod_name=~\"{{k8s_pod_name}}\", consumer=~\"{{consumer}}\", cache=~\"{{cache}}\", kind=\"values\"}" },
+                            "filters": [],
+                            "editorMode": "METRICS_QUERY_EDITOR_MODE_TEXT",
+                            "seriesLimitType": "METRICS_SERIES_LIMIT_TYPE_UNSPECIFIED"
+                          }
+                        },
+                        "seriesNameTemplate": "{{cache}} / {{index}}",
+                        "seriesCountLimit": "100",
+                        "unit": "UNIT_UNSPECIFIED",
+                        "scaleType": "SCALE_TYPE_LINEAR",
+                        "name": "values",
+                        "isVisible": true,
+                        "colorScheme": "classic",
+                        "resolution": { "interval": "15s" },
+                        "dataModeType": "DATA_MODE_TYPE_HIGH_UNSPECIFIED",
+                        "decimal": 0
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

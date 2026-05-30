@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.0"/>
+    <PackageReference Include="NUnit" Version="4.4.0"/>
+    <PackageReference Include="NUnit3TestAdapter" Version="6.0.0-beta.1"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Prague.Core\Prague.Core.csproj"/>
+    <ProjectReference Include="..\..\src\Prague.Codegen\Prague.Codegen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+    <ProjectReference Include="..\..\src\Prague.Kafka\Prague.Kafka.csproj"/>
+    <ProjectReference Include="..\..\src\Prague.Kafka.TestAdaptor\Prague.Kafka.TestAdaptor.csproj"/>
+  </ItemGroup>
+
+</Project>

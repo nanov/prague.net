@@ -1,0 +1,13 @@
+# Vite landing
+site/node_modules/
+site/dist/
+site/.vite/
+
+# DocFX
+docs/_site/
+docs/api/*.yml
+docs/api/.manifest
+docs/obj/
+
+# Assembled output (built locally, never committed)
+_dist/

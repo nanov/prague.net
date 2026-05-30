@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Title>It's like cache...</Title>
+    <Authors>Dimitar Nanov</Authors>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+</Project>

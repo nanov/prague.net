@@ -1,0 +1,30 @@
+- name: Introduction
+  href: index.md
+- name: Getting Started
+  items:
+    - name: Introduction
+      href: articles/getting-started/introduction.md
+    - name: Installation
+      href: articles/getting-started/installation.md
+    - name: Quick Start
+      href: articles/getting-started/quick-start.md
+- name: Core Concepts
+  items:
+    - name: Index Types
+      href: articles/core-concepts/index-types.md
+    - name: Query Engine
+      href: articles/core-concepts/query-engine.md
+    - name: Conditional Updates
+      href: articles/core-concepts/conditional-updates.md
+    - name: Joins
+      href: articles/core-concepts/joins.md
+- name: Advanced
+  items:
+    - name: Kafka Integration
+      href: articles/advanced/kafka-integration.md
+    - name: Global Last Update Index
+      href: articles/advanced/global-last-update-index.md
+    - name: Performance Tuning
+      href: articles/advanced/performance-tuning.md
+- name: API Reference
+  href: api/

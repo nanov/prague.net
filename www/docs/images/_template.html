@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body { background: #ffffff; overflow: hidden; }
+		#root { display: inline-block; }
+		#root svg { display: block; }
+	</style>
+</head>
+<body>
+	<div id="root"></div>
+	<script type="module">
+		// Pin to a known-good Excalidraw version — current esm.sh bundle for
+		// @latest is broken (404 on @braintree/sanitize-url sub-dep).
+		import * as E from "https://esm.sh/@excalidraw/excalidraw@0.17.6?bundle";
+		window.__excalidrawKeys = Object.keys(E);
+		console.log("Excalidraw export keys:", window.__excalidrawKeys.join(", "));
+		const exportToSvg = E.exportToSvg
+			|| (E.default && E.default.exportToSvg)
+			|| (E.utils && E.utils.exportToSvg);
+
+		window.renderDiagram = async function(jsonData) {
+			try {
+				const data = typeof jsonData === "string" ? JSON.parse(jsonData) : jsonData;
+				const elements = data.elements || [];
+				const appState = data.appState || {};
+				const files = data.files || {};
+				appState.viewBackgroundColor = appState.viewBackgroundColor || "#ffffff";
+				appState.exportWithDarkMode = false;
+				const svg = await exportToSvg({
+					elements,
+					appState: { ...appState, exportBackground: true },
+					files,
+				});
+				const root = document.getElementById("root");
+				root.innerHTML = "";
+				root.appendChild(svg);
+				window.__renderComplete = true;
+				window.__renderError = null;
+				return { success: true, width: svg.getAttribute("width"), height: svg.getAttribute("height") };
+			} catch (err) {
+				window.__renderComplete = true;
+				window.__renderError = err.message;
+				return { success: false, error: err.message };
+			}
+		};
+		window.__moduleReady = true;
+	</script>
+</body>
+</html>
