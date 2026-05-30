@@ -859,6 +859,25 @@ public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey> {
 		return false;
 	}
 
+	/// <summary>
+	///   Gets the maximum (newest) last-updated timestamp across the given group keys. Keys absent from the
+	///   index are skipped. Returns <c>false</c> (and <paramref name="timestampMs"/> = default) if none of
+	///   the keys are present.
+	/// </summary>
+	public bool TryGetMax(ReadOnlySpan<TKey> keys, out long timestampMs) {
+		var found = false;
+		var max = long.MinValue;
+		foreach (var key in keys)
+			if (_cache.TryGetValue(key, out var entry)) {
+				found = true;
+				if (entry.Value > max)
+					max = entry.Value;
+			}
+
+		timestampMs = found ? max : default;
+		return found;
+	}
+
 	// Range query interface - long (native)
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1069,6 +1088,151 @@ public sealed class LastUpdatedIndexAdapter<TKey, TValue, TGroupKey> : ICacheInd
 			// Group key changed - remove from old, add to new
 			_index.Remove(oldGroupKey, timestampMs);
 			_index.Add(newGroupKey, timestampMs, timestampMs);
+		}
+	}
+}
+
+/// <summary>
+///   Filtered variant of <see cref="LastUpdatedIndexAdapter{TKey,TValue,TGroupKey}"/>. Only entities for
+///   which <typeparamref name="TFilter"/> returns <c>true</c> are tracked. Membership is dynamic: the
+///   filter is re-evaluated on every update so entities crossing the filter boundary enter or leave the
+///   index. <typeparamref name="TFilter"/> is a <c>readonly struct</c>, so the static-abstract call
+///   devirtualizes per closed generic.
+/// </summary>
+public sealed class LastUpdatedFilteredIndexAdapter<TKey, TValue, TGroupKey, TFilter> : ICacheIndex<TKey, TValue>
+	where TGroupKey : IEquatable<TGroupKey>
+	where TFilter : struct, IDataCacheGlobalLastUpdateFilter<TValue> {
+	private readonly Func<TKey, TValue, TGroupKey> _groupKeySelector;
+
+	private readonly LastUpdatedIndex<TGroupKey> _index;
+
+	public LastUpdatedFilteredIndexAdapter(
+		LastUpdatedIndex<TGroupKey> index,
+		Func<TKey, TValue, TGroupKey> groupKeySelector) {
+		_index = index;
+		_groupKeySelector = groupKeySelector;
+	}
+
+	public void Add(TKey key, TValue value, long timestampMs) {
+		if (!TFilter.Include(value))
+			return;
+		var groupKey = _groupKeySelector(key, value);
+		_index.Add(groupKey, timestampMs, timestampMs);
+	}
+
+	public void Remove(TKey key, TValue value, long timestampMs) {
+		if (!TFilter.Include(value))
+			return;
+		var groupKey = _groupKeySelector(key, value);
+		_index.Remove(groupKey, timestampMs);
+	}
+
+	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+		var oldIncluded = TFilter.Include(originalValue);
+		var newIncluded = TFilter.Include(newValue);
+
+		if (!oldIncluded && !newIncluded)
+			return;
+
+		if (oldIncluded && !newIncluded) {
+			// Left the set - remove from its old group.
+			_index.Remove(_groupKeySelector(key, originalValue), timestampMs);
+			return;
+		}
+
+		if (!oldIncluded && newIncluded) {
+			// Entered the set - add to its new group.
+			_index.Add(_groupKeySelector(key, newValue), timestampMs, timestampMs);
+			return;
+		}
+
+		// In the set before and after.
+		var oldGroupKey = _groupKeySelector(key, originalValue);
+		var newGroupKey = _groupKeySelector(key, newValue);
+
+		if (oldGroupKey.Equals(newGroupKey)) {
+			// Same group key - just update the timestamp
+			_index.Update(newGroupKey, timestampMs, timestampMs);
+		}
+		else {
+			// Group key changed - remove from old, add to new
+			_index.Remove(oldGroupKey, timestampMs);
+			_index.Add(newGroupKey, timestampMs, timestampMs);
+		}
+	}
+}
+
+/// <summary>
+///   Filtered variant of <see cref="LastUpdatedCustomTimeStampIndexAdapter{TKey,TValue,TGroupKey}"/>.
+///   See <see cref="LastUpdatedFilteredIndexAdapter{TKey,TValue,TGroupKey,TFilter}"/> for the membership
+///   semantics; the timestamp is taken from <c>timestampSelector</c> instead of the AddOrUpdate timestamp.
+/// </summary>
+public sealed class LastUpdatedFilteredCustomTimeStampIndexAdapter<TKey, TValue, TGroupKey, TFilter>
+	: ICacheIndex<TKey, TValue>
+	where TGroupKey : IEquatable<TGroupKey>
+	where TFilter : struct, IDataCacheGlobalLastUpdateFilter<TValue> {
+	private readonly Func<TKey, TValue, TGroupKey> _groupKeySelector;
+
+	private readonly LastUpdatedIndex<TGroupKey> _index;
+	private readonly Func<TKey, TValue, long> _timestampSelector;
+
+	public LastUpdatedFilteredCustomTimeStampIndexAdapter(
+		LastUpdatedIndex<TGroupKey> index,
+		Func<TKey, TValue, TGroupKey> groupKeySelector,
+		Func<TKey, TValue, long> timestampSelector) {
+		_index = index;
+		_groupKeySelector = groupKeySelector;
+		_timestampSelector = timestampSelector;
+	}
+
+	public void Add(TKey key, TValue value, long timestampMs) {
+		if (!TFilter.Include(value))
+			return;
+		var groupKey = _groupKeySelector(key, value);
+		var timestamp = _timestampSelector(key, value);
+		_index.Add(groupKey, timestamp, timestamp);
+	}
+
+	public void Remove(TKey key, TValue value, long timestampMs) {
+		if (!TFilter.Include(value))
+			return;
+		var groupKey = _groupKeySelector(key, value);
+		_index.Remove(groupKey, timestampMs);
+	}
+
+	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+		var oldIncluded = TFilter.Include(originalValue);
+		var newIncluded = TFilter.Include(newValue);
+
+		if (!oldIncluded && !newIncluded)
+			return;
+
+		if (oldIncluded && !newIncluded) {
+			// Left the set - remove from its old group.
+			_index.Remove(_groupKeySelector(key, originalValue), timestampMs);
+			return;
+		}
+
+		var newTimestamp = _timestampSelector(key, newValue);
+
+		if (!oldIncluded && newIncluded) {
+			// Entered the set - add to its new group.
+			_index.Add(_groupKeySelector(key, newValue), newTimestamp, newTimestamp);
+			return;
+		}
+
+		// In the set before and after.
+		var oldGroupKey = _groupKeySelector(key, originalValue);
+		var newGroupKey = _groupKeySelector(key, newValue);
+
+		if (oldGroupKey.Equals(newGroupKey)) {
+			// Same group key - just update the timestamp
+			_index.Update(newGroupKey, newTimestamp, newTimestamp);
+		}
+		else {
+			// Group key changed - remove from old, add to new
+			_index.Remove(oldGroupKey, timestampMs);
+			_index.Add(newGroupKey, newTimestamp, newTimestamp);
 		}
 	}
 }
@@ -1380,6 +1544,36 @@ public sealed class InMemoryDataCache<TKey, TValue>
 		Func<TKey, TValue, long> timestampSelector)
 		where TGroupKey : IEquatable<TGroupKey> {
 		var adapter = new LastUpdatedCustomTimeStampIndexAdapter<TKey, TValue, TGroupKey>(
+			index,
+			groupKeySelector, timestampSelector);
+		var len = _indeces.Length;
+		Array.Resize(ref _indeces, len + 1);
+		_indeces[len] = adapter;
+		return adapter;
+	}
+
+	public LastUpdatedFilteredIndexAdapter<TKey, TValue, TGroupKey, TFilter> CacheLastUpdatedIndex<TGroupKey, TFilter>(
+		LastUpdatedIndex<TGroupKey> index,
+		Func<TKey, TValue, TGroupKey> groupKeySelector)
+		where TGroupKey : IEquatable<TGroupKey>
+		where TFilter : struct, IDataCacheGlobalLastUpdateFilter<TValue> {
+		var adapter = new LastUpdatedFilteredIndexAdapter<TKey, TValue, TGroupKey, TFilter>(
+			index,
+			groupKeySelector);
+		var len = _indeces.Length;
+		Array.Resize(ref _indeces, len + 1);
+		_indeces[len] = adapter;
+		return adapter;
+	}
+
+	public LastUpdatedFilteredCustomTimeStampIndexAdapter<TKey, TValue, TGroupKey, TFilter>
+		CacheLastUpdatedIndex<TGroupKey, TFilter>(
+			LastUpdatedIndex<TGroupKey> index,
+			Func<TKey, TValue, TGroupKey> groupKeySelector,
+			Func<TKey, TValue, long> timestampSelector)
+		where TGroupKey : IEquatable<TGroupKey>
+		where TFilter : struct, IDataCacheGlobalLastUpdateFilter<TValue> {
+		var adapter = new LastUpdatedFilteredCustomTimeStampIndexAdapter<TKey, TValue, TGroupKey, TFilter>(
 			index,
 			groupKeySelector, timestampSelector);
 		var len = _indeces.Length;

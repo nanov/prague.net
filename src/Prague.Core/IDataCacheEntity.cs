@@ -102,6 +102,8 @@ public interface IDataCacheGlobalLastUpdateIndex<TKey> where TKey : IEquatable<T
 	bool TryGetMax(out long timestampMs);
 
 	int GetEntitiesCount(TKey key);
+
+	bool TryGetMax(ReadOnlySpan<TKey> keys, out long timestampMs);
 }
 
 public interface IDataCacheItem<TKey, TValue> : IPragueMetadataSettable where TKey : IEquatable<TKey>
