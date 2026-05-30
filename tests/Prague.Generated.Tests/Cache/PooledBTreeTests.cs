@@ -841,7 +841,6 @@ public class PooledBTreeTests {
 		for (var i = 0; i < total; i += 3)
 			tree.Remove(i, $"v{i}");
 
-		var removed = (total + 2) / 3;
 
 		// Re-add into the gaps — traversal through dead nodes causes NRE
 		for (var i = 0; i < total; i += 3)

@@ -396,7 +396,7 @@ public sealed class PragueKafkaMetricsReporterTests {
 		//     returns `this`, so the SDK's foreach doesn't allocate an enumerator
 		//   * FrozenDictionary's enumerator is a struct (no alloc)
 		var perCallback = delta / 112.0;
-		TestContext.WriteLine($"Allocated {delta} bytes across 16 scrapes ({perCallback:F1} bytes/callback)");
+		TestContext.Out.WriteLine($"Allocated {delta} bytes across 16 scrapes ({perCallback:F1} bytes/callback)");
 		Assert.That(delta, Is.EqualTo(0),
 			$"Allocated {delta} bytes across 16 scrapes ({perCallback:F1} bytes/callback)");
 	}

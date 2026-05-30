@@ -3,6 +3,7 @@
 // </auto-generated>
 
 #nullable enable
+#pragma warning disable CS8500, CS8601, CS8602, CS8603, CS8604, CS8618, CS8619, CS8625, CS8714, CS8765, CS8766, CS8767
 
 namespace Prague.Core;
 

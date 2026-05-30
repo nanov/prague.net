@@ -90,7 +90,6 @@ public class JoinResults {
 		public bool Inner { get; }
 		public bool IsForward { get; }
 		public bool IsIndexed => Inner;
-		private int Count;
 
 		public void UnsafeExecuteWithAccessor<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool,
 			QueryResultsDisposer? disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct =>

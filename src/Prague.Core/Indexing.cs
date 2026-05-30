@@ -6,7 +6,9 @@ using Collections;
 
 
 public sealed class
-	CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> : CacheKeyValueListIndex<TKey, TValue, TIndexKey> {
+	CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> : CacheKeyValueListIndex<TKey, TValue, TIndexKey>
+	where TIndexKey : notnull
+	where TKey : notnull {
 
 	public CacheUniqueIndex<TIndexKey, TKey, TKey> Reverse => _cacheReverse;
 
@@ -208,7 +210,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	private readonly ConcurrentCacheStore<TIndexKey, PooledSet<TKey, DefaultKeyComparer<TKey>>> _cache = new();
 	private ulong _keysSize;
 
-	internal readonly CacheUniqueIndex<TIndexKey, TKey, TKey> _cacheReverse;
+	internal readonly CacheUniqueIndex<TIndexKey, TKey, TKey> _cacheReverse = null!;
 
 	protected CacheKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector, bool reverse = false) {
 		KeySelector = keySelector;

@@ -4812,7 +4812,7 @@ public class CacheGenerator : IIncrementalGenerator {
 				w.Line("internal Prague.Kafka.IO.KafkaCacheProducer? _producer;");
 				w.Line("internal string? _topicName;").Line();
 				w.Summary("Gets the configured Kafka topic name.");
-				w.Line("public string? Topic => _topicName;").Line();
+				w.Line("public string Topic => _topicName ?? TopicNameTemplate;").Line();
 				w.Summary("Configures the Kafka topic for a cache instance.");
 				w.Method($"public static void ConfigureTopic({cacheFullName} cache, string topicName)", (ref CodeWriter w) => {
 					w.Line("cache._topicName = topicName;");

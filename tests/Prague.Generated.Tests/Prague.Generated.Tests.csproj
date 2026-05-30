@@ -26,4 +26,10 @@
     <ProjectReference Include="..\Prague.Tests.Models\Prague.Tests.Models.csproj"/>
   </ItemGroup>
 
+
+  <PropertyGroup>
+    <!-- MessagePack generates a per-assembly resolver; Prague.Kafka exposes its copy via
+         InternalsVisibleTo, so this project sees two same-named types (benign CS0436). -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+  </PropertyGroup>
 </Project>

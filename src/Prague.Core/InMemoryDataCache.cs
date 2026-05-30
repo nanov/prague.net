@@ -369,7 +369,9 @@ public abstract class CacheKeyValueIndex<TKey, TValue, TIndexKey>
 	}
 }
 
-public sealed class CacheSymmetricUniqueIndex<TKey, TValue, TIndexKey> : CacheUniqueIndex<TKey, TValue, TIndexKey> {
+public sealed class CacheSymmetricUniqueIndex<TKey, TValue, TIndexKey> : CacheUniqueIndex<TKey, TValue, TIndexKey>
+	where TIndexKey : notnull
+	where TKey : notnull {
 	public CacheUniqueIndex<TIndexKey, TKey, TKey> Reverse => _cacheReverse;
 	public CacheSymmetricUniqueIndex(Func<TKey, TValue, TIndexKey> keySelector) : base(keySelector, true) {
 	}
@@ -382,7 +384,7 @@ public class CacheUniqueIndex<TKey, TValue, TIndexKey> : CacheKeyValueIndex<TKey
 	private readonly ConcurrentCacheStore<TIndexKey, TKey> _cache = new();
 	private readonly Func<TKey, TValue, TIndexKey> _keySelector;
 
-	protected readonly CacheUniqueIndex<TIndexKey, TKey, TKey> _cacheReverse;
+	protected readonly CacheUniqueIndex<TIndexKey, TKey, TKey> _cacheReverse = null!;
 
 	protected CacheUniqueIndex(Func<TKey, TValue, TIndexKey> keySelector, bool reverse = false) {
 		_keySelector = keySelector;

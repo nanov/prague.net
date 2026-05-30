@@ -94,7 +94,7 @@ public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue
 	}
 
 	public void Clone(ref JoinResult<TLeftValue, T1> value)
-		=> TResultChain.CloneValue(_leftCloner, ref Unsafe.AsRef(in value.Left), ref Unsafe.AsRef(in value.Right));
+		=> TResultChain.CloneValue(_leftCloner, ref Unsafe.AsRef(in value.Left), ref Unsafe.AsRef(in value.Right)!);
 }
 
 public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue, T1, T2> : ICloner<JoinResult<TLeftValue, T1, T2>>
@@ -109,7 +109,7 @@ public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue
 	}
 
 	public void Clone(ref JoinResult<TLeftValue, T1, T2> value)
-		=> TResultChain.CloneValue(_leftCloner, ref Unsafe.AsRef(in value.Left), ref Unsafe.AsRef(in value.Right), ref Unsafe.AsRef(in value.Right2));
+		=> TResultChain.CloneValue(_leftCloner, ref Unsafe.AsRef(in value.Left), ref Unsafe.AsRef(in value.Right)!, ref Unsafe.AsRef(in value.Right2)!);
 }
 
 public interface ISortableResolverChain {
@@ -272,8 +272,8 @@ public struct SortComparerWrapper<TFullResult, TLeftValue,TComparer> : IComparer
 	public SortComparerWrapper(TComparer comparer) => _comparer = comparer;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public int Compare(TFullResult x, TFullResult y)
-		=> _comparer.Compare(x.Left, y.Left);
+	public int Compare(TFullResult? x, TFullResult? y)
+		=> _comparer.Compare(x!.Left, y!.Left);
 }
 
 public struct SortComparerWrapper<TFullResult, TLeftValue, T1, TComparer> : IComparer<TFullResult>
@@ -284,8 +284,8 @@ public struct SortComparerWrapper<TFullResult, TLeftValue, T1, TComparer> : ICom
 	public SortComparerWrapper(TComparer comparer) => _comparer = comparer;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public int Compare(TFullResult x, TFullResult y)
-		=> _comparer.Compare(new JoinResult<TLeftValue, T1>(x.Left, x.Right), new JoinResult<TLeftValue, T1>(y.Left, y.Right));
+	public int Compare(TFullResult? x, TFullResult? y)
+		=> _comparer.Compare(new JoinResult<TLeftValue, T1>(x!.Left, x!.Right), new JoinResult<TLeftValue, T1>(y!.Left, y!.Right));
 }
 
 public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, T1>
@@ -325,8 +325,8 @@ public struct SortComparerWrapper<TFullResult, TLeftValue, T1, T2, TComparer> : 
 	public SortComparerWrapper(TComparer comparer) => _comparer = comparer;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public int Compare(TFullResult x, TFullResult y)
-		=> _comparer.Compare(new JoinResult<TLeftValue, T1, T2>(x.Left, x.Right, x.Right2), new JoinResult<TLeftValue, T1, T2>(y.Left, y.Right, y.Right2));
+	public int Compare(TFullResult? x, TFullResult? y)
+		=> _comparer.Compare(new JoinResult<TLeftValue, T1, T2>(x!.Left, x!.Right, x!.Right2), new JoinResult<TLeftValue, T1, T2>(y!.Left, y!.Right, y!.Right2));
 }
 
 public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, T1, T2>

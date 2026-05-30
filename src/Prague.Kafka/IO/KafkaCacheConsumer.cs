@@ -114,7 +114,6 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 	private readonly ILogger _logger;
 	private readonly KafkaDataCacheStatistics _statistics;
 
-	private bool _isLoading = true;
 	private long _startTimestamp;
 
 	public KafkaCacheHandler(
@@ -296,7 +295,6 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		_logger.CacheLoaded(Name, offset, loadTime.TotalMilliseconds);
 		_statistics.SetInitialLoad(loadTime);
 		countdownEvent.Signal(loadTime);
-		_isLoading = false;
 		_rawWorker = new RawLiveWorker(this, RAW_WORKER_CAPACITY);
 		_rawWorker.Start(ct);
 	}

@@ -125,7 +125,7 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 		Debug.Assert(Count < valuesSpan.Length, "ValueDictionary capacity exceeded");
 		var count = Count;
 		Unsafe.Add(ref keysRef, count) = key;
-		Unsafe.Add(ref valuesRef, count) = default(TValue);
+		Unsafe.Add(ref valuesRef, count) = default!;
 		Unsafe.Add(ref metaRef, slot) = count;
 		Count = count + 1;
 		exists = false;
@@ -147,7 +147,7 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 		while (true) {
 			num2 = Unsafe.Add(ref arrayDataReference, num);
 			if (num2 < 0) {
-				value = default(TValue);
+				value = default!;
 				return false;
 			}
 
@@ -164,7 +164,7 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 
 	public TValue[] ExtractValues() {
 		var valuesArray = ValuesArray;
-		ValuesArray = null;
+		ValuesArray = null!;
 		return valuesArray;
 	}
 
@@ -358,10 +358,10 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 			MetadataPool.Return(_metadata);
 			KeysPool.Return(_keysArray, RuntimeHelpers.IsReferenceOrContainsReferences<TKey>());
 			_keys = null;
-			_metadata = null;
+			_metadata = null!;
 		}
 
-		ValuesArray = null;
+		ValuesArray = null!;
 		Count = 0;
 	}
 
@@ -371,12 +371,12 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 			MetadataPool.Return(_metadata);
 			KeysPool.Return(_keysArray, RuntimeHelpers.IsReferenceOrContainsReferences<TKey>());
 			_keys = null;
-			_metadata = null;
+			_metadata = null!;
 		}
 
 		if (withValues)
 			ValuesPool.Return(ValuesArray, RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
-		ValuesArray = null;
+		ValuesArray = null!;
 		Count = 0;
 	}
 

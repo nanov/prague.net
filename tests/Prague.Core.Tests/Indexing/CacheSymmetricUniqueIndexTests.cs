@@ -24,7 +24,7 @@ public class CacheSymmetricUniqueIndexTests {
 
 	private string GetReverse(int key) {
 		Assert.That(_index.Reverse.TryGetValue(key, out var value), Is.True, $"Reverse index does not contain key {key}");
-		return value;
+		return value!;
 	}
 
 	[SetUp]
