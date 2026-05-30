@@ -3,7 +3,7 @@ namespace Prague.Kafka;
 using Confluent.Kafka;
 
 public interface IKafkaCacheBuilderProvider {
-	internal ConsumerBuilder<TKey, TValue> NewConsumerBuilder<TKey, TValue>(
+	internal RawConsumerBuilder NewRawConsumerBuilder(
 		IEnumerable<KeyValuePair<string, string>> config);
 
 	internal ProducerBuilder<TKey, TValue> NewProducerBuilder<TKey, TValue>(
@@ -11,9 +11,9 @@ public interface IKafkaCacheBuilderProvider {
 }
 
 internal sealed class KafkaCacheBuilderProvider : IKafkaCacheBuilderProvider {
-	public ConsumerBuilder<TKey, TValue> NewConsumerBuilder<TKey, TValue>(
+	public RawConsumerBuilder NewRawConsumerBuilder(
 		IEnumerable<KeyValuePair<string, string>> config) {
-		return new ConsumerBuilder<TKey, TValue>(config);
+		return new RawConsumerBuilder(config);
 	}
 
 	public ProducerBuilder<TKey, TValue> NewProducerBuilder<TKey, TValue>(

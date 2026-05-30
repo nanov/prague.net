@@ -20,7 +20,6 @@
     <ProjectReference Include="..\..\src\Prague.Core\Prague.Core.csproj"/>
     <ProjectReference Include="..\..\src\Prague.Codegen\Prague.Codegen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
     <ProjectReference Include="..\..\src\Prague.Kafka\Prague.Kafka.csproj"/>
-    <ProjectReference Include="..\..\src\Prague.Kafka.TestAdaptor\Prague.Kafka.TestAdaptor.csproj"/>
   </ItemGroup>
 
 </Project>

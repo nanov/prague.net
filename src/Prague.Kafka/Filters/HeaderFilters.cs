@@ -4,13 +4,13 @@ using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
-using MessagePack;
 using SerDe;
 
 internal sealed class KafkaHeaderFilters {
 	private static readonly KafkaHeaderFilters _empty = new(new Dictionary<string, List<KafkaHeaderFilterExecutor>>());
 
 	private readonly FrozenDictionary<string, KafkaHeaderFilterExecutor> _filters;
+	private readonly FrozenDictionary<string, KafkaHeaderFilterExecutor>.AlternateLookup<ReadOnlySpan<char>> _byName;
 
 	internal readonly bool InitialState;
 
@@ -28,6 +28,9 @@ internal sealed class KafkaHeaderFilters {
 				initialStateisFalse = initialStateisFalse || filter.IsInitialFalse;
 				return filter;
 			}, StringComparer.Ordinal);
+		// Ordinal comparer supports span-keyed lookup — lets the raw consume path resolve a filter
+		// from a UTF-8 header-name span with no string allocation.
+		_byName = _filters.GetAlternateLookup<ReadOnlySpan<char>>();
 		InitialState = !initialStateisFalse;
 	}
 
@@ -38,24 +41,37 @@ internal sealed class KafkaHeaderFilters {
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal bool ShouldProcess(ref bool searchState, string headerName, byte[] headersBytes) {
+	internal bool ShouldProcess(ref bool searchState, string headerName, ReadOnlySpan<byte> headersBytes) {
 		return !_filters.TryGetValue(headerName, out var filter) || filter.ShouldProcess(ref searchState, headersBytes);
+	}
+
+	/// <summary>
+	///   Raw consume-path overload — resolves the filter from the UTF-8 header-name span (no string
+	///   allocation) and evaluates it against the value span.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headerName, ReadOnlySpan<byte> headerValue) {
+		// Header names are ASCII; UTF-8 byte length is an exact upper bound on the char count.
+		Span<char> nameChars = stackalloc char[headerName.Length];
+		var charCount = Encoding.UTF8.GetChars(headerName, nameChars);
+		return !_byName.TryGetValue(nameChars[..charCount], out var filter)
+			|| filter.ShouldProcess(ref searchState, headerValue);
 	}
 }
 
 internal abstract class KafkaHeaderFilterExecutor {
 	public abstract bool IsInitialFalse { get; }
-	public abstract bool ShouldProcess(ref bool searchState, byte[] headersBytes);
+	public abstract bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headersBytes);
 }
 
 internal abstract class KafkaHeaderFilter : KafkaHeaderFilterExecutor {
 	public override bool IsInitialFalse => false;
 
-	public sealed override bool ShouldProcess(ref bool searchState, byte[] headersBytes) {
+	public sealed override bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headersBytes) {
 		return ShouldProcess(headersBytes);
 	}
 
-	public abstract bool ShouldProcess(byte[] headersBytes);
+	public abstract bool ShouldProcess(ReadOnlySpan<byte> headersBytes);
 }
 
 internal sealed class KafkaCombinedHeaderFilter : KafkaHeaderFilterExecutor {
@@ -75,7 +91,7 @@ internal sealed class KafkaCombinedHeaderFilter : KafkaHeaderFilterExecutor {
 
 	public override bool IsInitialFalse { get; }
 
-	public override bool ShouldProcess(ref bool searchState, byte[] headersBytes) {
+	public override bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headersBytes) {
 		foreach (var filter in _filters)
 			if (!filter.ShouldProcess(ref searchState, headersBytes))
 				return false;
@@ -86,14 +102,14 @@ internal sealed class KafkaCombinedHeaderFilter : KafkaHeaderFilterExecutor {
 internal sealed class KafkaHeaderExistsFilter : KafkaHeaderFilterExecutor {
 	public override bool IsInitialFalse => true;
 
-	public override bool ShouldProcess(ref bool searchState, byte[] headersBytes) {
+	public override bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headersBytes) {
 		searchState = true;
 		return true;
 	}
 }
 
 internal sealed class KafkaHeaderNotExistsFilter : KafkaHeaderFilter {
-	public override bool ShouldProcess(byte[] headersBytes) {
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
 		return false;
 	}
 }
@@ -105,7 +121,7 @@ internal class KafkaHeaderEqualsFilter<T> : KafkaHeaderFilter {
 		_value = value;
 	}
 
-	public override bool ShouldProcess(byte[] headersBytes) {
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
 		// MessagePack-exact first for int/long (canonical post-codegen format); raw length-check fallback for legacy.
 		// Guid stays raw-only (codegen still emits raw 16-byte Guid).
 		if (typeof(T) == typeof(int)) {
@@ -125,7 +141,7 @@ internal class KafkaHeaderEqualsFilter<T> : KafkaHeaderFilter {
 		if (typeof(T) == typeof(Guid) && HeadersSerDe.TryDeserializeGuid(headersBytes, out var g))
 			return Unsafe.As<Guid, T>(ref g)!.Equals(_value);
 
-		var val = MessagePackSerializer.Deserialize<T?>(headersBytes, PragueMessagePack.Options);
+		var val = SpanMessagePackDeserializer.Deserialize<T?>(headersBytes);
 		return val?.Equals(_value) ?? true;
 	}
 }
@@ -137,7 +153,7 @@ internal sealed class KafkaHeaderEqualsMultiFilter : KafkaHeaderFilter {
 		_filters = filters;
 	}
 
-	public override bool ShouldProcess(byte[] headersBytes) {
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
 		foreach (var filter in _filters)
 			if (filter.ShouldProcess(headersBytes))
 				return true;
@@ -153,8 +169,8 @@ internal sealed class KafkaHeaderEqualsStringFilter : KafkaHeaderEqualsFilter<st
 		_valueBytes = Encoding.UTF8.GetBytes(value);
 	}
 
-	public override bool ShouldProcess(byte[] headersBytes) {
-		return headersBytes.AsSpan().SequenceEqual(_valueBytes);
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
+		return headersBytes.SequenceEqual(_valueBytes);
 	}
 }
 
@@ -165,7 +181,7 @@ internal sealed class KafkaHeaderNotEqualsFilter<T> : KafkaHeaderFilter {
 		_value = value;
 	}
 
-	public override bool ShouldProcess(byte[] headersBytes) {
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
 		if (typeof(T) == typeof(int)) {
 			if (HeadersSerDe.TryDeserializeMessagePackExact<int>(headersBytes, out var mi)) {
 				return !Unsafe.As<int, T>(ref mi)!.Equals(_value);
@@ -183,7 +199,7 @@ internal sealed class KafkaHeaderNotEqualsFilter<T> : KafkaHeaderFilter {
 		if (typeof(T) == typeof(Guid) && HeadersSerDe.TryDeserializeGuid(headersBytes, out var g))
 			return !Unsafe.As<Guid, T>(ref g)!.Equals(_value);
 
-		var val = MessagePackSerializer.Deserialize<T>(headersBytes, PragueMessagePack.Options);
+		var val = SpanMessagePackDeserializer.Deserialize<T>(headersBytes);
 		return val is null || !val.Equals(_value);
 	}
 }
@@ -196,8 +212,8 @@ internal sealed class KafkaHeaderNotEqualsStringFilter : KafkaHeaderFilter {
 		_valueBytes = Encoding.UTF8.GetBytes(value);
 	}
 
-	public override bool ShouldProcess(byte[] headersBytes) {
-		return !headersBytes.AsSpan().SequenceEqual(_valueBytes);
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
+		return !headersBytes.SequenceEqual(_valueBytes);
 	}
 }
 
@@ -213,7 +229,7 @@ internal sealed class KafkaHeaderEqualsNumericFilter : KafkaHeaderFilter {
 		_value = value;
 	}
 
-	public override bool ShouldProcess(byte[] headersBytes) {
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
 		// MessagePack-exact first (canonical), raw int/long length-check fallback for legacy.
 		if (HeadersSerDe.TryDeserializeMessagePackExact<long>(headersBytes, out var j))
 			return j == _value;
@@ -238,7 +254,7 @@ internal sealed class KafkaHeaderNotEqualsNumericFilter : KafkaHeaderFilter {
 		_value = value;
 	}
 
-	public override bool ShouldProcess(byte[] headersBytes) {
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
 		if (HeadersSerDe.TryDeserializeMessagePackExact<long>(headersBytes, out var j))
 			return j != _value;
 		if (HeadersSerDe.TryDeserializeInt(headersBytes, out var i))
@@ -260,7 +276,7 @@ internal sealed class KafkaHeaderPredicateFilter<T> : KafkaHeaderFilter
 		_passOnNull = passOnNull;
 	}
 
-	public override bool ShouldProcess(byte[] headersBytes) {
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
 		// MessagePack-exact first for int/long (canonical); raw fallback for legacy.
 		if (typeof(T) == typeof(int)) {
 			if (HeadersSerDe.TryDeserializeMessagePackExact<int>(headersBytes, out var mi)) {
@@ -280,7 +296,7 @@ internal sealed class KafkaHeaderPredicateFilter<T> : KafkaHeaderFilter
 			return _predicate(Unsafe.As<Guid, T>(ref g));
 
 		// Fast-path for MessagePack nil (0xC0): no deserialize needed.
-		if (headersBytes is { Length: 1 } && headersBytes[0] == 0xC0) {
+		if (headersBytes.Length == 1 && headersBytes[0] == 0xC0) {
 			return _passOnNull;
 		}
 

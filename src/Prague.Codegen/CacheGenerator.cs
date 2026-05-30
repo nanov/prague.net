@@ -4578,90 +4578,114 @@ public class CacheGenerator : IIncrementalGenerator {
 		w.Class($"internal sealed class {enricherClassName} : Enricher<{typeName}>", (ref CodeWriter w) => {
 			w.Line($"public static readonly {enricherClassName} Instance = new();").Line();
 			w.Line($"private {enricherClassName}() {{ }}").Line();
-			w.Method($"public override void Enrich({typeName} entity, Headers headers, Timestamp timestamp)", (ref CodeWriter w) => {
-				// Generate header enrichment
-				if (enrichInfo.HeaderProperties.Count > 0) {
-					w.Line("// Enrich from headers - optimized with CollectionsMarshal.AsSpan and Ascii.Equals");
-					w.Line("var headersSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(");
-					w.Indent((ref CodeWriter w) => {
-						w.Line("System.Runtime.CompilerServices.Unsafe.As<System.Collections.Generic.List<Confluent.Kafka.IHeader>>(headers.BackingList));");
-					});
-					w.ForEach("ref readonly var header in headersSpan", (ref CodeWriter w) => {
-						// Generate if-else chain with Ascii.Equals instead of switch
-						var isFirst = true;
-						foreach (var prop in enrichInfo.HeaderProperties) {
-							var ifKeyword = isFirst ? "if" : "else if";
-							w.Line($"{ifKeyword} (System.Text.Ascii.Equals(\"{prop.HeaderName}\", header.Key))");
-							w.OpenBrace();
-
-							// Generate conversion based on property type
-							if (prop.PropertyType == "int" || prop.PropertyType == "int?") {
-								// Raw format (exactly 4 bytes, BitConverter legacy) checked first via length — unambiguous.
-								// MessagePackExact fallback covers the canonical post-Task-1 format (variable length).
-								// Braces scope `headerBytes`, `intValue`, `intValueMp` so multiple int properties don't collide.
-								w.Line("{");
-								w.IncreaseIndent();
-								w.Line("var headerBytes = header.GetValueBytes();");
-								w.If("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeInt(headerBytes, out var intValue)");
-								w.Line($"entity.{prop.PropertyName} = intValue;");
-								w.ElseIf("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeMessagePackExact<int>(headerBytes, out var intValueMp)");
-								w.Line($"entity.{prop.PropertyName} = intValueMp;");
-								w.CloseBrace();
-								w.DecreaseIndent();
-								w.Line("}");
-							}
-							else if (prop.PropertyType == "long" || prop.PropertyType == "long?") {
-								// Raw format (exactly 8 bytes, BitConverter legacy) checked first via length — unambiguous.
-								// MessagePackExact fallback covers the canonical post-Task-1 format (variable length).
-								// Braces scope `headerBytes`, `longValue`, `longValueMp` so multiple long properties don't collide.
-								w.Line("{");
-								w.IncreaseIndent();
-								w.Line("var headerBytes = header.GetValueBytes();");
-								w.If("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeLong(headerBytes, out var longValue)");
-								w.Line($"entity.{prop.PropertyName} = longValue;");
-								w.ElseIf("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeMessagePackExact<long>(headerBytes, out var longValueMp)");
-								w.Line($"entity.{prop.PropertyName} = longValueMp;");
-								w.CloseBrace();
-								w.DecreaseIndent();
-								w.Line("}");
-							}
-							else if (IsType(prop.PropertyType, "string")) {
-								w.Line($"entity.{prop.PropertyName} = Prague.Kafka.SerDe.HeadersSerDe.DeserializeString(header.GetValueBytes());");
-							}
-							else if (IsType(prop.PropertyType, "System.Guid")) {
-								w.If("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeGuid(header.GetValueBytes(), out var guidValue)", (ref CodeWriter w) => {
-									w.Line($"entity.{prop.PropertyName} = guidValue;");
-								});
-							}
-							else {
-								// For other types, use MessagePack deserializer
-								// PropertyType is already FQF (with "global::" prefix).
-								w.If($"Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeMessagePack<{prop.PropertyType}>(header.GetValueBytes(), out var msgPackValue)", (ref CodeWriter w) => {
-									w.Line($"entity.{prop.PropertyName} = msgPackValue;");
-								});
-							}
-
-							w.CloseBrace();
-							isFirst = false;
-						}
-					});
-				}
-
-				// Generate timestamp enrichment
-				foreach (var prop in enrichInfo.TimestampProperties) {
-					w.Line($"// Set {prop.PropertyName} from Kafka timestamp");
-
-					// Determine conversion based on property type
-					if (IsType(prop.PropertyType, "long"))
-						w.Line($"entity.{prop.PropertyName} = timestamp.UnixTimestampMs;");
-					else if (IsType(prop.PropertyType, "System.DateTime"))
-						w.Line($"entity.{prop.PropertyName} = timestamp.UtcDateTime;");
-					else if (IsType(prop.PropertyType, "System.DateTimeOffset"))
-						w.Line($"entity.{prop.PropertyName} = new System.DateTimeOffset(timestamp.UtcDateTime, System.TimeSpan.Zero);");
-				}
+			// Zero-allocation raw-header overload — the only consume path is RawConsumer.
+			var info = enrichInfo;
+			w.Method($"public override void Enrich({typeName} entity, in RawHeaders headers, Timestamp timestamp)", (ref CodeWriter w) => {
+				EmitEnrichBody(ref w, info, raw: true);
 			});
 		});
 		w.Line();
+	}
+
+	/// <summary>
+	///   Emits the shared body of both <c>Enrich</c> overloads. The only differences between the
+	///   managed-<c>Headers</c> path and the zero-alloc raw path are the header iteration, the
+	///   header-name comparison, and how the value bytes are accessed.
+	/// </summary>
+	private static void EmitEnrichBody(ref CodeWriter w, EnrichInfo enrichInfo, bool raw) {
+		// Value accessor: raw yields a `ReadOnlySpan<byte> value` per header; managed yields a byte[].
+		var valueExpr = raw ? "value" : "header.GetValueBytes()";
+
+		// Generate header enrichment
+		if (enrichInfo.HeaderProperties.Count > 0) {
+			void EmitProperties(ref CodeWriter w) {
+				// Generate if-else chain with Ascii.Equals instead of switch
+				var isFirst = true;
+				foreach (var prop in enrichInfo.HeaderProperties) {
+					var ifKeyword = isFirst ? "if" : "else if";
+					// raw compares the UTF-8 name span to a u8 literal; managed compares to header.Key.
+					var nameCmp = raw
+						? $"System.Text.Ascii.Equals(name, \"{prop.HeaderName}\"u8)"
+						: $"System.Text.Ascii.Equals(\"{prop.HeaderName}\", header.Key)";
+					w.Line($"{ifKeyword} ({nameCmp})");
+					w.OpenBrace();
+
+					// Generate conversion based on property type
+					if (prop.PropertyType == "int" || prop.PropertyType == "int?") {
+						// Raw format (exactly 4 bytes, BitConverter legacy) checked first via length — unambiguous.
+						// MessagePackExact fallback covers the canonical post-Task-1 format (variable length).
+						// Braces scope `headerBytes`, `intValue`, `intValueMp` so multiple int properties don't collide.
+						w.Line("{");
+						w.IncreaseIndent();
+						w.Line($"var headerBytes = {valueExpr};");
+						w.If("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeInt(headerBytes, out var intValue)");
+						w.Line($"entity.{prop.PropertyName} = intValue;");
+						w.ElseIf("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeMessagePackExact<int>(headerBytes, out var intValueMp)");
+						w.Line($"entity.{prop.PropertyName} = intValueMp;");
+						w.CloseBrace();
+						w.DecreaseIndent();
+						w.Line("}");
+					}
+					else if (prop.PropertyType == "long" || prop.PropertyType == "long?") {
+						// Raw format (exactly 8 bytes, BitConverter legacy) checked first via length — unambiguous.
+						// MessagePackExact fallback covers the canonical post-Task-1 format (variable length).
+						// Braces scope `headerBytes`, `longValue`, `longValueMp` so multiple long properties don't collide.
+						w.Line("{");
+						w.IncreaseIndent();
+						w.Line($"var headerBytes = {valueExpr};");
+						w.If("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeLong(headerBytes, out var longValue)");
+						w.Line($"entity.{prop.PropertyName} = longValue;");
+						w.ElseIf("Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeMessagePackExact<long>(headerBytes, out var longValueMp)");
+						w.Line($"entity.{prop.PropertyName} = longValueMp;");
+						w.CloseBrace();
+						w.DecreaseIndent();
+						w.Line("}");
+					}
+					else if (IsType(prop.PropertyType, "string")) {
+						w.Line($"entity.{prop.PropertyName} = Prague.Kafka.SerDe.HeadersSerDe.DeserializeString({valueExpr});");
+					}
+					else if (IsType(prop.PropertyType, "System.Guid")) {
+						w.If($"Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeGuid({valueExpr}, out var guidValue)", (ref CodeWriter w) => {
+							w.Line($"entity.{prop.PropertyName} = guidValue;");
+						});
+					}
+					else {
+						// For other types, use MessagePack deserializer
+						// PropertyType is already FQF (with "global::" prefix).
+						w.If($"Prague.Kafka.SerDe.HeadersSerDe.TryDeserializeMessagePack<{prop.PropertyType}>({valueExpr}, out var msgPackValue)", (ref CodeWriter w) => {
+							w.Line($"entity.{prop.PropertyName} = msgPackValue;");
+						});
+					}
+
+					w.CloseBrace();
+					isFirst = false;
+				}
+			}
+
+			if (raw) {
+				w.ForEach("var (name, value) in headers", EmitProperties);
+			} else {
+				w.Line("// Enrich from headers - optimized with CollectionsMarshal.AsSpan and Ascii.Equals");
+				w.Line("var headersSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(");
+				w.Indent((ref CodeWriter w) => {
+					w.Line("System.Runtime.CompilerServices.Unsafe.As<System.Collections.Generic.List<Confluent.Kafka.IHeader>>(headers.BackingList));");
+				});
+				w.ForEach("ref readonly var header in headersSpan", EmitProperties);
+			}
+		}
+
+		// Generate timestamp enrichment
+		foreach (var prop in enrichInfo.TimestampProperties) {
+			w.Line($"// Set {prop.PropertyName} from Kafka timestamp");
+
+			// Determine conversion based on property type
+			if (IsType(prop.PropertyType, "long"))
+				w.Line($"entity.{prop.PropertyName} = timestamp.UnixTimestampMs;");
+			else if (IsType(prop.PropertyType, "System.DateTime"))
+				w.Line($"entity.{prop.PropertyName} = timestamp.UtcDateTime;");
+			else if (IsType(prop.PropertyType, "System.DateTimeOffset"))
+				w.Line($"entity.{prop.PropertyName} = new System.DateTimeOffset(timestamp.UtcDateTime, System.TimeSpan.Zero);");
+		}
 	}
 
 	private static void GenerateConcreteDericher(ref CodeWriter w, EnrichInfo enrichInfo) {

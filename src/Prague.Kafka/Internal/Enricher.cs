@@ -7,9 +7,10 @@ using Confluent.Kafka;
 /// </summary>
 public abstract class Enricher<TValue> {
 	/// <summary>
-	///   Enriches the cache item with Kafka message metadata.
+	///   Zero-allocation enrichment from the raw consume-path headers (UTF-8 name + value spans into
+	///   librdkafka's buffer) plus the message timestamp.
 	/// </summary>
-	public abstract void Enrich(TValue entity, Headers headers, Timestamp timestamp);
+	public abstract void Enrich(TValue entity, in RawHeaders headers, Timestamp timestamp);
 }
 
 /// <summary>
@@ -21,7 +22,7 @@ public sealed class NoOpEnricher<TValue> : Enricher<TValue> {
 	private NoOpEnricher() {
 	}
 
-	public override void Enrich(TValue entity, Headers headers, Timestamp timestamp) {
+	public override void Enrich(TValue entity, in RawHeaders headers, Timestamp timestamp) {
 		// No-op
 	}
 }
