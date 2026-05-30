@@ -59,6 +59,68 @@ public partial class TestCatalogMaker {
 	public int DepartmentId { get; set; }
 }
 
+/// <summary>
+///   Global index scoped to enabled products only, via a filter struct.
+/// </summary>
+public partial class EnabledDepartmentIndex : IDataCacheGlobalLastUpdateIndex<int> {
+}
+
+public partial class EnabledBrandIndex : IDataCacheGlobalLastUpdateIndex<long> {
+}
+
+/// <summary>
+///   Membership predicate: only enabled products contribute to the filtered indexes.
+/// </summary>
+public readonly struct EnabledProductFilter : IDataCacheGlobalLastUpdateFilter<FilteredCatalogProduct> {
+	public static bool Include(FilteredCatalogProduct value) => value.IsEnabled;
+}
+
+/// <summary>
+///   Test entity for FILTERED global last update indexes. Only products with
+///   <see cref="IsEnabled"/> set are tracked, and membership is re-evaluated on every update.
+/// </summary>
+[DataCache]
+public partial class FilteredCatalogProduct {
+	[DataCacheKey] public string EventId { get; set; } = "";
+
+	public bool IsEnabled { get; set; }
+
+	/// <summary>Tracked by EnabledDepartmentIndex only when IsEnabled (AddOrUpdate timestamp).</summary>
+	[DataCacheGlobalLastUpdateIndex<EnabledDepartmentIndex, EnabledProductFilter>]
+	public int DepartmentId { get; set; }
+
+	/// <summary>Tracked by EnabledBrandIndex only when IsEnabled (UpdatedAtMs timestamp).</summary>
+	[DataCacheGlobalLastUpdateIndex<EnabledBrandIndex, EnabledProductFilter>(nameof(UpdatedAtMs))]
+	public long BrandId { get; set; }
+
+	public long UpdatedAtMs { get; set; }
+}
+
+public partial class KeyedAllIndex : IDataCacheGlobalLastUpdateIndex<int> {
+}
+
+public partial class KeyedEnabledIndex : IDataCacheGlobalLastUpdateIndex<int> {
+}
+
+public readonly struct KeyedEnabledFilter : IDataCacheGlobalLastUpdateFilter<KeyedProduct> {
+	public static bool Include(KeyedProduct value) => value.IsEnabled;
+}
+
+/// <summary>
+///   The key property carries BOTH a filtered global index (declared first) and an unfiltered one. The
+///   keyless UpdatedAfter must be backed by the UNFILTERED index regardless of attribute order, otherwise
+///   UpdatedAfter would silently return only filter-passing entities.
+/// </summary>
+[DataCache]
+public partial class KeyedProduct {
+	[DataCacheKey]
+	[DataCacheGlobalLastUpdateIndex<KeyedEnabledIndex, KeyedEnabledFilter>]
+	[DataCacheGlobalLastUpdateIndex<KeyedAllIndex>]
+	public int ProductId { get; set; }
+
+	public bool IsEnabled { get; set; }
+}
+
 public partial class ProductLastUpdatedIndex : IDataCacheGlobalLastUpdateIndex<int> {
 }
 

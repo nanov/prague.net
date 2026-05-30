@@ -229,11 +229,14 @@ public class CacheGenerator : IIncrementalGenerator {
 
 		foreach (var (ns, cacheName, fullName, classSymbol) in allCacheInfo) {
 			// Find properties with [DataCacheGlobalLastUpdateIndex<T>] attribute
+			// Matches both the plain <TIndex> and filtered <TIndex, TFilter> forms; the index type is always
+			// the first type argument, so partial-class generation is identical for both.
 			var propsWithGlobalIndex = classSymbol.GetMembers()
 				.OfType<IPropertySymbol>()
 				.SelectMany(p => p.GetAttributes()
-					.Where(a => a.AttributeClass?.OriginalDefinition.ToDisplayString() ==
-					            "Prague.Core.DataCacheGlobalLastUpdateIndexAttribute<TIndex>")
+					.Where(a => a.AttributeClass?.OriginalDefinition.ToDisplayString() is
+					            AttributeNames.DataCacheGlobalLastUpdateIndex or
+					            AttributeNames.DataCacheGlobalLastUpdateIndexFiltered)
 					.Select(a => new { Property = p, Attribute = a }))
 				.ToList();
 
@@ -281,6 +284,25 @@ public class CacheGenerator : IIncrementalGenerator {
 								indexTypeSymbol.Name,
 								expectedGroupKeyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
 							context.ReportDiagnostic(diagnostic);
+							continue;
+						}
+
+						// The generator extends the index with a namespace-level `public partial class` and
+						// references it from a public AddGlobalIndexes(...) parameter, so the index class must be
+						// public and top-level. A nested or non-public declaration otherwise fails with a confusing
+						// CS0262/CS0051 in generated code.
+						if (indexTypeSymbol.ContainingType is not null || indexTypeSymbol.DeclaredAccessibility != Accessibility.Public) {
+							context.ReportDiagnostic(Diagnostic.Create(
+								new DiagnosticDescriptor(
+									"CACHE035",
+									"Global last update index class must be public and top-level",
+									"Index type '{0}' used in [DataCacheGlobalLastUpdateIndex<{0}>] on '{1}' must be a public, non-nested (namespace-level) class.",
+									"CacheGenerator",
+									DiagnosticSeverity.Error,
+									true),
+								item.Property.Locations.FirstOrDefault(),
+								indexTypeSymbol.Name,
+								item.Property.Name));
 							continue;
 						}
 
@@ -346,6 +368,11 @@ public class CacheGenerator : IIncrementalGenerator {
 			w.ExpressionBody(
 				$"public int GetEntitiesCount({groupKeyTypeName} key)",
 				"Index.GetEntitiesCount(key)");
+			w.Line();
+			w.Attribute("MethodImpl(MethodImplOptions.AggressiveInlining)");
+			w.ExpressionBody(
+				$"public bool TryGetMax(global::System.ReadOnlySpan<{groupKeyTypeName}> keys, out long timestampMs)",
+				"Index.TryGetMax(keys, out timestampMs)");
 		});
 		return w.ToString();
 	}
@@ -485,6 +512,25 @@ public class CacheGenerator : IIncrementalGenerator {
 		//   Reverse direction is unsupported (selectors aren't invertible).
 		foreach (var fkRaw in foreignKeyPropertiesRaw) {
 			if (fkRaw.SelectorType is null) continue; // not a selector-form FK
+
+			// The generated join names the selector struct by its fully-qualified name; a private/protected/
+			// file-local selector is unreachable from the generated file (CS0122).
+			if (!IsAccessibleToGeneratedCode(fkRaw.SelectorType)) {
+				context.ReportDiagnostic(Diagnostic.Create(
+					new DiagnosticDescriptor(
+						"CACHE048",
+						"Selector FK: TSelector must be accessible to generated code",
+						"Selector type '{0}' used in [DataCacheForeignKey<{1}, {0}>(...)] on '{2}' is not accessible to generated code; make it (and any containing type) at least internal and not file-local.",
+						"CacheGenerator",
+						DiagnosticSeverity.Error,
+						true),
+					fkRaw.Property.Locations.FirstOrDefault(),
+					fkRaw.SelectorType.Name,
+					fkRaw.ReferencedType?.Name ?? "?",
+					fkRaw.Property.Name));
+				continue;
+			}
+
 			var fkPropType = fkRaw.Property.Type;
 			var (_, targetPkTypeName, _) = ExtractKeyInfo(fkRaw.ReferencedType!);
 			var targetPkType = fkRaw.ReferencedType!.GetMembers()
@@ -689,9 +735,71 @@ public class CacheGenerator : IIncrementalGenerator {
 		var globalLastUpdateIndexPropertiesRaw = ExtractGlobalLastUpdateIndexProperties(classSymbol);
 		// Convert to anonymous type for compatibility with existing code
 		var globalLastUpdateIndexProperties = globalLastUpdateIndexPropertiesRaw
-			.Select(x => new { x.Property, IndexType = x.IndexType, x.TimestampPropertyName })
+			.Select(x => new { x.Property, IndexType = x.IndexType, x.TimestampPropertyName, x.FilterType })
 			.Where(x => x.IndexType != null)
 			.ToList();
+
+		// Validate filtered-form global index constraints (DataCacheGlobalLastUpdateIndex<TIndex, TFilter>):
+		//   CACHE032 — TFilter doesn't implement IDataCacheGlobalLastUpdateFilter<TValue>.
+		//   CACHE033 — TFilter's TValue doesn't match the owning [DataCache] entity type.
+		foreach (var giRaw in globalLastUpdateIndexPropertiesRaw) {
+			if (giRaw.FilterType is null) continue; // not a filtered-form global index
+
+			// A filter struct may implement IDataCacheGlobalLastUpdateFilter<T> for more than one T. Collect all
+			// closures and accept if ANY targets the owning entity — picking the first arbitrarily would
+			// spuriously reject a valid multi-entity filter (or accept a wrong one) based on interface order.
+			var filterIfaces = giRaw.FilterType.AllInterfaces
+				.Where(i => i.OriginalDefinition.ToDisplayString() == AttributeNames.IDataCacheGlobalLastUpdateFilterOriginalDefinition)
+				.ToList();
+
+			if (filterIfaces.Count == 0) {
+				context.ReportDiagnostic(Diagnostic.Create(
+					new DiagnosticDescriptor(
+						"CACHE032",
+						"Filtered global index: TFilter must implement IDataCacheGlobalLastUpdateFilter<TValue>",
+						"Filter type '{0}' used in [DataCacheGlobalLastUpdateIndex<{1}, {0}>(...)] on '{2}' does not implement IDataCacheGlobalLastUpdateFilter<TValue>.",
+						"CacheGenerator",
+						DiagnosticSeverity.Error,
+						true),
+					giRaw.Property.Locations.FirstOrDefault(),
+					giRaw.FilterType.Name,
+					giRaw.IndexType?.Name ?? "?",
+					giRaw.Property.Name));
+				continue;
+			}
+
+			if (!filterIfaces.Any(i => SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], classSymbol))) {
+				context.ReportDiagnostic(Diagnostic.Create(
+					new DiagnosticDescriptor(
+						"CACHE033",
+						"Filtered global index: TValue doesn't match the entity type",
+						"Filter '{0}' implements IDataCacheGlobalLastUpdateFilter<{1}> but the owning entity is '{2}'.",
+						"CacheGenerator",
+						DiagnosticSeverity.Error,
+						true),
+					giRaw.Property.Locations.FirstOrDefault(),
+					giRaw.FilterType.Name,
+					filterIfaces[0].TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+					classSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+			}
+
+			// The generated registration names the filter struct by its fully-qualified name; a private/
+			// protected/file-local filter is unreachable from the generated file (CS0122).
+			if (!IsAccessibleToGeneratedCode(giRaw.FilterType)) {
+				context.ReportDiagnostic(Diagnostic.Create(
+					new DiagnosticDescriptor(
+						"CACHE034",
+						"Filtered global index: TFilter must be accessible to generated code",
+						"Filter type '{0}' used in [DataCacheGlobalLastUpdateIndex<{1}, {0}>(...)] on '{2}' is not accessible to generated code; make it (and any containing type) at least internal and not file-local.",
+						"CacheGenerator",
+						DiagnosticSeverity.Error,
+						true),
+					giRaw.Property.Locations.FirstOrDefault(),
+					giRaw.FilterType.Name,
+					giRaw.IndexType?.Name ?? "?",
+					giRaw.Property.Name));
+			}
+		}
 
 		// Find properties with [DataCacheHasValueIndex] attribute
 		var hasValueIndexProperties = ExtractHasValueIndexProperties(classSymbol);
@@ -760,9 +868,15 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine("        private DataCacheStatistics _statistics;");
 		sb.AppendLine("        public DataCacheStatistics Statistics => _statistics;");
 
-		// Generate field for global index on the cache's key type (for UpdatedAfter methods)
+		// Single source of truth for "which global index backs the key-type UpdatedAfter": both the field
+		// declaration (here) and the AddGlobalIndexes assignment below reuse this one selection.
+		// Prefer an UNFILTERED index: a filtered one would silently make the keyless UpdatedAfter(...) return
+		// only filter-passing entities. The unfiltered form always wins; a filtered index backs UpdatedAfter
+		// only when no unfiltered index is declared on the key property.
 		var globalIndexOnKeyForField = globalLastUpdateIndexProperties
-			.FirstOrDefault(g => g!.Property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == keyTypeName);
+			.Where(g => g!.Property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == keyTypeName)
+			.OrderBy(g => g!.FilterType == null ? 0 : 1)
+			.FirstOrDefault();
 
 		if (globalIndexOnKeyForField != null) {
 			var globalIndexTypeName = globalIndexOnKeyForField.IndexType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -1128,12 +1242,10 @@ public class CacheGenerator : IIncrementalGenerator {
 			sb.AppendLine($"        public void AddGlobalIndexes({paramDeclarations})");
 			sb.AppendLine("        {");
 
-			// Store the global index that matches the cache's key type (for UpdatedAfter methods)
-			var globalIndexOnKeyForAssignment = globalLastUpdateIndexProperties
-				.FirstOrDefault(g => g!.Property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == keyTypeName);
-
-			if (globalIndexOnKeyForAssignment != null) {
-				var indexTypeName = globalIndexOnKeyForAssignment.IndexType!.Name;
+			// Reuse the single selection computed for the field declaration above, so the assigned index can
+			// never drift from the field's declared type.
+			if (globalIndexOnKeyForField != null) {
+				var indexTypeName = globalIndexOnKeyForField.IndexType!.Name;
 				var paramName = indexTypeName.Substring(0, 1).ToLower() + indexTypeName.Substring(1);
 				sb.AppendLine($"            _keyGlobalIndex = {paramName};");
 			}
@@ -1145,6 +1257,15 @@ public class CacheGenerator : IIncrementalGenerator {
 				var paramName = indexTypeName.Substring(0, 1).ToLower() + indexTypeName.Substring(1);
 				var groupKeyPropertyName = globalIndex.Property.Name;
 				var timestampPropertyName = globalIndex.TimestampPropertyName;
+
+				// Filtered form supplies the filter struct as an explicit second type argument; the group-key
+				// type must then also be explicit, since TFilter cannot be inferred from the lambda arguments.
+				var typeArgs = "";
+				if (globalIndex.FilterType != null) {
+					var groupKeyTypeName = globalIndex.Property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+					var filterTypeName = globalIndex.FilterType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+					typeArgs = $"<{groupKeyTypeName}, {filterTypeName}>";
+				}
 
 				if (timestampPropertyName != null) {
 					var timestampProperty = classSymbol.GetMembers()
@@ -1166,12 +1287,12 @@ public class CacheGenerator : IIncrementalGenerator {
 							timestampSelector = $"static (key, doc) => (long)doc.{timestampPropertyName}";
 
 						sb.AppendLine(
-							$"            Cache.CacheLastUpdatedIndex({paramName}.Index, static (key, doc) => doc.{groupKeyPropertyName}, {timestampSelector});");
+							$"            Cache.CacheLastUpdatedIndex{typeArgs}({paramName}.Index, static (key, doc) => doc.{groupKeyPropertyName}, {timestampSelector});");
 					}
 				}
 				else {
 					sb.AppendLine(
-						$"            Cache.CacheLastUpdatedIndex({paramName}.Index, static (key, doc) => doc.{groupKeyPropertyName});");
+						$"            Cache.CacheLastUpdatedIndex{typeArgs}({paramName}.Index, static (key, doc) => doc.{groupKeyPropertyName});");
 				}
 			}
 
@@ -7964,6 +8085,8 @@ public class CacheGenerator : IIncrementalGenerator {
 		public const string IForeignKeySelectorOriginalDefinition = "Prague.Core.IForeignKeySelector<TFk, TPk>";
 		public const string DataCacheTopic = "Prague.Core.DataCacheTopicAttribute";
 		public const string DataCacheGlobalLastUpdateIndex = "Prague.Core.DataCacheGlobalLastUpdateIndexAttribute<TIndex>";
+		public const string DataCacheGlobalLastUpdateIndexFiltered = "Prague.Core.DataCacheGlobalLastUpdateIndexAttribute<TIndex, TFilter>";
+		public const string IDataCacheGlobalLastUpdateFilterOriginalDefinition = "Prague.Core.IDataCacheGlobalLastUpdateFilter<TValue>";
 		public const string DataCacheItem = "Prague.Core.IDataCacheItem<TKey, TValue>";
 	}
 
@@ -8003,6 +8126,30 @@ public class CacheGenerator : IIncrementalGenerator {
 			return typeArg;
 		}
 		return null;
+	}
+
+	/// <summary>
+	///   True if <paramref name="type"/> can be named from generator-emitted code. Generated code lives in
+	///   the same assembly and namespace as the entity but in a separate file and is not nested inside the
+	///   user's types, so the type (and every containing type) must be at least internal-accessible and not
+	///   file-local. A <c>private</c>/<c>protected</c>/<c>private protected</c>/<c>file</c> selector or filter
+	///   would otherwise compile to a confusing CS0122 in the generated output.
+	/// </summary>
+	private static bool IsAccessibleToGeneratedCode(INamedTypeSymbol type) {
+		for (INamedTypeSymbol? t = type; t is not null; t = t.ContainingType) {
+			if (t.IsFileLocal)
+				return false;
+			switch (t.DeclaredAccessibility) {
+				case Accessibility.Public:
+				case Accessibility.Internal:
+				case Accessibility.ProtectedOrInternal:
+					continue;
+				default:
+					return false;
+			}
+		}
+
+		return true;
 	}
 
 	/// <summary>
@@ -8547,15 +8694,17 @@ public class CacheGenerator : IIncrementalGenerator {
 	/// <summary>
 	/// Extracts global last update index properties from a class symbol.
 	/// </summary>
-	private static List<(IPropertySymbol Property, AttributeData Attribute, INamedTypeSymbol? IndexType, string? TimestampPropertyName)> ExtractGlobalLastUpdateIndexProperties(INamedTypeSymbol classSymbol) {
+	private static List<(IPropertySymbol Property, AttributeData Attribute, INamedTypeSymbol? IndexType, string? TimestampPropertyName, INamedTypeSymbol? FilterType)> ExtractGlobalLastUpdateIndexProperties(INamedTypeSymbol classSymbol) {
 		return classSymbol.GetMembers()
 			.OfType<IPropertySymbol>()
 			.SelectMany(p => FindAttributes(p, AttributeNames.DataCacheGlobalLastUpdateIndex, useOriginalDefinition: true)
+				.Concat(FindAttributes(p, AttributeNames.DataCacheGlobalLastUpdateIndexFiltered, useOriginalDefinition: true))
 				.Select(a => (Property: p, Attribute: a)))
 			.Select(x => {
 				var indexType = GetGenericTypeArgument(x.Attribute);
+				var filterType = GetGenericTypeArgument(x.Attribute, 1);
 				var timestampPropertyName = GetConstructorArgument<string>(x.Attribute);
-				return (x.Property, x.Attribute, indexType, timestampPropertyName);
+				return (x.Property, x.Attribute, indexType, timestampPropertyName, filterType);
 			})
 			.Where(x => x.indexType != null)
 			.ToList();

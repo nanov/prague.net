@@ -603,4 +603,46 @@ public class LastUpdatedIndexTests {
 		Assert.That(groups, Does.Not.Contain(100));
 		Assert.That(groups, Does.Not.Contain(400));
 	}
+
+	[Test]
+	public void TryGetMaxForKeys_ReturnsLargestAmongPresentKeys() {
+		var index = new LastUpdatedIndex<int>();
+		index.Add(100, T(10));
+		index.Add(200, T(30));
+		index.Add(300, T(20));
+
+		Span<int> keys = [100, 200, 300];
+		Assert.That(index.TryGetMax(keys, out var ts), Is.True);
+		Assert.That(ts, Is.EqualTo(T(30)));
+	}
+
+	[Test]
+	public void TryGetMaxForKeys_SkipsAbsentKeys() {
+		var index = new LastUpdatedIndex<int>();
+		index.Add(100, T(10));
+		index.Add(200, T(30));
+
+		// 999 absent; max over present {100, 200} is T(30).
+		Span<int> keys = [100, 999, 200];
+		Assert.That(index.TryGetMax(keys, out var ts), Is.True);
+		Assert.That(ts, Is.EqualTo(T(30)));
+	}
+
+	[Test]
+	public void TryGetMaxForKeys_AllAbsent_ReturnsFalse() {
+		var index = new LastUpdatedIndex<int>();
+		index.Add(100, T(10));
+
+		Span<int> keys = [998, 999];
+		Assert.That(index.TryGetMax(keys, out var ts), Is.False);
+		Assert.That(ts, Is.EqualTo(0L));
+	}
+
+	[Test]
+	public void TryGetMaxForKeys_EmptySpan_ReturnsFalse() {
+		var index = new LastUpdatedIndex<int>();
+		index.Add(100, T(10));
+
+		Assert.That(index.TryGetMax(ReadOnlySpan<int>.Empty, out _), Is.False);
+	}
 }
