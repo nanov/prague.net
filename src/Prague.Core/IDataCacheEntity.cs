@@ -2,7 +2,8 @@ namespace Prague.Core;
 
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Frozen;
-using System.Collections.Generic;using System.Diagnostics;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
@@ -154,8 +155,8 @@ public readonly struct CacheMapResult<TOut> {
 	public readonly bool Include;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public CacheMapResult(TOut value, bool include) {
-		Value = value;
+	public CacheMapResult([AllowNull] TOut value, bool include) {
+		Value = value!;
 		Include = include;
 	}
 
@@ -186,8 +187,6 @@ public sealed class DataCacheRegistryBuildContext {
 	private readonly List<CacheInfo> _cacheInfos = new List<CacheInfo>();
 
 	private readonly List<ICacheMapperInvoker> _mapperInvokers = new List<ICacheMapperInvoker>();
-
-	private readonly IServiceProvider _serviceProvider;
 
 	public bool CollectStatistics { get; }
 
@@ -325,7 +324,7 @@ public sealed class DataCacheRegistryBuilder {
 	private readonly HashSet<Type> _registeredTypes = new HashSet<Type>();
 
 	private readonly List<(Type, Action<DataCacheRegistryBuildContext>, Action<IServiceProvider, object>?)>
-		_registrations = new List<(Type, Action<DataCacheRegistryBuildContext>, Action<IServiceProvider, object>)>();
+		_registrations = new();
 
 	public DataCacheRegistryBuilder Register<TCache>() where TCache : class, ICacheRegisterable<TCache> {
 		if (_registeredTypes.Add(typeof(TCache))) {

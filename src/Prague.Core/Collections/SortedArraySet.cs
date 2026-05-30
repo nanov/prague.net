@@ -161,7 +161,7 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 		}
 		if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
 		{
-			_items[_count] = default(T);
+			_items[_count] = default!;
 		}
 		return true;
 	}

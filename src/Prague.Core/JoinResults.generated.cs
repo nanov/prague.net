@@ -3,6 +3,7 @@
 // </auto-generated>
 
 #nullable enable
+#pragma warning disable CS8500, CS8601, CS8602, CS8603, CS8604, CS8618, CS8619, CS8625, CS8714, CS8765, CS8766, CS8767
 
 namespace Prague.Core;
 
@@ -138,7 +139,6 @@ public readonly struct JoinResult<TLeft, T1> : IJoinResult<TLeft, T1> {
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -146,7 +146,6 @@ public readonly struct JoinResult<TLeft, T1> : IJoinResult<TLeft, T1> {
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -206,7 +205,6 @@ public readonly struct JoinResult<TLeft, T1, T2> : IJoinResult<TLeft, T1, T2> {
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -215,7 +213,6 @@ public readonly struct JoinResult<TLeft, T1, T2> : IJoinResult<TLeft, T1, T2> {
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -280,7 +277,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3> : IJoinResult<TLeft, T1, T2
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -290,7 +286,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3> : IJoinResult<TLeft, T1, T2
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -360,7 +355,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4> : IJoinResult<TLeft, T1
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -371,7 +365,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4> : IJoinResult<TLeft, T1
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -446,7 +439,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5> : IJoinResult<TLeft
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -458,7 +450,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5> : IJoinResult<TLeft
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -538,7 +529,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6> : IJoinResult<T
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -551,7 +541,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6> : IJoinResult<T
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -636,7 +625,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7> : IJoinResu
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -650,7 +638,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7> : IJoinResu
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -740,7 +727,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8> : IJoin
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -755,7 +741,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8> : IJoin
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -850,7 +835,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9> : I
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -866,7 +850,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9> : I
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -966,7 +949,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -983,7 +965,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -1088,7 +1069,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -1106,7 +1086,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -1216,7 +1195,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -1235,7 +1213,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -1350,7 +1327,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -1370,7 +1346,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -1490,7 +1465,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -1511,7 +1485,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -1636,7 +1609,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 	// boxing, so the returned ref points to this struct instance's field
 	// (not a boxed copy). This is load-bearing for ResolveChainCloner — the
 	// cloner writes the cloned value through the ref to update the slot.
-#pragma warning disable CS8500, CS8601, CS8619
 	ref T IJoinResult.TUnsafeGetValAt<T>(int index) {
 		switch (index) {
 			case 0: return ref Unsafe.As<TLeft, T>(ref Unsafe.AsRef(in Left));
@@ -1658,7 +1630,6 @@ public readonly struct JoinResult<TLeft, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10
 		}
 		throw new IndexOutOfRangeException();
 	}
-#pragma warning restore CS8500, CS8601, CS8619
 
 
 	// Explicit interface implementations
@@ -3072,7 +3043,7 @@ internal readonly struct Right15NonEmptyManyFilter<TKey, TJoinResult, TInnerValu
 
 internal ref struct PrepareIndexedInnerProcessor<TLeftKey, TLeftValue, TExecutor> : IResolverExecutor
 	where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
-	where TLeftKey : notnull {
+	where TLeftKey : notnull, IEquatable<TLeftKey> {
 	private ref TExecutor _leftQuery;
 	private readonly bool _cloneOnAdd;
 	private readonly bool _shouldPool;

@@ -118,7 +118,7 @@ public class HealthCheckTests {
 	public async Task Readiness_degrades_when_broker_goes_down() {
 		// Spin up a dedicated container for this test so we can safely stop it
 		// without affecting the other tests that rely on the shared fixture.
-		var container = new KafkaBuilder()
+		var container = new KafkaBuilder("confluentinc/cp-kafka:7.5.0")
 			.WithImage("confluentinc/cp-kafka:7.5.0")
 			.Build();
 

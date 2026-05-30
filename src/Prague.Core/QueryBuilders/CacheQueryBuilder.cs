@@ -246,7 +246,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 
 	private void UseIndexInternal<TIndexKey>(
 		CacheKeyValueListIndex<TKey, TValue, TIndexKey> index,
-		ReadOnlySpan<TIndexKey> values) {
+		ReadOnlySpan<TIndexKey> values) where TIndexKey : notnull {
 		if (_isIntersecter) {
 			ref var intersector = ref _incrementalIntersecter.Value;
 			if (intersector.IsCleared) return;

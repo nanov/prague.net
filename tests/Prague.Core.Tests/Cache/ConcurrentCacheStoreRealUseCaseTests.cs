@@ -142,7 +142,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 		// Assert
 		Assert.That(updated, Is.True);
 		Assert.That(cache.TryGetValue("index-key", out var hashset), Is.True);
-		Assert.That(hashset.Count, Is.EqualTo(1));
+		Assert.That(hashset!.Count, Is.EqualTo(1));
 		Assert.That(hashset.Contains(100), Is.True);
 		Assert.That(hashset.Contains(42), Is.False);
 	}
@@ -191,7 +191,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 
 		// Assert - All items should be in the hashset
 		Assert.That(cache.TryGetValue("shared-key", out var hashset), Is.True);
-		Assert.That(hashset.Count, Is.EqualTo(threadCount * itemsPerThread));
+		Assert.That(hashset!.Count, Is.EqualTo(threadCount * itemsPerThread));
 	}
 
 	[Test]
@@ -232,8 +232,8 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 
 		// Assert
 		Assert.That(cache.TryGetValue("key", out var hashset), Is.True);
-		Assert.That(hashset.Count, Is.GreaterThanOrEqualTo(50)); // At least 50 items removed
-		Assert.That(hashset.Count, Is.LessThanOrEqualTo(200)); // At most 200 items added
+		Assert.That(hashset!.Count, Is.GreaterThanOrEqualTo(50)); // At least 50 items removed
+		Assert.That(hashset!.Count, Is.LessThanOrEqualTo(200)); // At most 200 items added
 	}
 
 	[Test]
@@ -308,7 +308,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 		Assert.That(cache.Count, Is.EqualTo(50));
 		for (var i = 0; i < 50; i++) {
 			Assert.That(cache.TryGetValue(i, out var doc), Is.True);
-			Assert.That(doc.Id, Is.EqualTo(i));
+			Assert.That(doc!.Id, Is.EqualTo(i));
 		}
 	}
 

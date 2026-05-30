@@ -10,7 +10,7 @@ public static class HealthChecksBuilderExtensions {
 		HealthStatus failureStatus = HealthStatus.Unhealthy,
 		IEnumerable<string>? tags = null) {
 		builder.Services.AddOptions<KafkaCachesHealthOptions>();
-		return builder.AddCheck<KafkaCachesLivenessHealthCheck>(name, failureStatus, tags);
+		return builder.AddCheck<KafkaCachesLivenessHealthCheck>(name, failureStatus, tags ?? Array.Empty<string>());
 	}
 
 	public static IHealthChecksBuilder AddPragueKafkaReadiness(
@@ -19,6 +19,6 @@ public static class HealthChecksBuilderExtensions {
 		HealthStatus failureStatus = HealthStatus.Degraded,
 		IEnumerable<string>? tags = null) {
 		builder.Services.AddOptions<KafkaCachesHealthOptions>();
-		return builder.AddCheck<KafkaCachesReadinessHealthCheck>(name, failureStatus, tags);
+		return builder.AddCheck<KafkaCachesReadinessHealthCheck>(name, failureStatus, tags ?? Array.Empty<string>());
 	}
 }

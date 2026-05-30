@@ -18,11 +18,11 @@ public class DualKafkaClusterFixture : IDisposable {
     public async Task GlobalSetup() {
         Instance = this;
 
-        _clusterA = new KafkaBuilder()
+        _clusterA = new KafkaBuilder("confluentinc/cp-kafka:7.5.0")
             .WithImage("confluentinc/cp-kafka:7.5.0")
             .Build();
 
-        _clusterB = new KafkaBuilder()
+        _clusterB = new KafkaBuilder("confluentinc/cp-kafka:7.5.0")
             .WithImage("confluentinc/cp-kafka:7.5.0")
             .Build();
 

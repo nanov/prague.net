@@ -258,7 +258,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 				reference.Next = _freeList;
 				if (_clearOnFree)
 				{
-					reference.Value = default(T);
+					reference.Value = default!;
 				}
 				_count--;
 				if (_count == 0)
@@ -398,7 +398,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 			_pooledSlots = null;
 			if (Interlocked.Decrement(ref _pooledRefCount) == 0)
 			{
-				ReturnPooledArrays(pooledBuckets, pooledSlots);
+				ReturnPooledArrays(pooledBuckets, pooledSlots!);
 			}
 		}
 	}
@@ -407,7 +407,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	{
 		if (Interlocked.Decrement(ref _pooledRefCount) == 0)
 		{
-			ReturnPooledArrays(_pooledBuckets, slots);
+			ReturnPooledArrays(_pooledBuckets!, slots);
 		}
 	}
 

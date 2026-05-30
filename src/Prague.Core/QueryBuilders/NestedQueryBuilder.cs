@@ -10,7 +10,8 @@ public interface ICandidatesFilterer<TKey, TValue> where TKey : notnull, IEquata
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void UseIndexInternal<TIndexKey>(
 		CacheKeyValueIndex<TKey, TValue, TIndexKey> index,
-		TIndexKey value);
+		TIndexKey value)
+		where TIndexKey : notnull;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void UseIndexInternal<TIndexKey>(CacheKeyValueIndex<TKey, TValue, TIndexKey> index,
