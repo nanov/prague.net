@@ -411,6 +411,7 @@ snapshots/
 # Claude Code auto-memory
 .claude/auto-memory/dirty-files*
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Serena MCP tool state
 .serena/

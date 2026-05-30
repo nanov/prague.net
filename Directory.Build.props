@@ -16,4 +16,13 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
+
+    <!-- Auto-include a per-project README.md (next to the csproj) in its NuGet package.
+         Test/benchmark projects have no local README.md, so this is a no-op for them. -->
+    <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\README.md')">
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\README.md')">
+        <None Include="README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
 </Project>
