@@ -61,6 +61,9 @@ internal sealed class PragueKafkaMetricsReporter : IDisposable {
 		_healthOptions = healthOptions;
 		_meter = new Meter(MeterName, MeterVersion);
 
+		if (prefix.Length > 0 && !prefix.EndsWith('.'))
+			prefix += ".";
+
 		_meter.CreateObservableUpDownCounter($"{prefix}prague.kafka.consumer.partitions.assigned",
 			ObserveConsumerPartitionsAssigned, "{partition}",
 			"Number of partitions currently assigned to this consumer");
