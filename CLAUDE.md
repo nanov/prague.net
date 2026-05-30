@@ -9,7 +9,7 @@ Guidance for Claude Code working in this repo. Keep this file compact — deep d
 - Source-generator-driven: zero-reflection, compile-time-safe fluent query API.
 - Index types: `Unique` (1:1), `Many` (1:N), `Range` (sorted), plus key-set / symmetric variants — automatic intersection + plan selection.
 - Compile-time joins (1:1 and 1:N) with pooled, zero-allocation result sets; FK-attribute-driven `JoinWith{T}` convenience methods.
-- Kafka integration with change detection and conditional updates.
+- Kafka integration on the `Nanov.Confluent.Kafka` fork — raw, span-based zero-copy consume/produce path, change detection, conditional updates.
 - Span-based, stack-allocated, SIMD-friendly hot paths (~9.7M reads/sec, <100ns indexed lookup, zero-alloc pooled queries).
 
 ## Commands
@@ -34,11 +34,10 @@ src/
   Prague.Core/         Runtime: InMemoryDataCache, indexing,
                        query execution, joins, T4 templates → context/core.md, context/joins.md
   Prague/              Top-level package facade
-  Prague.Kafka/        Consumer/producer, SerDe, filters,
-                       health, background worker             → context/kafka.md
-  Prague.Kafka.TestAdaptor/  In-memory Kafka for tests       → context/kafka.md
+  Prague.Kafka/        Raw zero-copy consumer/producer, SerDe,
+                       filters, health, OTel, background worker → context/kafka.md
   Prague.Api/ Prague.Api.UI/  HTTP inspection surface + UI
-tests/        NUnit projects per layer (Core, DI, Generated, Kafka*); Tests.Models = fixtures lib
+tests/        NUnit projects per layer (Core, DI, Generated, Kafka, Kafka.IntegrationTests); Tests.Models = fixtures lib
 benchmarks/   Prague.Benchmarks (BenchmarkDotNet)
 www/ docs/    Public docs site + superpowers specs/plans
 ```
@@ -73,7 +72,7 @@ Topic-first; each file opens with a one-line "Read when". Layer files (`core`/`g
 | Joins — `JoinWith`/`JoinOne`/`JoinMany`, resolver families, paired core, inner/chained, leak-safety | [`context/joins.md`](context/joins.md) |
 | Internal collections (`ValueSet`/`ValueDictionary`/`PooledSet`/`IncrementalIntersecter`) | [`context/collections.md`](context/collections.md) |
 | Source generator, T4, attributes, FK `JoinWith` emission | [`context/generated.md`](context/generated.md) |
-| Kafka orientation (lifecycle, `*Unsafe`, TestAdaptor) | [`context/kafka.md`](context/kafka.md) |
+| Kafka orientation (lifecycle, raw zero-copy path, ring-buffer worker, OTel, `*Unsafe`) | [`context/kafka.md`](context/kafka.md) |
 | Kafka message filters (`FilterDecision`, treatAsDelete) | [`context/kafka-filters.md`](context/kafka-filters.md) |
 | Kafka header SerDe + `PragueMessagePack` isolation | [`context/kafka-serde.md`](context/kafka-serde.md) |
 | Kafka health checks | [`context/kafka-health.md`](context/kafka-health.md) |
