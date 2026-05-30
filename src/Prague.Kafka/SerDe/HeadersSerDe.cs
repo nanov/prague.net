@@ -127,4 +127,41 @@ public static class HeadersSerDe {
 			return false;
 		}
 	}
+
+	/// <summary>
+	///   Span overload of <see cref="TryDeserializeMessagePack{T}(byte[], out T)"/> — reads straight off
+	///   the consume-path native span with no copy (see <see cref="SpanMessagePackDeserializer"/>).
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static bool TryDeserializeMessagePack<T>(ReadOnlySpan<byte> bytes, out T? value) {
+		try {
+			value = SpanMessagePackDeserializer.Deserialize<T>(bytes);
+			return true;
+		} catch {
+			value = default;
+			return false;
+		}
+	}
+
+	/// <summary>
+	///   Span overload of <see cref="TryDeserializeMessagePackExact{T}(byte[], out T)"/> — zero-copy,
+	///   succeeds only when the reader consumes every byte in <paramref name="bytes"/>.
+	/// </summary>
+	public static bool TryDeserializeMessagePackExact<T>(ReadOnlySpan<byte> bytes, out T? value) {
+		if (bytes.IsEmpty) {
+			value = default;
+			return false;
+		}
+
+		try {
+			value = SpanMessagePackDeserializer.Deserialize<T>(bytes, out var bytesRead);
+			if (bytesRead == bytes.Length)
+				return true;
+			value = default;
+			return false;
+		} catch {
+			value = default;
+			return false;
+		}
+	}
 }

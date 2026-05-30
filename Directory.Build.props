@@ -1,7 +1,7 @@
 <Project>
     <PropertyGroup>
         <!-- Central version management for all packages -->
-        <Version>0.1.0</Version>
+        <Version>0.5.0</Version>
 
         <!-- Common package metadata -->
         <Authors>Dimitar Nanov</Authors>

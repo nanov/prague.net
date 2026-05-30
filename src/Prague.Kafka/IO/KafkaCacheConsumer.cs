@@ -3,7 +3,6 @@ namespace Prague.Kafka.IO;
 using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using Confluent.Kafka;
 using Core;
 using Filters;
@@ -15,59 +14,9 @@ using Utils;
 
 internal abstract class KafkaCacheHandler {
 	public readonly KafkaHeaderFilters HeadersFilters;
-	public readonly SpscByteRingBuffer KeyRingBuffer;
 
-	public KafkaCacheHandler(KafkaHeaderFilters headersFilters, int keyRingBufferSize) {
+	public KafkaCacheHandler(KafkaHeaderFilters headersFilters) {
 		HeadersFilters = headersFilters;
-		KeyRingBuffer = new SpscByteRingBuffer(keyRingBufferSize);
-	}
-
-	/// <summary>
-	/// Returns the maximum MessagePack serialized size for a key type.
-	/// </summary>
-	protected static int EstimateMaxKeySize<TKey>() {
-		var type = typeof(TKey);
-
-		// integers
-		if (type == typeof(byte) || type == typeof(sbyte))
-			return 2; // format code + 1 byte
-		if (type == typeof(short) || type == typeof(ushort) || type == typeof(char))
-			return 3; // format code + 2 bytes
-		if (type == typeof(int) || type == typeof(uint))
-			return 5; // format code + 4 bytes
-		if (type == typeof(long) || type == typeof(ulong))
-			return 9; // format code + 8 bytes
-
-		// floating point
-		if (type == typeof(float))
-			return 5; // format code + 4 bytes
-		if (type == typeof(double))
-			return 9; // format code + 8 bytes
-
-		// other primitives
-		if (type == typeof(bool))
-			return 1;
-		if (type == typeof(DateTime))
-			return 15; // ext format with 8-byte timestamp
-		if (type == typeof(DateTimeOffset))
-			return 19; // array header + DateTime + int16 offset
-		if (type == typeof(TimeSpan))
-			return 9; // format code + int64 ticks
-		if (type == typeof(decimal))
-			return 30; // utf8 string representation
-
-		// common reference/struct key types
-		if (type == typeof(Guid))
-			return 38; // str8 header (2) + 36 UTF-8 hex chars
-		if (type == typeof(string))
-			return 38; // assumes Guid.ToString() length: str8 header (2) + 36 UTF-8 chars
-
-		// unmanaged value types: raw size + msgpack header overhead
-		if (RuntimeHelpers.IsReferenceOrContainsReferences<TKey>() is false)
-			return Unsafe.SizeOf<TKey>() + 5;
-
-		// reference types: conservative estimate
-		return 64;
 	}
 
 	public abstract KafkaDataCacheStatistics Statistics { get; }
@@ -76,13 +25,44 @@ internal abstract class KafkaCacheHandler {
 		ConsumerStatistics = consumerStatistics;
 	public abstract string Name { get; }
 
-	public abstract ValueTask HandleAsync(ConsumeResult<RentedBytesWithHandler, RentedBytes> result);
-	public abstract ValueTask ExecuteAfterHandlersFilter();
-
-
-	public abstract Task StartAsync(AsyncCountdownEvent countdownEvent, CancellationToken ct);
-
 	public abstract Task WaitForCompletionAsync();
+
+	// --- Raw consume path ---
+
+	/// <summary>
+	///   Process one raw message. During loading it deserializes + enriches off the native spans and
+	///   compacts the materialized value by key; live it publishes the materialized value to the
+	///   per-handler ring-buffer worker. All span reads complete before the caller disposes the message.
+	/// </summary>
+	internal abstract void DispatchRaw(in RawMessage raw, bool isLoading);
+
+	/// <summary>Live-phase only: fire the <c>Filtered</c> after-handler (header-filtered message).</summary>
+	internal abstract void PublishRawFiltered();
+
+	/// <summary>At partition EOF: flush the object-compaction buffer to the cache, signal load complete, go live.</summary>
+	internal abstract void FlushRawLoadBufferAndGoLive(AsyncCountdownEvent countdownEvent, long offset, CancellationToken ct);
+
+	/// <summary>Tear down the live worker on shutdown.</summary>
+	internal abstract void StopRawWorker();
+
+	/// <summary>
+	///   Span-based header filtering for the raw path — producer-instance self-filter plus the handler's
+	///   configured header filters, evaluated against UTF-8 name/value spans with no allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool IsHeaderFiltered(in RawHeaders headers) {
+		var filters = HeadersFilters;
+		var state = filters.InitialState;
+		foreach (var (name, value) in headers) {
+			if (System.Text.Ascii.Equals(name, KafkaCaches.ProducerInstanceIdHeaderName)
+			    && value.SequenceEqual(KafkaCaches.InstanceIdBytes))
+				return true;
+			if (!filters.ShouldProcess(ref state, name, value))
+				return true;
+		}
+
+		return !state;
+	}
 
 	internal long HighWatermarkOffset { get; private protected set; }
 	internal bool IsInitialConsumeDone { get; set;}
@@ -124,23 +104,16 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 	where TVlaue : class, IDataCacheItem<TKey, TVlaue>, IEnrichable<TVlaue>, ICacheEquatable<TVlaue>, IPragueMetadataSettable,
 	ICacheClonable<TVlaue>
 	where TCacheEntity : IDataCache<TKey, TVlaue> {
-	private const int SENSIBLE_CAPACITY = 50;
 	private const int COMPACTING_BUFFER_CAPACITY = 50;
-	private const int MAX_KEY_RING_BUFFER_SIZE = 8192;
 
-	// 1 (being deserialized by consumer thread) + channel capacity + 1 (being processed by channel loop)
-	private static readonly int _keyRingBufferCapacity = (1 + SENSIBLE_CAPACITY + 1) * EstimateMaxKeySize<TKey>() + 1;
 	private readonly ICacheAfterHandler<TKey, TVlaue>[] _afterHandlers;
 	private readonly TCacheEntity _cache;
-
-	private readonly Channel<ConsumeResult<RentedBytesWithHandler, RentedBytes>> _channel;
 	private readonly Enricher<TVlaue> _enricher;
 	private readonly KafkaKeyFilters<TKey> _keyFilters;
 	private readonly KafkaValueFilters<TVlaue> _valueFilters;
 	private readonly ILogger _logger;
 	private readonly KafkaDataCacheStatistics _statistics;
 
-	private Task? _channelLoopTask;
 	private bool _isLoading = true;
 	private long _startTimestamp;
 
@@ -151,67 +124,237 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		KafkaKeyFilters<TKey> keyFilters,
 		KafkaValueFilters<TVlaue> valueFilters,
 		IEnumerable<ICacheAfterHandler<TKey, TVlaue>> afterHandlers,
-		ILogger logger) : base(filtes, Math.Min(_keyRingBufferCapacity, MAX_KEY_RING_BUFFER_SIZE)) {
-
-		if (_keyRingBufferCapacity > MAX_KEY_RING_BUFFER_SIZE)
-			logger.KeyRingBufferExceedsMax(typeof(TCacheEntity).Name, _keyRingBufferCapacity, MAX_KEY_RING_BUFFER_SIZE);
-
+		ILogger logger) : base(filtes) {
 		_cache = cache;
 		_statistics = statistics;
 		_keyFilters = keyFilters;
 		_valueFilters = valueFilters;
 		_logger = logger;
 		_enricher = TVlaue.GetEnricher();
-
 		_afterHandlers = afterHandlers.ToArray();
-
-		_channel = Channel.CreateBounded<ConsumeResult<RentedBytesWithHandler, RentedBytes>>(
-			new BoundedChannelOptions(SENSIBLE_CAPACITY) {
-				SingleReader = true,
-				SingleWriter = true
-			});
 	}
 
 	public override KafkaDataCacheStatistics Statistics => _statistics;
 
 	public override string Name => typeof(TCacheEntity).Name;
 
-	public override ValueTask HandleAsync(ConsumeResult<RentedBytesWithHandler, RentedBytes> result) {
-		return _channel.Writer.WriteAsync(result);
-	}
-
-	public override Task StartAsync(AsyncCountdownEvent countdownEvent, CancellationToken ct) {
-		_channelLoopTask = ChannelLoop(countdownEvent, ct);
-		return _channelLoopTask.IsCompleted ? _channelLoopTask : Task.CompletedTask;
-	}
-
 	public override Task WaitForCompletionAsync() {
-		return _channelLoopTask ?? Task.CompletedTask;
+		return _rawWorker?.Completion ?? Task.CompletedTask;
 	}
 
-	internal override void SetHighWatermarkOffset(long offset) {
-		_startTimestamp = Stopwatch.GetTimestamp();
-		HighWatermarkOffset = offset;
+	private const byte RAW_KIND_UPDATE = 0;
+	private const byte RAW_KIND_DELETE = 1;
+	private const byte RAW_KIND_FILTERED = 2;
+	private const int RAW_WORKER_CAPACITY = 64;
+
+	private RawLiveWorker? _rawWorker;
+	private ValueCompactingBuffer<TKey, TVlaue>? _rawLoadBuffer;
+
+	internal override void DispatchRaw(in RawMessage raw, bool isLoading) {
+		var offset = raw.Offset.Value;
+		TKey key;
+		try {
+			key = CacheSerde<TKey>.DeserializeFromSpan(raw.Key);
+		} catch (Exception e) {
+			_logger.ErrorDeserializingKey(e, Name, offset);
+			return;
+		}
+
+		if (!_keyFilters.IsEmpty) {
+			FilterDecision decision;
+			try {
+				decision = _keyFilters.Evaluate(key);
+			} catch (Exception e) {
+				_logger.KeyFilterError(e, Name, offset);
+				decision = FilterDecision.Skip;
+			}
+			if (decision != FilterDecision.Accept) {
+				if (isLoading) {
+					if (decision == FilterDecision.Delete)
+						_rawLoadBuffer?.Remove(key);
+				} else if (decision == FilterDecision.Delete) {
+					PublishRaw(RAW_KIND_DELETE, key, null, raw.Timestamp.UnixTimestampMs);
+				} else {
+					PublishRaw(RAW_KIND_FILTERED, default!, null, 0);
+				}
+
+				return;
+			}
+		}
+
+		var timestamp = raw.Timestamp;
+		var valueSpan = raw.Value;
+
+		if (isLoading) {
+			// Empty value span == tombstone — cancel any pending buffered value for this key.
+			if (valueSpan.IsEmpty) {
+				_rawLoadBuffer?.Remove(key);
+				return;
+			}
+
+			TVlaue value;
+			try {
+				value = CacheSerde<TVlaue>.DeserializeFromSpan(valueSpan);
+			} catch (Exception e) {
+				_logger.ErrorProcessingMessageDuringLoad(e, Name, offset);
+				return;
+			}
+
+			if (!_valueFilters.IsEmpty) {
+				FilterDecision decision;
+				try {
+					decision = _valueFilters.Evaluate(value);
+				} catch (Exception e) {
+					_logger.ValueFilterError(e, Name, offset);
+					decision = FilterDecision.Skip;
+				}
+				if (decision != FilterDecision.Accept) {
+					if (decision == FilterDecision.Delete)
+						_rawLoadBuffer?.Remove(key);
+					return;
+				}
+			}
+
+			value.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
+			_enricher.Enrich(value, raw.Headers, timestamp);
+			var buffer = _rawLoadBuffer ??= new ValueCompactingBuffer<TKey, TVlaue>(COMPACTING_BUFFER_CAPACITY);
+			buffer.AddOrReplace(key, value, timestamp.UnixTimestampMs);
+			if (buffer.IsFull(COMPACTING_BUFFER_CAPACITY))
+				FlushRawLoadBufferToCache();
+			return;
+		}
+
+		// live phase
+		if (valueSpan.IsEmpty) {
+			PublishRaw(RAW_KIND_DELETE, key, null, timestamp.UnixTimestampMs);
+			return;
+		}
+
+		TVlaue liveValue;
+		try {
+			liveValue = CacheSerde<TVlaue>.DeserializeFromSpan(valueSpan);
+		} catch (Exception e) {
+			_logger.ErrorProcessingMessage(e, Name, offset);
+			return;
+		}
+
+		if (!_valueFilters.IsEmpty) {
+			FilterDecision decision;
+			try {
+				decision = _valueFilters.Evaluate(liveValue);
+			} catch (Exception e) {
+				_logger.ValueFilterError(e, Name, offset);
+				decision = FilterDecision.Skip;
+			}
+			if (decision != FilterDecision.Accept) {
+				PublishRaw(decision == FilterDecision.Delete ? RAW_KIND_DELETE : RAW_KIND_FILTERED,
+					key, null, timestamp.UnixTimestampMs);
+				return;
+			}
+		}
+
+		liveValue.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
+		_enricher.Enrich(liveValue, raw.Headers, timestamp);
+		PublishRaw(RAW_KIND_UPDATE, key, liveValue, timestamp.UnixTimestampMs);
 	}
 
-	private ValueTask HandleUpdate(bool isLoading, TKey key, TVlaue value, Headers headers, Timestamp timestamp, long offset) {
-		if (value is null)
-			throw new Exception(); // arg
+	internal override void PublishRawFiltered()
+		=> PublishRaw(RAW_KIND_FILTERED, default!, null, 0);
 
-		// Enrich the entity with Kafka metadata using the type-specific enricher
-		value.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
-		_enricher.Enrich(value, headers, timestamp);
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void PublishRaw(byte kind, TKey key, TVlaue? value, long timestampMs) {
+		var worker = _rawWorker;
+		if (worker is null)
+			return;
+		using var scope = worker.Publish();
+		if (!scope.IsOpen)
+			return;
+		ref var slot = ref scope.Event();
+		slot.Kind = kind;
+		slot.Key = key;
+		slot.Value = value;
+		slot.TimestampMs = timestampMs;
+	}
 
-		var updateResult = _cache.AddOrUpdate(value, timestamp.UnixTimestampMs, out var old);
+	private void FlushRawLoadBufferToCache() {
+		if (_rawLoadBuffer is null)
+			return;
+		foreach (var (value, ts) in _rawLoadBuffer)
+			try {
+				_cache.AddOrUpdate(value, ts);
+			} catch (Exception e) {
+				_logger.ErrorProcessingMessageDuringLoad(e, Name, 0);
+			}
 
-		if (isLoading)
-			return ValueTask.CompletedTask;
+		_rawLoadBuffer.Clear();
+	}
 
+	internal override void FlushRawLoadBufferAndGoLive(AsyncCountdownEvent countdownEvent, long offset, CancellationToken ct) {
+		var loadTime = Stopwatch.GetElapsedTime(_startTimestamp);
+		FlushRawLoadBufferToCache();
+		_rawLoadBuffer = null;
+		_logger.CacheLoaded(Name, offset, loadTime.TotalMilliseconds);
+		_statistics.SetInitialLoad(loadTime);
+		countdownEvent.Signal(loadTime);
+		_isLoading = false;
+		_rawWorker = new RawLiveWorker(this, RAW_WORKER_CAPACITY);
+		_rawWorker.Start(ct);
+	}
+
+	internal override void StopRawWorker()
+		=> _rawWorker?.Dispose();
+
+	private ValueTask ApplyRawLiveAsync(byte kind, TKey key, TVlaue? value, long timestampMs)
+		=> kind switch {
+			RAW_KIND_UPDATE => HandleRawLiveUpdate(key, value!, timestampMs),
+			RAW_KIND_DELETE => HandleRawLiveDelete(key, timestampMs),
+			_ => ExecuteAfterHandlers(UpdateType.Filtered, default!, null, null)
+		};
+
+	private ValueTask HandleRawLiveUpdate(TKey key, TVlaue value, long timestampMs) {
+		var updateResult = _cache.AddOrUpdate(value, timestampMs, out var old);
 		return (updateResult, old) switch {
 			(false, _) => ExecuteAfterHandlers(UpdateType.Same, key, value, null),
 			(_, null) => ExecuteAfterHandlers(UpdateType.Add, key, value, null),
 			_ => ExecuteAfterHandlers(UpdateType.Update, key, value, old)
 		};
+	}
+
+	private ValueTask HandleRawLiveDelete(TKey key, long timestampMs) {
+		if (!_cache.Remove(key, timestampMs, out var old))
+			return ValueTask.CompletedTask;
+		return ExecuteAfterHandlers(UpdateType.Delete, key, null, old);
+	}
+
+	private struct RawWorkItem {
+		public byte Kind;
+		public TKey Key;
+		public TVlaue? Value;
+		public long TimestampMs;
+	}
+
+	private sealed class RawLiveWorker : AsyncValueBufferedWorker<RawWorkItem> {
+		private readonly KafkaCacheHandler<TCacheEntity, TKey, TVlaue> _owner;
+
+		public RawLiveWorker(KafkaCacheHandler<TCacheEntity, TKey, TVlaue> owner, int capacity)
+			: base(capacity, $"PragueRawWorker<{typeof(TCacheEntity).Name}>") {
+			_owner = owner;
+		}
+
+		protected override ValueTask ProcessAsync(ref ConsumeScope<RawWorkItem> scope, CancellationToken cancellationToken) {
+			ref var slot = ref scope.Event();
+			var kind = slot.Kind;
+			var key = slot.Key;
+			var value = slot.Value;
+			var ts = slot.TimestampMs;
+			scope.Release();
+			return _owner.ApplyRawLiveAsync(kind, key, value, ts);
+		}
+	}
+
+	internal override void SetHighWatermarkOffset(long offset) {
+		_startTimestamp = Stopwatch.GetTimestamp();
+		HighWatermarkOffset = offset;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -225,179 +368,11 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 			}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
-	public override ValueTask ExecuteAfterHandlersFilter() {
-		return _isLoading
-			? ValueTask.CompletedTask
-			: ExecuteAfterHandlers(UpdateType.Filtered, default!, null, null);
-	}
-
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
-	private ValueTask HandleDelete(bool isLoading, Timestamp timestamp, TKey key) {
-		if (!_cache.Remove(key, timestamp.UnixTimestampMs, out var value))
-			return ValueTask.CompletedTask;
-		return isLoading
-			? ValueTask.CompletedTask
-			: ExecuteAfterHandlers(UpdateType.Delete, key, null, value);
-	}
-
-
-	private void FlushBuffer(CompactingBuffer<TKey> buffer) {
-		foreach (var (key, entry) in buffer) {
-			try {
-				var value = CacheSerde<TVlaue>.Deserialize(entry.Message.Value);
-				if (!_valueFilters.IsEmpty) {
-					FilterDecision decision;
-					try {
-						decision = _valueFilters.Evaluate(value);
-					} catch (Exception e) {
-						_logger.ValueFilterError(e, Name, entry.Offset);
-						decision = FilterDecision.Skip;
-					}
-					if (decision != FilterDecision.Accept) {
-						// treatAsDelete: ensure the key is absent after load (an earlier flush may have
-						// added it). No after-handler fires during the initial load — mirrors HandleDelete.
-						if (decision == FilterDecision.Delete)
-							_cache.Remove(key, entry.Message.Timestamp.UnixTimestampMs, out _);
-						continue;
-					}
-				}
-				value.SetPragueMetadata(entry.Message.Timestamp.UnixTimestampMs, entry.Offset);
-				_enricher.Enrich(value, entry.Message.Headers, entry.Message.Timestamp);
-				_cache.AddOrUpdate(value, entry.Message.Timestamp.UnixTimestampMs);
-			} catch (Exception e) {
-				_logger.ErrorProcessingMessageDuringLoad(e, Name, entry.Offset);
-			} finally {
-				entry.Message.Value.Dispose();
-			}
-		}
-
-		buffer.Clear();
-	}
-
-	private async Task ChannelLoop(AsyncCountdownEvent countdownEvent, CancellationToken ct) {
-		var reader = _channel.Reader;
-		var isLoading = _isLoading;
-		CompactingBuffer<TKey>? buffer = new(COMPACTING_BUFFER_CAPACITY);
-		try {
-			while (await reader.WaitToReadAsync(ct))
-			while (reader.TryRead(out var result)) {
-				_statistics.LastProcessingStartTimestamp = Stopwatch.GetTimestamp();
-				try {
-					if (result.IsPartitionEOF) {
-						if (isLoading) {
-							FlushBuffer(buffer!);
-							buffer = null;
-
-							var loadTime = Stopwatch.GetElapsedTime(_startTimestamp);
-							_logger.CacheLoaded(Name, result.Offset, loadTime.TotalMilliseconds);
-							_statistics.SetInitialLoad(loadTime);
-							countdownEvent.Signal(loadTime);
-							isLoading = false;
-							_isLoading = false;
-						}
-
-						continue;
-					}
-
-					TKey key;
-					try {
-						key = CacheSerde<TKey>.Deserialize(result.Message.Key);
-					} catch (Exception e) {
-						_logger.ErrorDeserializingKey(e, Name, result.Offset);
-						result.Message.Key.Dispose();
-						result.Message.Value.Dispose();
-						continue;
-					}
-					result.Message.Key.Dispose();
-
-					if (!_keyFilters.IsEmpty) {
-						FilterDecision decision;
-						try {
-							decision = _keyFilters.Evaluate(key);
-						} catch (Exception e) {
-							_logger.KeyFilterError(e, Name, result.Offset);
-							decision = FilterDecision.Skip;
-						}
-						if (decision != FilterDecision.Accept) {
-							result.Message.Value.Dispose();
-							if (!isLoading) {
-								if (decision == FilterDecision.Delete)
-									await HandleDelete(isLoading, result.Message.Timestamp, key);
-								else
-									await ExecuteAfterHandlersFilter();
-							} else if (decision == FilterDecision.Delete) {
-								// treatAsDelete: ensure the key is absent after load (consistent with the
-								// value-filter load path). No after-handler fires during the initial load.
-								_cache.Remove(key, result.Message.Timestamp.UnixTimestampMs, out _);
-							}
-							continue;
-						}
-					}
-
-					if (isLoading) {
-						buffer!.Add(key, result);
-						if (buffer.IsFull)
-							FlushBuffer(buffer);
-						continue;
-					}
-
-					try {
-						if (result.Message.Value.IsNull) {
-							await HandleDelete(isLoading, result.Message.Timestamp, key);
-						} else {
-							var value = CacheSerde<TVlaue>.Deserialize(result.Message.Value);
-							if (!_valueFilters.IsEmpty) {
-								FilterDecision decision;
-								try {
-									decision = _valueFilters.Evaluate(value);
-								} catch (Exception e) {
-									_logger.ValueFilterError(e, Name, result.Offset);
-									decision = FilterDecision.Skip;
-								}
-								if (decision != FilterDecision.Accept) {
-									if (decision == FilterDecision.Delete)
-										await HandleDelete(isLoading, result.Message.Timestamp, key);
-									else
-										await ExecuteAfterHandlersFilter();
-									continue;
-								}
-							}
-							await HandleUpdate(isLoading, key, value,
-								result.Message.Headers,
-								result.Message.Timestamp,
-								result.Offset);
-						}
-					} catch (Exception e) {
-						_logger.ErrorProcessingMessage(e, Name, result.Offset);
-					}
-					finally {
-						result.Message.Value.Dispose();
-					}
-				}
-				finally {
-					_statistics.LastProcessingStartTimestamp = 0;
-				}
-			}
-		}
-		catch (OperationCanceledException) {
-			// do nothing - don't throw like a wild man!
-		}
-		catch (Exception e) {
-			_statistics.IsLoopFaulted = true;
-			if (ConsumerStatistics is not null)
-				ConsumerStatistics.IsFatalLatched = true;
-			_logger.ChannelConsumptionError(e, Name);
-		}
-		finally {
-			if (isLoading)
-				buffer?.DisposeEntries();
-		}
-	}
 }
 
 internal class KafkaCacheConsumer {
-	private readonly IConsumer<RentedBytesWithHandler, RentedBytes> _consumer;
+	private readonly IRawConsumer _rawConsumer;
+	private readonly FrozenDictionary<string, KafkaCacheHandler>.AlternateLookup<ReadOnlySpan<char>> _handlersByName;
 	private readonly CancellationTokenSource _cts = new();
 
 	private readonly FrozenDictionary<string, KafkaCacheHandler> _handlers;
@@ -428,94 +403,41 @@ internal class KafkaCacheConsumer {
 		_topics = _handlers.Keys.ToArray();
 		_manualReset = new AsyncCountdownEvent(_handlers.Count, statistics);
 
-		var keySerDe = new HeadersFilteringWithHandlerRentedBytesDeserializer(
-			KafkaCaches.ProducerInstanceIdHeaderName, KafkaCaches.InstanceIdBytes, _handlers);
-		var valueSerDe = new RentedBytesConnectedDeserializer(keySerDe);
+		var config = new ConsumerConfig(configuration.ClientSettings.ToDictionary(kv => kv.Key, kv => kv.Value)) {
+			BootstrapServers = configuration.BootstrapServers,
+			PartitionAssignmentStrategy = PartitionAssignmentStrategy.CooperativeSticky, // better safe then sorry
+			// TODO: add sensible conifg for fast consume, minumum latency
+			AllowAutoCreateTopics = false,
+			EnablePartitionEof = true,
+			GroupId = KafkaCaches.InstanceId.ToString(),
+			AutoOffsetReset = AutoOffsetReset.Earliest,
+			EnableAutoCommit = false,
+			EnableAutoOffsetStore = false,
+			FetchWaitMaxMs = 250,
+			StatisticsIntervalMs =
+				globalOptions is { StatisticsEnabled: true, StatisticsIntervalSeconds: > 1 }
+					? (int)TimeSpan.FromSeconds(globalOptions.StatisticsIntervalSeconds).TotalMilliseconds
+					: 0
+		};
 
-		var builder = kafkaCacheBuilderProvider.NewConsumerBuilder<RentedBytesWithHandler, RentedBytes>(
-				new ConsumerConfig(configuration.ClientSettings.ToDictionary(kv => kv.Key, kv => kv.Value)) {
-					BootstrapServers = configuration.BootstrapServers,
-					PartitionAssignmentStrategy = PartitionAssignmentStrategy.CooperativeSticky, // better safe then sorry
-					// TODO: add sensible conifg for fast consume, minumum latency
-					AllowAutoCreateTopics = false,
-					EnablePartitionEof = true,
-					GroupId = KafkaCaches.InstanceId.ToString(),
-					AutoOffsetReset = AutoOffsetReset.Earliest,
-					EnableAutoCommit = false,
-					EnableAutoOffsetStore = false,
-					FetchWaitMaxMs = 250,
-					StatisticsIntervalMs =
-						globalOptions is { StatisticsEnabled: true, StatisticsIntervalSeconds: > 1 }
-							? (int)TimeSpan.FromSeconds(globalOptions.StatisticsIntervalSeconds).TotalMilliseconds
-							: 0
-				})
-			.SetPartitionsAssignedHandler((c, partitions) => {
-				_assignedPartitions += partitions.Count;
-				_statistics.SetAssignedPartitions(_assignedPartitions);
-				_statistics.HasLostPartitions = false;
-				foreach (var partition in partitions) {
-					_logger.AssignedToTopic(partition.Topic);
-					var watermaker = c.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(10));
-					if (watermaker is null) {
-						_logger.NullWatermark(partition.Topic);
-						throw new Exception("Kafka returned null watermark for topic: {partition.Topic}");
-					}
-
-					if (!_handlers.TryGetValue(partition.Topic, out var handler))
-						continue;
-					handler.SetHighWatermarkOffset(watermaker.High.Value);
-					_cachesLoading++;
-					_statistics.Caches[partition.Topic].AssignedPartitionCount++;
-				}
-				_statistics.SetCachesLoadingCount(_cachesLoading);
-			})
-			.SetPartitionsRevokedHandler((_, partitions) => {
-				_assignedPartitions -= partitions.Count;
-				_statistics.SetAssignedPartitions(_assignedPartitions);
-				foreach (var partition in partitions) {
-					if (_statistics.Caches.TryGetValue(partition.Topic, out var cacheStats))
-						cacheStats.AssignedPartitionCount--;
-				}
-			})
-			.SetPartitionsLostHandler((_, partitions) => {
-				_assignedPartitions -= partitions.Count;
-				_statistics.SetAssignedPartitions(_assignedPartitions);
-				_statistics.HasLostPartitions = true;
-				foreach (var partition in partitions) {
-					if (_statistics.Caches.TryGetValue(partition.Topic, out var cacheStats))
-						cacheStats.AssignedPartitionCount--;
-				}
-			})
-			.SetStatisticsHandler((_, s) => {
-				_statistics.TakeCachesSnapshot(DateTimeOffset.UtcNow);
-				var snapshot = System.Text.Json.JsonSerializer.Deserialize(s, LibrdkafkaStatsJsonContext.Default.LibrdkafkaStatsSnapshot);
-				_statistics.UpdateFromLibrdkafkaStats(snapshot);
-				if (snapshot.Topics is not null)
-					foreach (var (topicName, topicStats) in snapshot.Topics)
-						if (_handlers.TryGetValue(topicName, out var handler))
-							handler.UpdateTopicStats(topicStats);
-			})
-			.SetKeyDeserializer(keySerDe)
-			.SetValueDeserializer(valueSerDe)
-			.SetErrorHandler((c, e) => { _logger.ConsumerError(e.Reason); });
-		// TODO: add logging and error handling
-
-		_consumer = builder.Build();
+		_handlersByName = _handlers
+			.ToFrozenDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal)
+			.GetAlternateLookup<ReadOnlySpan<char>>();
+		_rawConsumer = BuildRawConsumer(kafkaCacheBuilderProvider, config);
 	}
 
 	public Task WaitForInitialLoadAsync() {
 		return _manualReset.WaitAsync();
 	}
 
-	internal async Task ExecuteAsync(CancellationToken ct) {
+	internal Task ExecuteAsync(CancellationToken ct) {
 		var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct);
-		foreach (var kafkaCacheHandler in _handlers.Values)
-			await kafkaCacheHandler.StartAsync(_manualReset, cts.Token);
-
-		_channelLoopTask = Consume(_consumer, cts.Token);
-		// force exceptions
-		if (_channelLoopTask.IsCompleted)
-			await _channelLoopTask;
+		// Dedicated thread — the raw loop is fully synchronous per message (no per-message await);
+		// per-handler ring-buffer workers start at each cache's partition EOF.
+		_channelLoopTask = Task.Factory.StartNew(
+			() => ConsumeRawLoop(_rawConsumer, cts.Token),
+			cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+		return Task.CompletedTask;
 	}
 
 	internal Task WaitForCompletionAsync() {
@@ -524,51 +446,105 @@ internal class KafkaCacheConsumer {
 		return _channelLoopTask ?? Task.CompletedTask;
 	}
 
-	private async Task Consume(IConsumer<RentedBytesWithHandler, RentedBytes> consumer, CancellationToken ct) {
+	private IRawConsumer BuildRawConsumer(IKafkaCacheBuilderProvider provider, ConsumerConfig config) {
+		var rawBuilder = provider.NewRawConsumerBuilder(config);
+		rawBuilder.SetPartitionsAssignedHandler((c, partitions) => {
+			_assignedPartitions += partitions.Count;
+			_statistics.SetAssignedPartitions(_assignedPartitions);
+			_statistics.HasLostPartitions = false;
+			foreach (var partition in partitions) {
+				_logger.AssignedToTopic(partition.Topic);
+				var watermaker = c.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(10));
+				if (watermaker is null) {
+					_logger.NullWatermark(partition.Topic);
+					throw new Exception("Kafka returned null watermark for topic: {partition.Topic}");
+				}
+
+				if (!_handlers.TryGetValue(partition.Topic, out var handler))
+					continue;
+				handler.SetHighWatermarkOffset(watermaker.High.Value);
+				_cachesLoading++;
+				_statistics.Caches[partition.Topic].AssignedPartitionCount++;
+			}
+
+			_statistics.SetCachesLoadingCount(_cachesLoading);
+		});
+		rawBuilder.SetPartitionsRevokedHandler((_, partitions) => {
+			_assignedPartitions -= partitions.Count;
+			_statistics.SetAssignedPartitions(_assignedPartitions);
+			foreach (var partition in partitions)
+				if (_statistics.Caches.TryGetValue(partition.Topic, out var cacheStats))
+					cacheStats.AssignedPartitionCount--;
+		});
+		rawBuilder.SetPartitionsLostHandler((_, partitions) => {
+			_assignedPartitions -= partitions.Count;
+			_statistics.SetAssignedPartitions(_assignedPartitions);
+			_statistics.HasLostPartitions = true;
+			foreach (var partition in partitions)
+				if (_statistics.Caches.TryGetValue(partition.Topic, out var cacheStats))
+					cacheStats.AssignedPartitionCount--;
+		});
+		rawBuilder.SetErrorHandler((_, e) => _logger.ConsumerError(e.Reason));
+		if (config.StatisticsIntervalMs is > 0)
+			rawBuilder.SetStatisticsHandler((ReadOnlySpan<byte> s) => {
+				_statistics.TakeCachesSnapshot(DateTimeOffset.UtcNow);
+				var snapshot = System.Text.Json.JsonSerializer.Deserialize(s, LibrdkafkaStatsJsonContext.Default.LibrdkafkaStatsSnapshot);
+				_statistics.UpdateFromLibrdkafkaStats(snapshot);
+				if (snapshot.Topics is not null)
+					foreach (var (topicName, topicStats) in snapshot.Topics)
+						if (_handlers.TryGetValue(topicName, out var handler))
+							handler.UpdateTopicStats(topicStats);
+			});
+
+		return rawBuilder.BuildRaw();
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private KafkaCacheHandler? ResolveHandler(ReadOnlySpan<byte> topicUtf8, Span<char> scratch) {
+		var charCount = System.Text.Encoding.UTF8.GetChars(topicUtf8, scratch);
+		return _handlersByName.TryGetValue(scratch[..charCount], out var handler) ? handler : null;
+	}
+
+	private void ConsumeRawLoop(IRawConsumer consumer, CancellationToken ct) {
+		Span<char> topicScratch = stackalloc char[256];
 		try {
 			consumer.Subscribe(_topics);
-			await Task.Yield();
 			var loadingCount = _topics.Length;
 			while (!ct.IsCancellationRequested)
 				try {
-					var consumeResult = consumer.Consume(100);
+					using var raw = consumer.ConsumeRaw(100);
 					_statistics.LastPollTimestamp = Stopwatch.GetTimestamp();
 
-					if (ct.IsCancellationRequested || consumeResult is null)
+					if (ct.IsCancellationRequested || raw.IsEmpty)
 						continue;
 
-					Debug.Assert(consumeResult is not null, "librdkafka API guarantees consumerResult is not null");
+					var handler = ResolveHandler(raw.Topic, topicScratch);
 
-					if (consumeResult.IsPartitionEOF) {
-						// we've loaded them all,
-						// no handler, handler already received right
-						// offset is too early
+					if (raw.IsPartitionEOF) {
 						if (loadingCount == 0
-						    || !_handlers.TryGetValue(consumeResult.TopicPartition.Topic, out var handler)
+						    || handler is null
 						    || handler.IsInitialConsumeDone
-						    || consumeResult.Offset < handler.HighWatermarkOffset)
-						    continue;
+						    || raw.Offset.Value < handler.HighWatermarkOffset)
+							continue;
 
 						loadingCount--;
 						_cachesLoading--;
 						_statistics.SetCachesLoadingCount(_cachesLoading);
 						handler.IsInitialConsumeDone = true;
-						await handler.HandleAsync(consumeResult);
+						handler.FlushRawLoadBufferAndGoLive(_manualReset, raw.Offset.Value, ct);
 						continue;
 					}
 
-					Debug.Assert(consumeResult.Message is not null, "Message is not null unless partitionEOF");
+					if (handler is null)
+						continue;
 
-					if (consumeResult.Message.Key.IsFiltered) {
-						var handler = consumeResult.Message.Key.Handler;
-						if (handler is not null)
-							await handler.ExecuteAfterHandlersFilter();
+					if (handler.IsHeaderFiltered(raw.Headers)) {
+						if (handler.IsInitialConsumeDone)
+							handler.PublishRawFiltered();
 						continue;
 					}
 
-					Debug.Assert(consumeResult.Message.Key.Handler is not null, "No handler should be treated as filtered");
-
-					await consumeResult.Message.Key.Handler.HandleAsync(consumeResult);
+					handler.DispatchRaw(in raw, !handler.IsInitialConsumeDone);
 				}
 				catch (OperationCanceledException) {
 					_manualReset.TrySetCanceled();
@@ -580,9 +556,6 @@ internal class KafkaCacheConsumer {
 					_manualReset.TrySetException(e);
 					throw;
 				}
-				catch (ConsumeException e) when (e.Error.Code is ErrorCode.Local_ValueDeserialization) {
-					_logger.DeserializationError(e, e.ConsumerRecord.Topic, e.ConsumerRecord.Offset);
-				}
 				catch (KafkaException e) when (e.Error.IsFatal is false) {
 					if (KafkaErrorHandling.IsErrorFatal.TryGetValue(e.Error.Code, out var isAppFatal) && isAppFatal) {
 						_statistics.IsFatalLatched = true;
@@ -590,24 +563,25 @@ internal class KafkaCacheConsumer {
 						_manualReset.TrySetException(e);
 						throw;
 					}
+
 					_logger.NonFatalKafkaError(e);
 				}
 				catch (Exception e) {
 					_statistics.IsFatalLatched = true;
-					// TODO: Handle manualReset!!!
 					_logger.UnexpectedError(e);
-					// fail fast!
 					throw;
 				}
 		}
 		catch (OperationCanceledException) {
 			_manualReset.TrySetCanceled();
-		} catch (Exception ex) {
+		}
+		catch (Exception ex) {
 			_statistics.IsFatalLatched = true;
 			_manualReset.TrySetException(ex);
-			// Swallow exception during shutdown
 		}
 		finally {
+			foreach (var handler in _handlers.Values)
+				handler.StopRawWorker();
 			consumer.Dispose();
 		}
 	}

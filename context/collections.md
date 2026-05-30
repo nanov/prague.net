@@ -1,0 +1,28 @@
+# Internal collections
+
+> **Read when:** touching pooled sets/dicts, intersection primitives, or anything that rents from `ArrayPool` on a query/join hot path.
+
+## ValueSet&lt;T&gt;
+
+Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `IntersectWith`, `UnionWith`, `RetainNonNullSlots`, `IntersectWith<TKey,TInto>(…)`.
+
+**Pool-corruption caveat:** `Dispose()` has a defensive `catch(ArgumentException)` around `ArrayPool.Return`, so a double-return is *swallowed* — **but it corrupts the pool** (same buffer enters the bag twice; two callers both Rent it). Exactly-one-Dispose must be enforced by callers. Joins do this with the `handedOff` guard — see [`joins.md`](joins.md).
+
+## ValueDictionary&lt;TKey,TValue&gt;
+
+**`internal`** struct (was public; made internal by converting `SortResults` to explicit interface impls + deleting dead code — `Result<T>`, `Test`, `IChainedResolvers`). It's still forced into public *generic signatures* across resolver-chain infra, but the type itself is internal.
+- `Intersect(HashSet<TKey>)` — compact-and-rebuild intersect (matching entries compacted via write pointer, metadata table rebuilt with `Array.Fill(-1)` + re-probe). Zero temp alloc.
+- `Filter<TFilter>(TFilter)` where `TFilter : struct, IValueDictionaryFilter<TKey,TValue>` — compact-and-rebuild keyed on `filter.Keep(ref value)`; JIT-inlined per closed generic. Backs `RetainNonNullSlots`.
+
+## PooledSet&lt;T&gt; / LeftKeySetView&lt;T&gt;
+
+- `PooledSet<T>` — `internal sealed class`.
+- `LeftKeySetView<T>` (`src/Prague.Core/LeftKeySetView.cs`) — `public readonly struct`, single `internal PooledSet<T> Set` field, internal-only ctor, **zero public members**. Exists only so the LeftSym join resolver's generic signatures can appear publicly without CS0703. Inside Core it's reinterpreted back via `Unsafe.As<LeftKeySetView<T>, PooledSet<T>>(ref view)` — zero-cost (identical single-reference layout). **Do not add public members** unless intentionally exposing set contents.
+
+## IncrementalIntersecter&lt;TKey,TInto&gt;
+
+Stackalloc bitmap mark-and-sweep (falls back to `ArrayPool` above `StackAllocThreshold`). Accumulates marks across lookups (UNION), sweeps unmarked slots on `Dispose` (INTERSECT against the union). Used for multi-value index intersection and per-branch OR filtering without a temp `ValueSet`.
+
+## JoinedKeyPair&lt;TLeft,TKey&gt;
+
+Pair type stored in the paired join core. `Equals`/`GetHashCode` consider **only `.Key`** — intersection works by key alone; multiple lefts sharing a key collapse to one pair. `.IntoTrait` provides the mark-and-sweep trait for `IncrementalIntersecter`.

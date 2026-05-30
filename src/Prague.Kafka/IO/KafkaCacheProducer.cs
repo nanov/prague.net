@@ -2,6 +2,7 @@ namespace Prague.Kafka.IO;
 
 using System.Runtime.CompilerServices;
 using Confluent.Kafka;
+using Internal;
 using Microsoft.Extensions.Logging;
 using Options;
 using SerDe;
@@ -13,25 +14,23 @@ public class KafkaCacheProducer : IDisposable {
 	private const int MAX_RETRIES_MINUS_ONE = MAX_RETRIES - 1;
 	private const int BACKOFF_MS = 50;
 
-	private static readonly Headers InstanceOnlyHeaders = new() { KafkaCaches.ProducerInstanceHeader };
-
 	private readonly CancellationTokenSource _cts = new();
-	private readonly IProducer<byte[], byte[]> _producer;
+	private readonly IRawProducer _producer;
 
 	internal KafkaCacheProducer(IKafkaCacheBuilderProvider kafkaCacheBuilderProvider, KafkaCachesOptions configuration,
 		ILogger<KafkaCacheProducer> logger) {
 		_logger = logger;
-		var builder = kafkaCacheBuilderProvider.NewProducerBuilder<byte[], byte[]>(
-				new ProducerConfig(configuration.ClientSettings.ToDictionary(kv => kv.Key, kv => kv.Value)) {
-					BootstrapServers = configuration.BootstrapServers,
-					CompressionType = CompressionType.Gzip,
-					AllowAutoCreateTopics = false,
-					// TODO: propersetup
-				})
-			.SetErrorHandler((c, e) => { _logger.LogError("Kafka caches consumer error: {Error}", e.Reason); });
+		var builder = kafkaCacheBuilderProvider.NewRawProducerBuilder(
+			new ProducerConfig(configuration.ClientSettings.ToDictionary(kv => kv.Key, kv => kv.Value)) {
+				BootstrapServers = configuration.BootstrapServers,
+				CompressionType = CompressionType.Gzip,
+				AllowAutoCreateTopics = false
+				// TODO: propersetup
+			});
+		builder.SetErrorHandler((_, e) => { _logger.LogError("Kafka caches consumer error: {Error}", e.Reason); });
 		// TODO: add logging and error handling
 
-		_producer = builder.Build();
+		_producer = builder.BuildRaw();
 	}
 
 	public void Dispose() {
@@ -46,23 +45,18 @@ public class KafkaCacheProducer : IDisposable {
 		if (_cts.IsCancellationRequested)
 			return;
 
-		var keyBytes = CacheSerde<TKey>.Serialize(key);
-		var headers = InstanceOnlyHeaders;
-		for (var i = 0; i < MAX_RETRIES; i++)
-			try {
-				_producer.Produce(topic, new Message<byte[], byte[]> { Key = keyBytes, Value = null!, Headers = headers });
-				break;
-			}
-			catch (ProduceException<byte[], byte[]> e) when (e.Error.Code == ErrorCode.Local_QueueFull) {
-				if (i == MAX_RETRIES_MINUS_ONE)
-					throw;
-
-				// don't do heavy context change and spread async/await, but don't block the producing thread
-				if (ValueSpinWait.SpinUntil(static cts => cts.IsCancellationRequested, BACKOFF_MS, _cts))
-					break; // cancellation requested;
-			}
+		var keyWriter = ScratchArrayWriterManager<TKey>.Rent();
+		try {
+			CacheSerde<TKey>.SerializeInto(key, keyWriter);
+			var headers = new KafkaHeaders();
+			headers.Add(KafkaCaches.ProducerInstanceIdHeaderName, KafkaCaches.InstanceIdBytes);
+			// Null/empty value == tombstone (delete).
+			RawProduceWithRetry(topic, keyWriter.WrittenSpan, default, in headers);
+		}
+		finally {
+			ScratchArrayWriterManager<TKey>.Return(keyWriter);
+		}
 	}
-
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void Produce<TKey, TCacheValue>(string topic, TKey key, TCacheValue value)
@@ -71,17 +65,32 @@ public class KafkaCacheProducer : IDisposable {
 		if (_cts.IsCancellationRequested)
 			return;
 
-		var keyBytes = CacheSerde<TKey>.Serialize(key);
-		var valueBytes = CacheSerde<TCacheValue>.Serialize(value);
-		var headers = new Headers { KafkaCaches.ProducerInstanceHeader };
-		TCacheValue.Derich(value, headers);
+		var keyWriter = ScratchArrayWriterManager<TKey>.Rent();
+		var valueWriter = ScratchArrayWriterManager<TCacheValue>.Rent();
+		try {
+			CacheSerde<TKey>.SerializeInto(key, keyWriter);
+			CacheSerde<TCacheValue>.SerializeInto(value, valueWriter);
 
+			var headers = new KafkaHeaders();
+			headers.Add(KafkaCaches.ProducerInstanceIdHeaderName, KafkaCaches.InstanceIdBytes);
+			TCacheValue.Derich(value, ref headers);
+
+			RawProduceWithRetry(topic, keyWriter.WrittenSpan, valueWriter.WrittenSpan, in headers);
+		}
+		finally {
+			ScratchArrayWriterManager<TKey>.Return(keyWriter);
+			ScratchArrayWriterManager<TCacheValue>.Return(valueWriter);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	private void RawProduceWithRetry(string topic, ReadOnlySpan<byte> key, ReadOnlySpan<byte> value, in KafkaHeaders headers) {
 		for (var i = 0; i < MAX_RETRIES; i++)
 			try {
-				_producer.Produce(topic, new Message<byte[], byte[]> { Key = keyBytes, Value = valueBytes, Headers = headers });
+				_producer.RawProduce(topic, key, value, in headers);
 				break;
 			}
-			catch (ProduceException<byte[], byte[]> e) when (e.Error.Code == ErrorCode.Local_QueueFull) {
+			catch (KafkaException e) when (e.Error.Code == ErrorCode.Local_QueueFull) {
 				if (i == MAX_RETRIES_MINUS_ONE)
 					throw;
 

@@ -5,45 +5,6 @@ using System.Runtime.InteropServices;
 using Collections;
 using Utils;
 
-public class Result<T> {
-
-}
-
-public class Result<TPREV, T> {
-
-}
-
-public class Test {
-	public void S<T1, T2>(Result<Result<T1>, T2> s) {
-
-	}
-
-	public void A() {
-		var r = new Result<Result<int>, string>();
-		S(r);
-	}
-}
-
-public interface IChainedResolvers<TLeftKey, TLeftValue> where TLeftKey : notnull, IEquatable<TLeftKey> {
-	public int Count { get; }
-	public int SortLevel { get; }
-
-	public int IndexedInnerSpan(scoped Span<int> span);
-
-	void PrepareIndexedInner<TExecutor>(int index, ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
-		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>;
-
-	void ExecuteIndexedInner<TResult>(int index, ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> result, bool cloneOnAdd,
-		bool shouldPool,
-		QueryResultsDisposer? disposer)
-		where TResult : struct, IJoinResult<TLeftValue>;
-
-	void ExecuteWithAccessor<TResults>(ref ValueDictionary<TLeftKey, TResults, DefaultKeyComparer<TLeftKey>> results, bool cloneOnAdd, bool shouldPool,
-		QueryResultsDisposer? disposer)
-		where TResults : struct, IJoinResult<TLeftValue> {
-	}
-}
-
 /*
  *
 	internal void UnsafeSortResults<TFullResult>(ref QueryResults<TFullResult> results, int skip, int take)
