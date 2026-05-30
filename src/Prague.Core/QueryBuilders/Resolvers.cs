@@ -122,7 +122,7 @@ public interface ISortableResolverChain<TLeftKey, TLeftValue>
 	int SortLevel => ISortableResolverChain.NoSort;
 	void SortResults(ref QueryResults<TLeftValue> results, int skip, int take);
 
-	void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
+	internal void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
 		where TFullResult : IJoinResult<TLeftValue>;
 }
 
@@ -143,7 +143,7 @@ public interface ISortableResolverChain<TLeftKey, TLeftValue, T1>
 	where TLeftKey : IEquatable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	int SortLevel { get; }
-	void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
+	internal void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
 		where TFullResult : IJoinResult<TLeftValue, T1>;
 }
 
@@ -151,7 +151,7 @@ public interface ISortableResolverChain<TLeftKey, TLeftValue, T1, T2>
 	where TLeftKey : IEquatable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	int SortLevel { get; }
-	void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
+	internal void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
 		where TFullResult : IJoinResult<TLeftValue, T1, T2>;
 }
 
@@ -185,8 +185,7 @@ public struct ResolverChain<TLeftKey, TLeftValue, TResolver, T1>
 		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		=> _resolver.PrepareIndexedInner(ref leftQuery, cloneOnAdd, shouldPool, disposer);
 
-	public void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TLeftValue, T1> { }
+	void ISortableResolverChain<TLeftKey, TLeftValue, T1>.SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take) { }
 
 	public static void CloneValue<TLeftCloner>(TLeftCloner cloner, ref TLeftValue left, ref T1 val1)
 		where TLeftCloner : struct, ICloner<TLeftValue> {
@@ -216,8 +215,7 @@ public struct ResolverChain<TLeftKey, TLeftValue, TZeroResolver, TResolver, T1>
 		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		=> _resolver.PrepareIndexedInner(ref leftQuery, cloneOnAdd, shouldPool, disposer);
 
-	public void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TLeftValue, T1>
+	void ISortableResolverChain<TLeftKey, TLeftValue, T1>.SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
 		=> _zeroResolver.SortResults(ref results, skip, take);
 
 	public static void CloneValue<TLeftCloner>(TLeftCloner cloner, ref TLeftValue left, ref T1 val1)
@@ -254,8 +252,7 @@ public struct ResolverChain<TLeftKey, TLeftValue, TPrev, TResolver, T1, T2> : IR
 		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		=> _resolver.PrepareIndexedInner(ref leftQuery, cloneOnAdd, shouldPool, disposer);
 
-	public void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TLeftValue, T1, T2>
+	void ISortableResolverChain<TLeftKey, TLeftValue, T1, T2>.SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
 		=> _prev.SortResults(ref results, skip, take);
 
 	public static void CloneValue<TLeftCloner>(TLeftCloner cloner, ref TLeftValue left, ref T1 val1, ref T2 val2)
@@ -312,10 +309,8 @@ public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, T1>
 		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		=> _prev.PrepareIndexedInner1(ref leftQuery, cloneOnAdd, shouldPool, disposer);
 
-	public void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TLeftValue, T1> {
-		results.SortAndCrop(new SortComparerWrapper<TFullResult, TLeftValue, T1, TComparer>(_comparer), skip, take);
-	}
+	void ISortableResolverChain<TLeftKey, TLeftValue, T1>.SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
+		=> results.SortAndCrop(new SortComparerWrapper<TFullResult, TLeftValue, T1, TComparer>(_comparer), skip, take);
 
 	public static void CloneValue<TLeftCloner>(TLeftCloner cloner, ref TLeftValue left, ref T1 val1)
 		where TLeftCloner : struct, ICloner<TLeftValue>
@@ -358,10 +353,8 @@ public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, T1, T2
 		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		=> _prev.PrepareIndexedInner2(ref leftQuery, cloneOnAdd, shouldPool, disposer);
 
-	public void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TLeftValue, T1, T2> {
-		results.SortAndCrop(new SortComparerWrapper<TFullResult, TLeftValue, T1, T2, TComparer>(_comparer), skip, take);
-	}
+	void ISortableResolverChain<TLeftKey, TLeftValue, T1, T2>.SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
+		=> results.SortAndCrop(new SortComparerWrapper<TFullResult, TLeftValue, T1, T2, TComparer>(_comparer), skip, take);
 
 	public static void CloneValue<TLeftCloner>(TLeftCloner cloner, ref TLeftValue left, ref T1 val1)
 		where TLeftCloner : struct, ICloner<TLeftValue> => throw new NotImplementedException();
@@ -402,9 +395,7 @@ public struct NoResolver<TKey, TValue> : ISortableResolverChain<TKey, TValue>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	public int SortLevel => ISortableResolverChain.NoSort;
 	public void SortResults(ref QueryResults<TValue> results, int skip, int take) { }
-	public void SortResults<TFullResult>(ref ValueDictionary<TKey, TFullResult, DefaultKeyComparer<TKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TValue>
-	{}
+	void ISortableResolverChain<TKey, TValue>.SortResults<TFullResult>(ref ValueDictionary<TKey, TFullResult, DefaultKeyComparer<TKey>> results, int skip, int take) { }
 }
 
 /// <summary>
@@ -422,8 +413,6 @@ public struct SortedNoResolver<TKey, TValue, TComparer> : ISortableResolverChain
 		if (skip > 0 || take < int.MaxValue)
 			results.SliceLeaveTotalCount(skip, Math.Min(take, results.Count - skip));
 	}
-	public void SortResults<TFullResult>(ref ValueDictionary<TKey, TFullResult, DefaultKeyComparer<TKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TValue> {
-		results.SortAndCrop(new SortComparerWrapper<TFullResult, TValue, TComparer>(_comparer), skip, take);
-	}
+	void ISortableResolverChain<TKey, TValue>.SortResults<TFullResult>(ref ValueDictionary<TKey, TFullResult, DefaultKeyComparer<TKey>> results, int skip, int take)
+		=> results.SortAndCrop(new SortComparerWrapper<TFullResult, TValue, TComparer>(_comparer), skip, take);
 }

@@ -3681,7 +3681,7 @@ public interface ISortableResolverChain<TLeftKey, TLeftValue, <#= typeParams #>>
 	where TLeftKey : IEquatable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	int SortLevel => ISortableResolverChain.NoSort;
-	void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
+	internal void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
 		where TFullResult : IJoinResult<TLeftValue, <#= typeParams #>>;
 }
 
@@ -3735,8 +3735,7 @@ public struct
 		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		=> _resolver.PrepareIndexedInner(ref leftQuery, cloneOnAdd, shouldPool, disposer);
 
-	public void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TLeftValue, <#= typeParams #>>
+	void ISortableResolverChain<TLeftKey, TLeftValue, <#= typeParams #>>.SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
 		=> _prev.SortResults(ref results, skip, take);
 
 <#
@@ -3826,10 +3825,8 @@ public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, <#= ty
 		}
 #>
 
-	public void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
-		where TFullResult : IJoinResult<TLeftValue, <#= typeParams #>> {
-		results.SortAndCrop(new SortComparerWrapper<TFullResult, TLeftValue, <#= typeParams #>, TComparer>(_comparer), skip, take);
-	}
+	void ISortableResolverChain<TLeftKey, TLeftValue, <#= typeParams #>>.SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
+		=> results.SortAndCrop(new SortComparerWrapper<TFullResult, TLeftValue, <#= typeParams #>, TComparer>(_comparer), skip, take);
 
 <#
 		// CloneValue stubs for inherited interface levels

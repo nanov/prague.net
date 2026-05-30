@@ -8,7 +8,7 @@ using Prague.Core.Utils;
 namespace Prague.Core.Collections;
 
 [SkipLocalsInit]
-public struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
+internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 	where TKey : notnull, IEquatable<TKey>
 	where TKeyComparer : struct, IKeyComparer<TKey> {
 	private static readonly ArrayPool<int> MetadataPool = ArrayPool<int>.Shared;
@@ -168,7 +168,7 @@ public struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 		return valuesArray;
 	}
 
-	public delegate bool Predicate<in TArg>(TKey key, ref TValue item, TArg arg);
+	internal delegate bool Predicate<in TArg>(TKey key, ref TValue item, TArg arg);
 
 	/// <summary>
 	/// Struct-dispatched filter predicate. Companion to the delegate-based
