@@ -17,6 +17,16 @@
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
 
+    <!-- Microsoft runtime-aligned package versions, floating per target framework.
+         Referenced as Version="$(MicrosoftRuntimeVersion)" by projects that pull in
+         Microsoft.Extensions.* / Microsoft.AspNetCore.* packages. -->
+    <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0'">
+        <MicrosoftRuntimeVersion>9.*</MicrosoftRuntimeVersion>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+        <MicrosoftRuntimeVersion>10.*</MicrosoftRuntimeVersion>
+    </PropertyGroup>
+
     <!-- Auto-include a per-project README.md (next to the csproj) in its NuGet package.
          Test/benchmark projects have no local README.md, so this is a no-op for them. -->
     <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\README.md')">
