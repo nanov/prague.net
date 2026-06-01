@@ -5,6 +5,8 @@ using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Order;
+using BenchmarkDotNet.Reports;
+using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Toolchains.CsProj;
 using BenchmarkDotNet.Toolchains.DotNetCli;
 using Core;
@@ -161,6 +163,11 @@ public class JoinRuntimeBenchmarks {
 		return count;
 	}
 
+	// Entity rows materialized per query for the fixed dataset (kept in sync via the consts):
+	//   non-join → ProductCount; heavy join → Left (products) + Right (1:1 infos) + Right2 (1:N offers).
+	internal const long NonJoinRowsPerOp = ProductCount;
+	internal const long HeavyJoinRowsPerOp = ProductCount + ProductCount + (long)ProductCount * OffersPerProduct;
+
 	private class Config : ManualConfig {
 		public Config() {
 			// BenchmarkDotNet 0.15.8 has no built-in .NET 10 runtime moniker, so drive each TFM via the
@@ -172,6 +179,39 @@ public class JoinRuntimeBenchmarks {
 				.WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net10.0", null, ".NET 10.0")))
 				.WithId("net10.0"));
 			AddColumn(StatisticColumn.OperationsPerSecond);
+			AddColumn(new ReadsPerSecondColumn());
 		}
+	}
+
+	/// <summary>
+	///   Entity rows materialized per second = rows-per-query × ops/sec. Rows-per-query is a constant
+	///   of the fixed dataset (by method); ops/sec is derived from the measured mean, so this works
+	///   out-of-process across runtimes (no per-process state needed).
+	/// </summary>
+	private sealed class ReadsPerSecondColumn : IColumn {
+		public string Id => "ReadsPerSec";
+		public string ColumnName => "Reads/s";
+		public bool AlwaysShow => true;
+		public ColumnCategory Category => ColumnCategory.Custom;
+		public int PriorityInCategory => 0;
+		public bool IsNumeric => true;
+		public UnitType UnitType => UnitType.Dimensionless;
+		public string Legend => "Entity rows materialized per second (rows/query × ops/sec)";
+
+		public string GetValue(Summary summary, BenchmarkCase benchmarkCase) {
+			var meanNs = summary[benchmarkCase]?.ResultStatistics?.Mean;
+			if (meanNs is null or <= 0)
+				return "N/A";
+			var rows = benchmarkCase.Descriptor.WorkloadMethod.Name.Contains("HeavyJoin")
+				? HeavyJoinRowsPerOp
+				: NonJoinRowsPerOp;
+			return (rows * 1_000_000_000.0 / meanNs.Value).ToString("N0");
+		}
+
+		public string GetValue(Summary summary, BenchmarkCase benchmarkCase, SummaryStyle style) =>
+			GetValue(summary, benchmarkCase);
+
+		public bool IsDefault(Summary summary, BenchmarkCase benchmarkCase) => false;
+		public bool IsAvailable(Summary summary) => true;
 	}
 }
