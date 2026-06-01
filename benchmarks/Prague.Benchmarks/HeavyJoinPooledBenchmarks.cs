@@ -34,7 +34,9 @@ public class HeavyJoinPooledBenchmarks {
 	private const int ProductCount = 500;
 	private const int OffersPerProduct = 20;
 	private const int WriterThreads = 2;
-	public static readonly ConcurrentDictionary<string, (long Queries, long Writes, long DurationMs)> Results = new();
+	// Reads = sum of result-row counts across all reader iterations (one returned product per "read"),
+	// matching the original ConcurrentReadWriteBenchmark methodology behind the docs' reads/sec figure.
+	public static readonly ConcurrentDictionary<string, (long Queries, long Reads, long Writes, long DurationMs)> Results = new();
 	private BenchmarkProductCache _productCache = null!;
 	private BenchmarkProductInfoCache _productInfoCache = null!;
 	private BenchmarkOfferCache _offerCache = null!;
@@ -179,6 +181,7 @@ public class HeavyJoinPooledBenchmarks {
 		var running = true;
 		var writes = new long[WriterThreads];
 		var queries = new long[ReaderThreads];
+		var reads = new long[ReaderThreads];
 		var stopwatch = Stopwatch.StartNew();
 
 		var writerTasks = new Task[WriterThreads];
@@ -213,6 +216,7 @@ public class HeavyJoinPooledBenchmarks {
 							.JoinMany(_offerCache.Cache, _offerCache.ProductIdIndex)
 							.ExecutePooled();
 						queries[r]++;
+						reads[r] += results.Count;
 						results.Dispose();
 					}
 				else
@@ -223,8 +227,8 @@ public class HeavyJoinPooledBenchmarks {
 							.JoinWithBenchmarkProductInfo()
 							.JoinMany(_offerCache.Cache, _offerCache.ProductIdIndex)
 							.Execute();
-						if (results.Count >= 0)
-							queries[r]++;
+						queries[r]++;
+						reads[r] += results.Count;
 					}
 			});
 		}
@@ -237,14 +241,17 @@ public class HeavyJoinPooledBenchmarks {
 		stopwatch.Stop();
 
 		long totalQueries = 0;
-		for (var i = 0; i < queries.Length; i++)
+		long totalReads = 0;
+		for (var i = 0; i < queries.Length; i++) {
 			totalQueries += queries[i];
+			totalReads += reads[i];
+		}
 		long totalWrites = 0;
 		for (var i = 0; i < writes.Length; i++)
 			totalWrites += writes[i];
 
-		Results[key] = (totalQueries, totalWrites, stopwatch.ElapsedMilliseconds);
-		return $"Q:{totalQueries} W:{totalWrites} T:{stopwatch.ElapsedMilliseconds}ms";
+		Results[key] = (totalQueries, totalReads, totalWrites, stopwatch.ElapsedMilliseconds);
+		return $"Q:{totalQueries} R:{totalReads} W:{totalWrites} T:{stopwatch.ElapsedMilliseconds}ms";
 	}
 
 	private class Config : ManualConfig {
@@ -253,10 +260,10 @@ public class HeavyJoinPooledBenchmarks {
 				.WithToolchain(InProcessNoEmitToolchain.Instance)
 				.WithWarmupCount(1)
 				.WithIterationCount(5));
-			AddColumn(new ThroughputColumn("Queries", 0, "Total heavy-join queries executed",
-				static r => r.Queries.ToString("N0")));
-			AddColumn(new ThroughputColumn("Queries/s", 1, "Heavy-join queries per second",
+			AddColumn(new ThroughputColumn("Queries/s", 0, "Heavy-join queries per second",
 				static r => r.DurationMs > 0 ? (r.Queries * 1000.0 / r.DurationMs).ToString("N0") : "N/A"));
+			AddColumn(new ThroughputColumn("Reads/s", 1, "Result rows returned per second (sum of results.Count / s)",
+				static r => r.DurationMs > 0 ? (r.Reads * 1000.0 / r.DurationMs).ToString("N0") : "N/A"));
 			AddColumn(new ThroughputColumn("Writes", 2, "Total write operations",
 				static r => r.Writes.ToString("N0")));
 			AddColumn(new ThroughputColumn("Window", 3, "Measured window in ms",
@@ -265,10 +272,10 @@ public class HeavyJoinPooledBenchmarks {
 	}
 
 	private sealed class ThroughputColumn : IColumn {
-		private readonly Func<(long Queries, long Writes, long DurationMs), string> _format;
+		private readonly Func<(long Queries, long Reads, long Writes, long DurationMs), string> _format;
 
 		public ThroughputColumn(string name, int priority, string legend,
-			Func<(long Queries, long Writes, long DurationMs), string> format) {
+			Func<(long Queries, long Reads, long Writes, long DurationMs), string> format) {
 			ColumnName = name;
 			PriorityInCategory = priority;
 			Legend = legend;
