@@ -330,20 +330,20 @@ internal ref struct PrepareIndexedInnerProcessor<TLeftKey, TLeftValue, TExecutor
 	private readonly bool _cloneOnAdd;
 	private readonly bool _shouldPool;
 	internal bool _hadHit;
-	private QueryResultsDisposer? _disposer;
+	private ref QueryResultsDisposer _disposer;
 
-	public PrepareIndexedInnerProcessor(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+	public PrepareIndexedInnerProcessor(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		_leftQuery = ref leftQuery;
 		_cloneOnAdd = cloneOnAdd;
 		_shouldPool = shouldPool;
-		_disposer = disposer;
+		_disposer = ref disposer;
 	}
 
 	public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver {
 		if (!resolver.Inner)
 			return;
 		_hadHit = true;
-		resolver.PrepareIndexedInner(ref _leftQuery, _cloneOnAdd, _shouldPool, _disposer);
+		resolver.PrepareIndexedInner(ref _leftQuery, _cloneOnAdd, _shouldPool, ref _disposer);
 	}
 }
 
@@ -354,13 +354,13 @@ internal ref struct ExecuteIndexedInnerProcessor<TLeftKey, TLeftValue, TResult, 
 	private ref TExecutor _leftQuery;
 	private readonly bool _cloneOnAdd;
 	private ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
-	private QueryResultsDisposer? _disposer;
+	private ref QueryResultsDisposer _disposer;
 	private bool _isFirst;
 
-	public ExecuteIndexedInnerProcessor(ref TExecutor leftQuery, ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> results, bool cloneOnAdd,QueryResultsDisposer? disposer) {
+	public ExecuteIndexedInnerProcessor(ref TExecutor leftQuery, ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> results, bool cloneOnAdd,ref QueryResultsDisposer disposer) {
 		_leftQuery = ref leftQuery;
 		_cloneOnAdd = cloneOnAdd;
-		_disposer = disposer;
+		_disposer = ref disposer;
 		_results = ref results;
 		_isFirst = true;
 	}
@@ -376,7 +376,7 @@ internal ref struct ExecuteIndexedInnerProcessor<TLeftKey, TLeftValue, TResult, 
 #>
 			case <#= i #>: {
 				var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 <#
@@ -395,7 +395,7 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 	private readonly int _skip;
 	private readonly int _take;
 	private ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
-	private QueryResultsDisposer? _disposer;
+	private ref QueryResultsDisposer _disposer;
 
 	internal bool DidSort = false;
 
@@ -405,12 +405,12 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		int take,
 		bool cloneOnAdd,
 		bool shouldPool,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		_skip = skip;
 		_take = take;
 		_cloneOnAdd = cloneOnAdd;
 		_shouldPool = shouldPool;
-		_disposer = disposer;
+		_disposer = ref disposer;
 		_results = ref results;
 	}
 
@@ -434,7 +434,7 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 			case <#= i #>: {
 				if (!resolver.Inner) {
 					var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}

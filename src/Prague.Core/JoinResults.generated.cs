@@ -3048,20 +3048,20 @@ internal ref struct PrepareIndexedInnerProcessor<TLeftKey, TLeftValue, TExecutor
 	private readonly bool _cloneOnAdd;
 	private readonly bool _shouldPool;
 	internal bool _hadHit;
-	private QueryResultsDisposer? _disposer;
+	private ref QueryResultsDisposer _disposer;
 
-	public PrepareIndexedInnerProcessor(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+	public PrepareIndexedInnerProcessor(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		_leftQuery = ref leftQuery;
 		_cloneOnAdd = cloneOnAdd;
 		_shouldPool = shouldPool;
-		_disposer = disposer;
+		_disposer = ref disposer;
 	}
 
 	public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver {
 		if (!resolver.Inner)
 			return;
 		_hadHit = true;
-		resolver.PrepareIndexedInner(ref _leftQuery, _cloneOnAdd, _shouldPool, _disposer);
+		resolver.PrepareIndexedInner(ref _leftQuery, _cloneOnAdd, _shouldPool, ref _disposer);
 	}
 }
 
@@ -3072,13 +3072,13 @@ internal ref struct ExecuteIndexedInnerProcessor<TLeftKey, TLeftValue, TResult, 
 	private ref TExecutor _leftQuery;
 	private readonly bool _cloneOnAdd;
 	private ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
-	private QueryResultsDisposer? _disposer;
+	private ref QueryResultsDisposer _disposer;
 	private bool _isFirst;
 
-	public ExecuteIndexedInnerProcessor(ref TExecutor leftQuery, ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> results, bool cloneOnAdd,QueryResultsDisposer? disposer) {
+	public ExecuteIndexedInnerProcessor(ref TExecutor leftQuery, ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> results, bool cloneOnAdd,ref QueryResultsDisposer disposer) {
 		_leftQuery = ref leftQuery;
 		_cloneOnAdd = cloneOnAdd;
-		_disposer = disposer;
+		_disposer = ref disposer;
 		_results = ref results;
 		_isFirst = true;
 	}
@@ -3089,77 +3089,77 @@ internal ref struct ExecuteIndexedInnerProcessor<TLeftKey, TLeftValue, TResult, 
 		switch (position) {
 			case 1: {
 				var a = new UnsafeRightAccessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 2: {
 				var a = new UnsafeRight2Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 3: {
 				var a = new UnsafeRight3Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 4: {
 				var a = new UnsafeRight4Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 5: {
 				var a = new UnsafeRight5Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 6: {
 				var a = new UnsafeRight6Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 7: {
 				var a = new UnsafeRight7Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 8: {
 				var a = new UnsafeRight8Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 9: {
 				var a = new UnsafeRight9Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 10: {
 				var a = new UnsafeRight10Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 11: {
 				var a = new UnsafeRight11Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 12: {
 				var a = new UnsafeRight12Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 13: {
 				var a = new UnsafeRight13Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 14: {
 				var a = new UnsafeRight14Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 			case 15: {
 				var a = new UnsafeRight15Accessor<TLeftKey, TResult>(ref _results);
-				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, _disposer);
+				resolver.UnsafeExecuteIndexedInner(ref a, ref _leftQuery, _cloneOnAdd, _isFirst, ref _disposer);
 				break;
 			}
 		}
@@ -3175,7 +3175,7 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 	private readonly int _skip;
 	private readonly int _take;
 	private ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
-	private QueryResultsDisposer? _disposer;
+	private ref QueryResultsDisposer _disposer;
 
 	internal bool DidSort = false;
 
@@ -3185,12 +3185,12 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		int take,
 		bool cloneOnAdd,
 		bool shouldPool,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		_skip = skip;
 		_take = take;
 		_cloneOnAdd = cloneOnAdd;
 		_shouldPool = shouldPool;
-		_disposer = disposer;
+		_disposer = ref disposer;
 		_results = ref results;
 	}
 
@@ -3209,105 +3209,105 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 			case 1: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRightAccessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 2: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight2Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 3: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight3Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 4: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight4Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 5: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight5Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 6: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight6Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 7: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight7Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 8: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight8Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 9: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight9Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 10: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight10Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 11: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight11Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 12: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight12Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 13: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight13Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 14: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight14Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}
 			case 15: {
 				if (!resolver.Inner) {
 					var a = new UnsafeRight15Accessor<TLeftKey, TResult>(ref _results);
-					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, _disposer);
+					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
 				}
 				break;
 			}

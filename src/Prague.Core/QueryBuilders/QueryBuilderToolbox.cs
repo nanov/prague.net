@@ -29,7 +29,7 @@ public interface IJoinResolver {
 	bool Inner { get; }
 
 	internal void UnsafeExecuteWithAccessor<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool,
-		QueryResultsDisposer? disposer)
+		ref QueryResultsDisposer disposer)
 		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct;
 
 	internal void UnsafeSortResults<TFullResult>(ref QueryResults<TFullResult> results, int skip, int take)
@@ -44,7 +44,7 @@ public interface IJoinResolver {
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool isFirst,
-		QueryResultsDisposer? disposer)
+		ref QueryResultsDisposer disposer)
 		where TExecutor : struct, IUnsafeCandidatesExecutor
 		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct;
 
@@ -52,7 +52,7 @@ public interface IJoinResolver {
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool shouldPool,
-		QueryResultsDisposer? disposer) where TExecutor : struct, IUnsafeCandidatesExecutor;
+		ref QueryResultsDisposer disposer) where TExecutor : struct, IUnsafeCandidatesExecutor;
 
 	static abstract void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult;
 }

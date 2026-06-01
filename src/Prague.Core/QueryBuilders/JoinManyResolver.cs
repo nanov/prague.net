@@ -215,11 +215,11 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	}
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
-		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		// Pool the per-left child buffer only when a disposer exists to return it (pooled execution).
-		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd, disposer is not null);
+		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
 		ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
-		RegisterPooledBuffer(disposer, container.GetSharedBuffer());
+		RegisterPooledBuffer(ref disposer, container.GetSharedBuffer());
 	}
 
 	void IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>.ExecuteReverseMany<TContainer>(
@@ -230,8 +230,8 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	// Register the rented contiguous child buffer for return to the pool on result Dispose.
 	// disposer is non-null exactly for pooled execution; a zero-length buffer (Rent(0) → Array.Empty)
 	// must not be returned.
-	private static void RegisterPooledBuffer(QueryResultsDisposer? disposer, TRightValue[]? buffer) {
-		if (disposer is not null && buffer is { Length: > 0 })
+	private static void RegisterPooledBuffer(ref QueryResultsDisposer disposer, TRightValue[]? buffer) {
+		if (disposer.IsActive && buffer is { Length: > 0 })
 			disposer.AddPooledBuffer(buffer);
 	}
 
@@ -242,7 +242,7 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	/// <c>UseIndex</c> narrowed the candidate set. Mirrors the JoinOne pattern.
 	/// </summary>
 	void IJoinResolver.PrepareIndexedInner<TExecutor>(
-		ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+		ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		_ = leftQuery.GetCandidates<TLeftKey>();
 	}
 
@@ -257,7 +257,7 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool isFirst,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		ref var candidates = ref leftQuery.GetCandidates<TLeftKey>();
 		if (!candidates.IsInitlized || candidates.Count == 0)
 			return;
@@ -265,7 +265,7 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		// Same flow as outer ExecuteReverse, but operate on candidates (not accessor.GetKeys).
 		var pairs = new ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>(candidates.Count);
 		var handedOff = false;
-		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd, disposer is not null);
+		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
 		try {
 			foreach (var leftKey in candidates) {
 				TIndexKey indexKey = TSelector.IsIdentity
@@ -292,7 +292,7 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 			}
 
 			container.PrepareSharedBuffer();
-			RegisterPooledBuffer(disposer, container.GetSharedBuffer());
+			RegisterPooledBuffer(ref disposer, container.GetSharedBuffer());
 
 			// Wrap pairs, apply filter, run paired execute (Add per surviving pair).
 			var dataCache = _rightCache.Cache;
@@ -532,11 +532,11 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 	}
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
-		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		// Pool the per-left child buffer only when a disposer exists to return it (pooled execution).
-		var inner = new InnerKeyedContainer<TAccessor>(accessor, cloneOnAdd, disposer is not null);
+		var inner = new InnerKeyedContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
 		ExecuteOuter(ref inner, accessor.GetKeys<TLeftKey>());
-		RegisterPooledBuffer(disposer, inner.GetSharedBuffer());
+		RegisterPooledBuffer(ref disposer, inner.GetSharedBuffer());
 	}
 
 	void IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>.ExecuteReverseMany<TContainer>(
@@ -545,15 +545,15 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 	}
 
 	// Register the rented contiguous child buffer for return to the pool on result Dispose.
-	private static void RegisterPooledBuffer(QueryResultsDisposer? disposer, TRightValue[]? buffer) {
-		if (disposer is not null && buffer is { Length: > 0 })
+	private static void RegisterPooledBuffer(ref QueryResultsDisposer disposer, TRightValue[]? buffer) {
+		if (disposer.IsActive && buffer is { Length: > 0 })
 			disposer.AddPooledBuffer(buffer);
 	}
 
 	// ── IndexedInner ────────────────────────────────────────────────────────
 
 	void IJoinResolver.PrepareIndexedInner<TExecutor>(
-		ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+		ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		_ = leftQuery.GetCandidates<TLeftKey>();
 	}
 
@@ -562,7 +562,7 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool isFirst,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		ref var candidates = ref leftQuery.GetCandidates<TLeftKey>();
 		if (!candidates.IsInitlized || candidates.Count == 0)
 			return;
@@ -570,7 +570,7 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 		var distinctLookups = new ValueSet<TLookupKey, DefaultKeyComparer<TLookupKey>>(candidates.Count);
 		var pairs = new ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>>(candidates.Count);
 		var handedOff = false;
-		var inner = new InnerKeyedContainer<TAccessor>(accessor, cloneOnAdd, disposer is not null);
+		var inner = new InnerKeyedContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
 		try {
 			foreach (var leftKey in candidates)
 				if (_leftIndex.Reverse.TryGetValue(leftKey, out var lookupKey))
@@ -608,7 +608,7 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 			}
 
 			inner.PrepareSharedBuffer();
-			RegisterPooledBuffer(disposer, inner.GetSharedBuffer());
+			RegisterPooledBuffer(ref disposer, inner.GetSharedBuffer());
 
 			var dataCache = _rightCache.Cache;
 			var pairedCore = new PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>(dataCache, pairs);

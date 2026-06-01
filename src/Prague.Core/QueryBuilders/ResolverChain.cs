@@ -112,7 +112,7 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	private readonly int _take;
 	private int _totalCont;
 	private ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
-	private QueryResultsDisposer? _disposer;
+	private QueryResultsDisposer _disposer;
 	private ref TResolverChain _chainedResolvers;
 	public int TotalCount => _totalCont;
 
@@ -127,7 +127,8 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		_skip = skip;
 		_take = take;
 		// One disposer slot per Many join in the chain (manyCount), to return their rented child buffers.
-		_disposer = pool && manyCount > 0 ? new QueryResultsDisposer(manyCount) : null;
+		// default is inert (IsActive == false) for non-pooled / no-Many queries.
+		_disposer = pool && manyCount > 0 ? new QueryResultsDisposer(manyCount) : default;
 	}
 
 
@@ -135,7 +136,7 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	public void PrepareIndexedInner<TExecutor>(ref TExecutor leftQuery)
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue> {
 
-		var e = new PrepareIndexedInnerProcessor<TLeftKey, TLeftValue, TExecutor>(ref leftQuery,  _cloneOnAdd, _shouldPool, _disposer);
+		var e = new PrepareIndexedInnerProcessor<TLeftKey, TLeftValue, TExecutor>(ref leftQuery,  _cloneOnAdd, _shouldPool, ref _disposer);
 		_chainedResolvers.Execute(ref e);
 		if (e._hadHit)
 			Init(leftQuery.Candidates.Count);
@@ -143,7 +144,7 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	}
 
 	public void ExecuteIndexedInner<TExecutor>(ref TExecutor leftQuery) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue> {
-		var e = new ExecuteIndexedInnerProcessor<TLeftKey, TLeftValue, TResult, TExecutor>(ref leftQuery, ref _results,  _cloneOnAdd, _disposer);
+		var e = new ExecuteIndexedInnerProcessor<TLeftKey, TLeftValue, TResult, TExecutor>(ref leftQuery, ref _results,  _cloneOnAdd, ref _disposer);
 		_chainedResolvers.Execute(ref e);
 	}
 
@@ -165,7 +166,7 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 
 	/// <summary>Execute joins for resolver 1 (reverse joins only — forward joins resolved in Add when active).</summary>
 	public void ExecuteJoins() {
-		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(ref _results, _skip, _take, _cloneOnAdd, _shouldPool, _disposer);
+		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer);
 		_chainedResolvers.Execute(ref p);
 		if (!p.DidSort && (_skip > 0 || _take < int.MaxValue))
 			_results.Crop(_skip, _take);
@@ -179,13 +180,13 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		if (_results.Count == 0) {
 			// Empty result carries no buffer slices — return any pooled child buffers rented by
 			// inner joins now, since the empty QueryResults won't own the disposer to do it.
-			_disposer?.Dispose();
+			_disposer.Dispose();
 			return QueryResults<TResult>.EmptyWithTotalCount(TotalCount);
 		}
 
 		var offset = _results.Offset;
 		var allResults = QueryResults<TResult>.FromArray(
-			_results.ValuesArray ?? [], offset, _results.Count, TotalCount, _shouldPool, _disposer);
+			_results.ValuesArray ?? [], offset, _results.Count, TotalCount, _shouldPool, in _disposer);
 
 		// Clone after slicing if needed
 		if (_clone)
@@ -196,7 +197,7 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 
 	public void Dispose() => _results.Dispose();
 	public void HardDispose() {
-		_disposer?.Dispose();
+		_disposer.Dispose();
 		_results.Dispose();
 	}
 }

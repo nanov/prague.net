@@ -92,15 +92,15 @@ public class JoinResults {
 		public bool IsIndexed => Inner;
 
 		public void UnsafeExecuteWithAccessor<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool,
-			QueryResultsDisposer? disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct =>
+			ref QueryResultsDisposer disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct =>
 			throw new NotImplementedException();
 
 		public void UnsafeExecuteIndexedInner<TAccessor, TExecutor>(ref TAccessor accessor, ref TExecutor leftQuery, bool cloneOnAdd,
-			bool isFirst, QueryResultsDisposer? disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct where TExecutor : struct, IUnsafeCandidatesExecutor =>
+			bool isFirst, ref QueryResultsDisposer disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct where TExecutor : struct, IUnsafeCandidatesExecutor =>
 			throw new System.NotImplementedException();
 
 		public void PrepareIndexedInner<TExecutor>(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
-			QueryResultsDisposer? disposer) where TExecutor : struct, IUnsafeCandidatesExecutor =>
+			ref QueryResultsDisposer disposer) where TExecutor : struct, IUnsafeCandidatesExecutor =>
 			throw new NotImplementedException();
 
 		public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult => throw new NotImplementedException();
@@ -111,15 +111,15 @@ public class JoinResults {
 		public bool IsForward { get; }
 
 		public void UnsafeExecuteWithAccessor<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool,
-			QueryResultsDisposer? disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct =>
+			ref QueryResultsDisposer disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct =>
 			throw new NotImplementedException();
 
 		public void UnsafeExecuteIndexedInner<TAccessor, TExecutor>(ref TAccessor accessor, ref TExecutor leftQuery, bool cloneOnAdd,
-			bool isFirst, QueryResultsDisposer? disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct where TExecutor : struct, IUnsafeCandidatesExecutor =>
+			bool isFirst, ref QueryResultsDisposer disposer) where TAccessor : struct, IUnsafeValueAccessor, allows ref struct where TExecutor : struct, IUnsafeCandidatesExecutor =>
 			throw new System.NotImplementedException();
 
 		public void PrepareIndexedInner<TExecutor>(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
-			QueryResultsDisposer? disposer) where TExecutor : struct, IUnsafeCandidatesExecutor =>
+			ref QueryResultsDisposer disposer) where TExecutor : struct, IUnsafeCandidatesExecutor =>
 			throw new NotImplementedException();
 
 		public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult => throw new NotImplementedException();

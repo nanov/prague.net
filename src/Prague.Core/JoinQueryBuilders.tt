@@ -3671,7 +3671,7 @@ public interface IResolverChain<TLeftKey, TLeftValue, <#= typeParams #>> : IReso
 
 
 	void PrepareIndexedInner<#= level #><TExecutor>(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
-		QueryResultsDisposer? disposer)
+		ref QueryResultsDisposer disposer)
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>;
 
 	public abstract static void CloneValue<TLeftCloner>(
@@ -3725,16 +3725,16 @@ public struct
 		for (int i = 1; i < level; i++) {
 #>
 	public void PrepareIndexedInner<#= i #><TExecutor>(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
-		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
-		=> _prev.PrepareIndexedInner<#= i #>(ref leftQuery, cloneOnAdd, shouldPool, disposer);
+		ref QueryResultsDisposer disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
+		=> _prev.PrepareIndexedInner<#= i #>(ref leftQuery, cloneOnAdd, shouldPool, ref disposer);
 
 <#
 		}
 		// Methods for current level (from _resolver)
 #>
 	public void PrepareIndexedInner<#= level #><TExecutor>(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
-		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
-		=> _resolver.PrepareIndexedInner(ref leftQuery, cloneOnAdd, shouldPool, disposer);
+		ref QueryResultsDisposer disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
+		=> _resolver.PrepareIndexedInner(ref leftQuery, cloneOnAdd, shouldPool, ref disposer);
 
 	void ISortableResolverChain<TLeftKey, TLeftValue, <#= typeParams #>>.SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
 		=> _prev.SortResults(ref results, skip, take);
@@ -3820,8 +3820,8 @@ public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, <#= ty
 		for (int i = 1; i <= level; i++) {
 #>
 	public void PrepareIndexedInner<#= i #><TExecutor>(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
-		QueryResultsDisposer? disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
-		=> _prev.PrepareIndexedInner<#= i #>(ref leftQuery, cloneOnAdd, shouldPool, disposer);
+		ref QueryResultsDisposer disposer) where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
+		=> _prev.PrepareIndexedInner<#= i #>(ref leftQuery, cloneOnAdd, shouldPool, ref disposer);
 <#
 		}
 #>

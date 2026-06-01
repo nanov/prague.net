@@ -266,7 +266,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	}
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
-		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
 		ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
 	}
@@ -284,7 +284,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool shouldPool,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		_ = leftQuery.GetCandidates<TLeftKey>();
 	}
 
@@ -303,7 +303,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool isFirst,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		ref var candidates = ref leftQuery.GetCandidates<TLeftKey>();
 		if (!candidates.IsInitlized || candidates.Count == 0)
 			return;
@@ -604,7 +604,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 	// ── Core execution loop ──────────────────────────────────────────────────
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
-		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		var leftKeys = accessor.GetKeys<TLeftKey>();
 		if (leftKeys.IsEmpty)
 			return;
@@ -646,7 +646,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool shouldPool,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		_ = leftQuery.GetCandidates<TLeftKey>();
 	}
 
@@ -655,7 +655,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool isFirst,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		ref var candidates = ref leftQuery.GetCandidates<TLeftKey>();
 		if (!candidates.IsInitlized || candidates.Count == 0)
 			return;
@@ -878,7 +878,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 	}
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
-		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
 		ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
 	}
@@ -893,7 +893,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool shouldPool,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		_ = leftQuery.GetCandidates<TLeftKey>();
 	}
 
@@ -902,7 +902,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool isFirst,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		ref var candidates = ref leftQuery.GetCandidates<TLeftKey>();
 		if (!candidates.IsInitlized || candidates.Count == 0)
 			return;
@@ -1127,7 +1127,7 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	}
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
-		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, QueryResultsDisposer? disposer) {
+		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
 		ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
 	}
@@ -1138,7 +1138,7 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool shouldPool,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		_ = leftQuery.GetCandidates<TLeftKey>();
 	}
 
@@ -1147,7 +1147,7 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		ref TExecutor leftQuery,
 		bool cloneOnAdd,
 		bool isFirst,
-		QueryResultsDisposer? disposer) {
+		ref QueryResultsDisposer disposer) {
 		ref var candidates = ref leftQuery.GetCandidates<TLeftKey>();
 		if (!candidates.IsInitlized || candidates.Count == 0)
 			return;
