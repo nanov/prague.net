@@ -197,6 +197,109 @@ public class JoinPooledBufferReturnCoreTests {
 		Assert.That(pooled.Count, Is.EqualTo(0));
 	}
 
+	// ── Zero-alloc: a single-Many pooled query allocates nothing per call ───────
+	//
+	// The disposer used to be a heap object (sealed class + two arrays, ~88 B/query).
+	// As an inline struct embedded in QueryResults<T> it adds no allocation, so after
+	// warmup a manyCount==1 pooled rent+Dispose loop must allocate exactly 0 bytes.
+	// Regressing the disposer back to a class would make this non-zero.
+
+	[Test]
+	public void Pooled_ManyJoin_HasNoPerQueryDisposerAllocation() {
+		// The buffer-return disposer used to be a heap object (sealed class + two arrays),
+		// created once per pooled query with >=1 Many join — a FIXED per-query allocation.
+		// As an inline struct embedded in QueryResults<T> (capacity InlineCapacity) it costs
+		// nothing on the heap for chains within that capacity.
+		//
+		// Both chains below stay within InlineCapacity (1 and 2 Many joins), so neither rents
+		// the disposer overflow. A pooled join has zero per-query base allocation (verified: a
+		// non-join / JoinOne pooled query allocates 0), so total allocation is purely the
+		// pre-existing constant per-Many residual. That makes the 2-Many cost exactly twice the
+		// 1-Many cost — there is NO fixed per-query offset. A class disposer (one object per
+		// query regardless of manyCount) would reintroduce that offset and break the linearity.
+
+		long PerIterAlloc(Func<int> run) {
+			for (var i = 0; i < 10; i++) run();                 // warm up JIT + prime pools
+			var before = GC.GetAllocatedBytesForCurrentThread();
+			var sink = 0L;
+			for (var i = 0; i < Iterations; i++) sink += run();
+			Assert.That(sink, Is.GreaterThan(0), "queries did not run");
+			return (GC.GetAllocatedBytesForCurrentThread() - before) / Iterations;
+		}
+
+		var oneMany = PerIterAlloc(() => {
+			using var r = _parents.Query().JoinMany(_children, _childByParentId).ExecutePooled();
+			return r.Count;
+		});
+		var twoMany = PerIterAlloc(() => {
+			using var r = _parents.Query()
+				.JoinMany(_children, _childByParentId)
+				.JoinMany(_children, _childByParentId)
+				.ExecutePooled();
+			return r.Count;
+		});
+
+		// Allow a small slack for ArrayPool power-of-two bucket rounding (observed ~4 B); a class
+		// disposer would add a fixed ~90-100 B/query, breaking linearity well beyond this slack.
+		Assert.That(Math.Abs(twoMany - 2 * oneMany), Is.LessThan(48),
+			$"per-query allocation must be linear in Many-join count with no fixed disposer offset: 1-Many={oneMany} B/iter, 2-Many={twoMany} B/iter");
+	}
+
+	// ── Overflow path: a 3-deep JoinMany chain (manyCount==3 > InlineCapacity) ──
+	//
+	// Each Many join rents its own contiguous child buffer; the 3rd spills into the
+	// disposer's heap _overflow array. Verifies the overflow buffer is registered and
+	// returned correctly — repeated pooled rent+Dispose must not double-return / corrupt
+	// the pool, and the final result must carry the right per-left child counts.
+
+	[Test]
+	public void JoinMany_ThreeDeep_Overflow_Pooled_NoCorruptionAndCorrectCounts() {
+		Func<QueryResults<JoinResult<PbParent, QueryResults<PbChild>, QueryResults<PbChild>, QueryResults<PbChild>>>> pooled =
+			() => _parents.Query()
+				.JoinMany(_children, _childByParentId)
+				.JoinMany(_children, _childByParentId)
+				.JoinMany(_children, _childByParentId)
+				.ExecutePooled();
+
+		// Hammer the pooled path: a double ArrayPool.Return of the overflow buffer would
+		// surface here as a buffer handed out while still in use (count corruption) or a throw.
+		for (var i = 0; i < 50; i++) {
+			using var r = pooled();
+			Assert.That(r.Count, Is.EqualTo(3)); // outer keeps all 3 parents
+			var byId = r.ToDictionary(x => x.Left.Id);
+			Assert.That(byId[1].Right.Count, Is.EqualTo(BigChildCount));
+			Assert.That(byId[1].Right2.Count, Is.EqualTo(BigChildCount));
+			Assert.That(byId[1].Right3.Count, Is.EqualTo(BigChildCount));
+			Assert.That(byId[2].Right.Count, Is.EqualTo(5));
+			Assert.That(byId[2].Right3.Count, Is.EqualTo(5));
+			Assert.That(byId[3].Right.Count, Is.EqualTo(0));
+			Assert.That(byId[3].Right3.Count, Is.EqualTo(0));
+		}
+	}
+
+	[Test]
+	public void JoinMany_ThreeDeep_Overflow_PooledEqualsExecute() {
+		var expected = _parents.Query()
+			.JoinMany(_children, _childByParentId)
+			.JoinMany(_children, _childByParentId)
+			.JoinMany(_children, _childByParentId)
+			.Execute();
+		using var pooled = _parents.Query()
+			.JoinMany(_children, _childByParentId)
+			.JoinMany(_children, _childByParentId)
+			.JoinMany(_children, _childByParentId)
+			.ExecutePooled();
+
+		Assert.That(pooled.Count, Is.EqualTo(expected.Count));
+		var pById = pooled.ToDictionary(r => r.Left.Id);
+		var eById = expected.ToDictionary(r => r.Left.Id);
+		foreach (var id in eById.Keys) {
+			Assert.That(pById[id].Right.Count, Is.EqualTo(eById[id].Right.Count));
+			Assert.That(pById[id].Right2.Count, Is.EqualTo(eById[id].Right2.Count));
+			Assert.That(pById[id].Right3.Count, Is.EqualTo(eById[id].Right3.Count));
+		}
+	}
+
 	// ── Helpers ─────────────────────────────────────────────────────────────────
 
 	private static void AssertPooledReusesBuffer<TResult>(

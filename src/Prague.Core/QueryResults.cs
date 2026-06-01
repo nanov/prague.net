@@ -32,7 +32,7 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 	private readonly int _totalCount;
 	private readonly bool _isPooled;
 	private readonly ArrayPool<T>? _pool;
-	private readonly QueryResultsDisposer? _disposer;
+	private readonly QueryResultsDisposer _disposer;
 
 	internal QueryResults(int totalCount) {
 		_array = Array.Empty<T>();
@@ -134,17 +134,17 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 	/// Creates a QueryResults from an existing array. Used by join builders that manage their own arrays.
 	/// </summary>
 	internal static QueryResults<T> FromArray(T[] array, int offset, int count, int totalCount, bool isPooled) {
-		return new QueryResults<T>(array, offset, count, totalCount, isPooled, ArrayPool<T>.Shared, null);
+		return new QueryResults<T>(array, offset, count, totalCount, isPooled, ArrayPool<T>.Shared, default);
 	}
 
 	/// <summary>
 	/// Creates a QueryResults from an existing array with a disposer. Used by unified join builders.
 	/// </summary>
-	internal static QueryResults<T> FromArray(T[] array, int offset, int count, int totalCount, bool isPooled, QueryResultsDisposer? disposer) {
-		return new QueryResults<T>(array, offset, count, totalCount, isPooled, ArrayPool<T>.Shared, disposer);
+	internal static QueryResults<T> FromArray(T[] array, int offset, int count, int totalCount, bool isPooled, in QueryResultsDisposer disposer) {
+		return new QueryResults<T>(array, offset, count, totalCount, isPooled, ArrayPool<T>.Shared, in disposer);
 	}
 
-	private QueryResults(T[] array, int offset, int count, int totalCount, bool isPooled, ArrayPool<T>? pool, QueryResultsDisposer? disposer) {
+	private QueryResults(T[] array, int offset, int count, int totalCount, bool isPooled, ArrayPool<T>? pool, in QueryResultsDisposer disposer) {
 		if ((uint)offset > (uint)array.Length || (uint)count > (uint)(array.Length - offset))
 			throw RangeException(array, offset, count);
 
@@ -164,7 +164,7 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 	}
 
 	public void Dispose() {
-		_disposer?.Dispose();
+		_disposer.Dispose();
 
 		if (!_isPooled || _array is null || _array.Length is 0)
 			return;
@@ -573,29 +573,56 @@ internal static class PragueArrayReturn<T> {
 /// determined at the join builder level (the right value types vary per resolver), so buffers are
 /// stored type-erased as <see cref="Array"/> alongside their cached per-type returner — see
 /// <see cref="PragueArrayReturn{T}"/>. Capacity is the number of Many joins in the chain.
+///
+/// A <see langword="struct"/> embedded by value in <see cref="QueryResults{T}"/> so the common pooled
+/// join carries no extra heap object: the first <see cref="InlineCapacity"/> buffers live in the inline
+/// storage and only deeper chains (manyCount &gt; InlineCapacity) rent the single <c>_overflow</c> array.
+/// <c>default</c> is inert (<see cref="IsActive"/> is <see langword="false"/>, <see cref="Dispose"/> a
+/// no-op) — that replaces the old null sentinel.
 /// </summary>
-public sealed class QueryResultsDisposer {
-	private readonly Array[] _buffers;
-	private readonly Action<Array>[] _returners;
+public struct QueryResultsDisposer {
+	// Single knob: kept ≤ MaxJoins-1 (=4) so the overflow rent is reachable only by the deepest legal chains.
+	internal const int InlineCapacity = 2;
+
+	private struct PooledBufferEntry {
+		internal Array Buffer;
+		internal Action<Array> Returner;
+	}
+
+	[InlineArray(InlineCapacity)]
+	private struct InlineEntries {
+		private PooledBufferEntry _e0;
+	}
+
+	private InlineEntries _inline;
+	private PooledBufferEntry[]? _overflow; // rented only when capacity > InlineCapacity
 	private int _count;
+	private readonly bool _active;
 
 	// capacity is the chain's Many-join count — the exact upper bound on registered buffers
 	// (a Many join with no matched lefts rents nothing, so registrations never exceed it).
 	public QueryResultsDisposer(int capacity) {
-		_buffers = new Array[capacity];
-		_returners = new Action<Array>[capacity];
-		_count = 0;
+		_active = true;
+		_overflow = capacity > InlineCapacity ? new PooledBufferEntry[capacity - InlineCapacity] : null;
 	}
+
+	/// <summary>True only for a disposer built for pooling — gates whether buffers are registered (replaces the old null check).</summary>
+	public readonly bool IsActive => _active;
 
 	/// <summary>Register a pooled buffer to be returned to <see cref="ArrayPool{T}.Shared"/> on dispose.</summary>
 	public void AddPooledBuffer<T>(T[] buffer) {
-		_buffers[_count] = buffer;
-		_returners[_count] = PragueArrayReturn<T>.Return;
+		var entry = new PooledBufferEntry { Buffer = buffer, Returner = PragueArrayReturn<T>.Return };
+		if (_count < InlineCapacity)
+			_inline[_count] = entry;
+		else
+			_overflow![_count - InlineCapacity] = entry;
 		_count++;
 	}
 
-	public void Dispose() {
-		for (var i = 0; i < _count; i++)
-			_returners[i](_buffers[i]);
+	public readonly void Dispose() {
+		for (var i = 0; i < _count; i++) {
+			ref readonly var entry = ref i < InlineCapacity ? ref _inline[i] : ref _overflow![i - InlineCapacity];
+			entry.Returner(entry.Buffer);
+		}
 	}
 }
