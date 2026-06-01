@@ -2857,7 +2857,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverNoFilterM #>(
 			(TRightCache)rightCache, rightIndex, default, default);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverNoFilterM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverNoFilterM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverNoFilterM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── M2: outer, with filter ───────────────────────────────────────────────
@@ -2881,7 +2881,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverFilterM #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterM #>(filter), default);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverFilterM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverFilterM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── M3: outer, with filter + arg ─────────────────────────────────────────
@@ -2906,7 +2906,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverFilterArgM #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgM #>(filter, arg), default);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterArgM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverFilterArgM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverFilterArgM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── MI1: inner, no filter ────────────────────────────────────────────────
@@ -2929,7 +2929,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverNoFilterM #>(
 			(TRightCache)rightCache, rightIndex, default, default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverNoFilterM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverNoFilterM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverNoFilterM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── MI2: inner, with filter ──────────────────────────────────────────────
@@ -2953,7 +2953,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverFilterM #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterM #>(filter), default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverFilterM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverFilterM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── MI3: inner, with filter + arg ────────────────────────────────────────
@@ -2978,7 +2978,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverFilterArgM #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgM #>(filter, arg), default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterArgM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverFilterArgM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverFilterArgM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -3007,7 +3007,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverNoFilterLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, default);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverNoFilterLsM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverNoFilterLsM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverNoFilterLsM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LS2: outer, with filter ──────────────────────────────────────────────
@@ -3033,7 +3033,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverFilterLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), default);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterLsM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverFilterLsM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverFilterLsM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LS3: outer, with filter + arg ────────────────────────────────────────
@@ -3060,7 +3060,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverFilterArgLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsM #>(filter, arg), default);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterArgLsM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverFilterArgLsM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverFilterArgLsM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSI1: inner, no filter ───────────────────────────────────────────────
@@ -3085,7 +3085,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverNoFilterLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverNoFilterLsM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverNoFilterLsM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverNoFilterLsM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSI2: inner, with filter ─────────────────────────────────────────────
@@ -3111,7 +3111,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverFilterLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterLsM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverFilterLsM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverFilterLsM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSI3: inner, with filter + arg ───────────────────────────────────────
@@ -3138,7 +3138,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverFilterArgLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsM #>(filter, arg), default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterArgLsM #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverFilterArgLsM #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverFilterArgLsM #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -3168,7 +3168,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverRListSelS1 #>(
 			(TRightCache)rightCache, rightIndex, default, new <#= keySelectorRListSel #>(keySelector));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverRListSelS1 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverRListSelS1 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverRListSelS1 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── MS2: outer, Func selector, with filter ───────────────────────────────
@@ -3194,7 +3194,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverRListSelS3 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterM #>(filter), new <#= keySelectorRListSel #>(keySelector));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverRListSelS3 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverRListSelS3 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverRListSelS3 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── MS3: outer, Func selector, with filter + filterArg ───────────────────
@@ -3221,7 +3221,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverRListSelS5 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgMF #>(filter, filterArg), new <#= keySelectorRListSel #>(keySelector));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverRListSelS5 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverRListSelS5 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverRListSelS5 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── MSA1: outer, Func+arg selector, no filter ────────────────────────────
@@ -3247,7 +3247,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverRListSelS2 #>(
 			(TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgRListSel #>(keySelector, selectorArg));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverRListSelS2 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverRListSelS2 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverRListSelS2 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── MSA2: outer, Func+arg selector, with filter ──────────────────────────
@@ -3274,7 +3274,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverRListSelS4 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterM #>(filter), new <#= keySelectorArgRListSel #>(keySelector, selectorArg));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverRListSelS4 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverRListSelS4 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverRListSelS4 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── MSA3: outer, Func+arg selector, with filter + filterArg ──────────────
@@ -3302,7 +3302,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverRListSelS6 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgMF #>(filter, filterArg), new <#= keySelectorArgRListSel #>(keySelector, selectorArg));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverRListSelS6 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverRListSelS6 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverRListSelS6 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -3333,7 +3333,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS1 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorLsMSel #>(keySelector));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS1 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS1 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS1 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSS2: outer, Func selector, with filter ──────────────────────────────
@@ -3361,7 +3361,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS3 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), new <#= keySelectorLsMSel #>(keySelector));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS3 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS3 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS3 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSS3: outer, Func selector, with filter + arg ────────────────────────
@@ -3390,7 +3390,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS5 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsMF #>(filter, arg), new <#= keySelectorLsMSel #>(keySelector));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS5 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS5 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS5 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSI1: inner, Func selector, no filter ───────────────────────────────
@@ -3417,7 +3417,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS1 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorLsMSel #>(keySelector), isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS1 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS1 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS1 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSI2: inner, Func selector, with filter ─────────────────────────────
@@ -3445,7 +3445,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS3 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), new <#= keySelectorLsMSel #>(keySelector), isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS3 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS3 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS3 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSI3: inner, Func selector, with filter + arg ───────────────────────
@@ -3474,7 +3474,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS5 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsMF #>(filter, arg), new <#= keySelectorLsMSel #>(keySelector), isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS5 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS5 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS5 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSA1: outer, Func+arg selector, no filter ───────────────────────────
@@ -3502,7 +3502,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS2 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgLsMSel #>(keySelector, selectorArg));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS2 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS2 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS2 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSA2: outer, Func+arg selector, with filter ─────────────────────────
@@ -3531,7 +3531,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS4 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), new <#= keySelectorArgLsMSel #>(keySelector, selectorArg));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS4 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS4 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS4 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSA3: outer, Func+arg selector, with filter + arg ───────────────────
@@ -3561,7 +3561,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS6 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsMF #>(filter, arg), new <#= keySelectorArgLsMSel #>(keySelector, selectorArg));
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS6 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS6 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS6 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSAI1: inner, Func+arg selector, no filter ──────────────────────────
@@ -3589,7 +3589,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS2 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgLsMSel #>(keySelector, selectorArg), isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS2 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS2 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS2 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSAI2: inner, Func+arg selector, with filter ────────────────────────
@@ -3618,7 +3618,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS4 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), new <#= keySelectorArgLsMSel #>(keySelector, selectorArg), isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS4 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS4 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS4 #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ── LSSAI3: inner, Func+arg selector, with filter + arg ──────────────────
@@ -3648,7 +3648,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var resolver = new <#= resolverLsMSelS6 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsMF #>(filter, arg), new <#= keySelectorArgLsMSel #>(keySelector, selectorArg), isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverLsMSelS6 #>>, <#= nextResultMany #>>(
-			new Resolvers<TResolverChain, <#= resolverLsMSelS6 #>>(builder._resolverChain, resolver), false);
+			new Resolvers<TResolverChain, <#= resolverLsMSelS6 #>>(builder._resolverChain, resolver), true);
 	}
 }
 <#
