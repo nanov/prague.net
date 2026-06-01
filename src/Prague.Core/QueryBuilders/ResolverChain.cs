@@ -126,6 +126,7 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		_clone = clone && !_cloneOnAdd;
 		_skip = skip;
 		_take = take;
+		// One disposer slot per Many join in the chain (manyCount), to return their rented child buffers.
 		_disposer = pool && manyCount > 0 ? new QueryResultsDisposer(manyCount) : null;
 	}
 
@@ -175,8 +176,12 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	}
 
 	public QueryResults<TResult> BuildResults() {
-		if (_results.Count == 0)
+		if (_results.Count == 0) {
+			// Empty result carries no buffer slices — return any pooled child buffers rented by
+			// inner joins now, since the empty QueryResults won't own the disposer to do it.
+			_disposer?.Dispose();
 			return QueryResults<TResult>.EmptyWithTotalCount(TotalCount);
+		}
 
 		var offset = _results.Offset;
 		var allResults = QueryResults<TResult>.FromArray(

@@ -73,10 +73,12 @@ Every `WithXxx` adds a candidate-narrowing lane. The runtime intersects them on 
 ## ✨ Why Prague?
 
 ### **🚀 Extreme Performance**
-- **9.7M+ reads/sec** with pooled queries (concurrent benchmark)
+- **15.9M+ reads/sec** with pooled queries (concurrent benchmark)
 - **<100ns** indexed lookups
 - **<50ns** conditional updates
 - **Zero allocations** with pooled execution (90KB vs 4.7GB without pooling)
+
+> _Reads/sec is measured by the concurrent `HeavyJoinPooledBenchmarks` (10 reader threads + writers, pooled 3-level join): the count is the sum of result rows returned ÷ wall-clock seconds. Figures are from an Apple M4 Pro; absolute numbers vary by hardware._
 
 ### **🛡️ Compile-Time Safety**
 - Fluent query API with IntelliSense

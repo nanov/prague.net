@@ -558,25 +558,44 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 }
 
 /// <summary>
-/// A simple disposer that holds a list of dispose actions.
-/// Used for unified join builders where the disposer type cannot be statically determined.
-/// Small allocation but simplifies the API significantly.
+/// Caches one <see cref="ArrayPool{T}.Return"/> delegate per closed element type so registering a
+/// pooled buffer with a <see cref="QueryResultsDisposer"/> allocates no per-call closure — the
+/// delegate is created once at type init and the buffer is passed as the (already-allocated) state.
+/// </summary>
+internal static class PragueArrayReturn<T> {
+	internal static readonly Action<Array> Return = static a =>
+		ArrayPool<T>.Shared.Return((T[])a, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+}
+
+/// <summary>
+/// Collects pooled child buffers rented during a join so they are returned to the pool exactly once
+/// when the owning <see cref="QueryResults{T}"/> is disposed. The disposer type cannot be statically
+/// determined at the join builder level (the right value types vary per resolver), so buffers are
+/// stored type-erased as <see cref="Array"/> alongside their cached per-type returner — see
+/// <see cref="PragueArrayReturn{T}"/>. Capacity is the number of Many joins in the chain.
 /// </summary>
 public sealed class QueryResultsDisposer {
-	private readonly Action[] _actions;
+	private readonly Array[] _buffers;
+	private readonly Action<Array>[] _returners;
 	private int _count;
 
+	// capacity is the chain's Many-join count — the exact upper bound on registered buffers
+	// (a Many join with no matched lefts rents nothing, so registrations never exceed it).
 	public QueryResultsDisposer(int capacity) {
-		_actions = new Action[capacity];
+		_buffers = new Array[capacity];
+		_returners = new Action<Array>[capacity];
 		_count = 0;
 	}
 
-	public void Add(Action action) {
-		_actions[_count++] = action;
+	/// <summary>Register a pooled buffer to be returned to <see cref="ArrayPool{T}.Shared"/> on dispose.</summary>
+	public void AddPooledBuffer<T>(T[] buffer) {
+		_buffers[_count] = buffer;
+		_returners[_count] = PragueArrayReturn<T>.Return;
+		_count++;
 	}
 
 	public void Dispose() {
 		for (var i = 0; i < _count; i++)
-			_actions[i]();
+			_returners[i](_buffers[i]);
 	}
 }

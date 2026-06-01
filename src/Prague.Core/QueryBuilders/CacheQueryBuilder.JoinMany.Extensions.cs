@@ -52,7 +52,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				IdentitySelector<TLeftKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape M2: identity, with filter ──────────────────────────────────────
@@ -96,7 +96,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				IdentitySelector<TLeftKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape M3: identity, with filter + arg ────────────────────────────────
@@ -142,7 +142,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
 				IdentitySelector<TLeftKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ════════════════════════════════════════════════════════════════════════════
@@ -187,7 +187,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelector<TLeftKey, TIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape MS2: KeySelector, with filter ──────────────────────────────────
@@ -230,7 +230,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelector<TLeftKey, TIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape MS3: KeySelector, with filter + filterArg ──────────────────────
@@ -275,7 +275,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
 				KeySelector<TLeftKey, TIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape MSA1: KeySelectorWithArg, no filter ────────────────────────────
@@ -315,7 +315,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelectorWithArg<TLeftKey, TSelectorArg, TIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape MSA2: KeySelectorWithArg, with filter ──────────────────────────
@@ -359,7 +359,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelectorWithArg<TLeftKey, TSelectorArg, TIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape MSA3: KeySelectorWithArg, with filter + filterArg ──────────────
@@ -405,7 +405,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
 				KeySelectorWithArg<TLeftKey, TSelectorArg, TIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ════════════════════════════════════════════════════════════════════════════
@@ -450,7 +450,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				IdentitySelector<TLeftKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape MI2: identity, with filter ─────────────────────────────────────
@@ -491,7 +491,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				IdentitySelector<TLeftKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ════════════════════════════════════════════════════════════════════════════
@@ -538,7 +538,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				IdentitySelector<TLookupKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LS2: identity, with filter ─────────────────────────────────────
@@ -581,7 +581,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				IdentitySelector<TLookupKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LS3: identity, with filter + arg ───────────────────────────────
@@ -626,7 +626,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
 				IdentitySelector<TLookupKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSI1: inner, identity, no filter ───────────────────────────────
@@ -664,7 +664,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				IdentitySelector<TLookupKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSI2: inner, identity, with filter ─────────────────────────────
@@ -707,7 +707,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				IdentitySelector<TLookupKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSI3: inner, identity, with filter + arg ───────────────────────
@@ -752,7 +752,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
 				IdentitySelector<TLookupKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ════════════════════════════════════════════════════════════════════════════
@@ -801,7 +801,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelector<TLookupKey, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSS2: Func selector, with filter ───────────────────────────────
@@ -846,7 +846,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelector<TLookupKey, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSS3: Func selector, with filter + arg ─────────────────────────
@@ -893,7 +893,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
 				KeySelector<TLookupKey, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSSI1: inner, Func selector, no filter ─────────────────────────
@@ -933,7 +933,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelector<TLookupKey, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSSI2: inner, Func selector, with filter ───────────────────────
@@ -978,7 +978,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelector<TLookupKey, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSSI3: inner, Func selector, with filter + arg ─────────────────
@@ -1025,7 +1025,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
 				KeySelector<TLookupKey, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ════════════════════════════════════════════════════════════════════════════
@@ -1074,7 +1074,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelectorWithArg<TLookupKey, TSelectorArg, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSSA2: Func+arg selector, with filter ──────────────────────────
@@ -1120,7 +1120,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelectorWithArg<TLookupKey, TSelectorArg, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSSA3: Func+arg selector, with filter + arg ────────────────────
@@ -1168,7 +1168,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
 				KeySelectorWithArg<TLookupKey, TSelectorArg, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSSAI1: inner, Func+arg selector, no filter ────────────────────
@@ -1209,7 +1209,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelectorWithArg<TLookupKey, TSelectorArg, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSSAI2: inner, Func+arg selector, with filter ──────────────────
@@ -1255,7 +1255,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
 				KeySelectorWithArg<TLookupKey, TSelectorArg, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape LSSAI3: inner, Func+arg selector, with filter + arg ────────────
@@ -1303,7 +1303,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
 				KeySelectorWithArg<TLookupKey, TSelectorArg, TRightIndexKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 
 	// ── Shape MI3: identity, with filter + arg ───────────────────────────────
@@ -1346,6 +1346,6 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 				JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
 				IdentitySelector<TLeftKey>>>(
 				builder._resolverChain, resolver),
-			false);
+			true);
 	}
 }

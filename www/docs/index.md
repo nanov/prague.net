@@ -10,7 +10,7 @@ title: Prague Documentation
 - **Three primary index types** — `Unique`, `Many`, `Range` — with automatic intersection and short-circuit planning.
 - **Compile-time joins** (1:1 and 1:N) with pooled, zero-allocation result sets.
 - **Kafka integration** with header/key filters, change detection via deep structural equality, and split liveness/readiness health checks.
-- **Hot paths**: `Span<T>`, `stackalloc`, `ArrayPool<T>`, SIMD-friendly. ~9.7M reads/sec, <100ns indexed lookup on a single core.
+- **Hot paths**: `Span<T>`, `stackalloc`, `ArrayPool<T>`, SIMD-friendly. ~15.9M reads/sec (concurrent), <100ns indexed lookup on a single core.
 
 ## Start here
 

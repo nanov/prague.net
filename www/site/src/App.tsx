@@ -100,7 +100,7 @@ export default function App() {
 							</div>
 							<div className="absolute -bottom-6 -right-6 bg-brand-orange text-white p-8 rounded-3xl shadow-xl transform rotate-3">
 								<p className="text-[10px] font-mono uppercase tracking-[0.2em] mb-1 opacity-80">Concurrent Read Speed</p>
-								<p className="text-4xl font-black tracking-tight leading-none italic">9.7M+<br /><span className="text-sm">Reads/Sec</span></p>
+								<p className="text-4xl font-black tracking-tight leading-none italic">15.9M+<br /><span className="text-sm">Reads/Sec</span></p>
 							</div>
 						</div>
 					</div>
