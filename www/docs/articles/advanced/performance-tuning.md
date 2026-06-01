@@ -114,4 +114,4 @@ The reference benchmarks live in `benchmarks/Prague.Benchmarks`. Run them as a s
 dotnet run -c Release --project benchmarks/Prague.Benchmarks
 ```
 
-The headline numbers (9.7M reads/sec, <100ns indexed lookup) are measured on a single physical core with `BenchmarkDotNet`'s overhead corrections applied. Scale them down for shared-tenancy hardware.
+The headline reads/sec number (~15.9M) comes from the concurrent `HeavyJoinPooledBenchmarks` (10 reader threads + concurrent writers, pooled 3-level join) — it is the sum of result rows returned divided by wall-clock seconds. The `<100ns` indexed-lookup figure is a single-key lookup on a single physical core. Both use `BenchmarkDotNet` overhead corrections and were measured on an Apple M4 Pro; absolute numbers vary by hardware, so scale them down for shared-tenancy machines.
