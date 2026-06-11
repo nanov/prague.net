@@ -29,6 +29,14 @@ public interface ICacheEqualityComparer<in T> {
 public interface ICacheEquatable<in T> {
 	bool CacheEquals(T? other);
 
+	/// <summary>
+	/// Cache-equality comparison that, when <paramref name="forceDeep"/> is true, skips the
+	/// reference-equality fast path and runs the full structural comparison, propagating the skip
+	/// to every nested level. The default implementation ignores the flag and delegates to the
+	/// reference-equality-aware <see cref="CacheEquals(T)"/>; generated cache types override it.
+	/// </summary>
+	bool CacheEquals(T? other, bool forceDeep) => CacheEquals(other);
+
 	int CacheGetHashCode();
 }
 
