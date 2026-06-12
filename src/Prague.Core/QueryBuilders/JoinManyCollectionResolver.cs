@@ -36,7 +36,7 @@ using Prague.Core.Utils;
 /// <typeparam name="TRightKey">Right cache's key type — the index's owner key.</typeparam>
 /// <typeparam name="TRightValue">Right cache's value type (also the inner type of QueryResults).</typeparam>
 /// <typeparam name="TFilter">Filter strategy struct over the paired non-executable builder.</typeparam>
-public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TFilter>
+public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TOwnerValue, TFilter>
 	: IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>
 	where TLeftKey : notnull, IEquatable<TLeftKey>
 	where TRightKey : notnull, IEquatable<TRightKey>
@@ -47,8 +47,15 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 		CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>> {
 
 	// ── Fields ───────────────────────────────────────────────────────────────
-
-	private readonly CacheCollectionSymmetricKeyValueListIndex<TRightKey, TRightValue, TLeftKey> _index;
+	//
+	// Both join directions are the same algorithm over the two halves of a symmetric collection index;
+	// they only differ in which half answers "rights for a left" vs "lefts for a right":
+	//   reverse  (element→owners, e.g. tag→books): rightsIndex = Forward, leftsIndex = Reverse
+	//   forward  (owner→referenced, e.g. book→tags): rightsIndex = Reverse, leftsIndex = Forward
+	// TOwnerValue is the index halves' (phantom) value type — never materialised; only GetValuesUnsafe
+	// is called.
+	private readonly CacheKeyValueListIndex<TRightKey, TOwnerValue, TLeftKey> _rightsIndex;
+	private readonly CacheKeyValueListIndex<TLeftKey, TOwnerValue, TRightKey> _leftsIndex;
 	private readonly TRightCache _rightCache;
 	private TFilter _filter;
 	private readonly bool _isInner;
@@ -59,11 +66,13 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 	}
 
 	internal JoinManyCollectionResolver(
-		CacheCollectionSymmetricKeyValueListIndex<TRightKey, TRightValue, TLeftKey> index,
+		CacheKeyValueListIndex<TRightKey, TOwnerValue, TLeftKey> rightsIndex,
+		CacheKeyValueListIndex<TLeftKey, TOwnerValue, TRightKey> leftsIndex,
 		TRightCache rightCache,
 		TFilter filter,
 		bool isInner = false) {
-		_index = index;
+		_rightsIndex = rightsIndex;
+		_leftsIndex = leftsIndex;
 		_rightCache = rightCache;
 		_filter = filter;
 		_isInner = isInner;
@@ -173,14 +182,14 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 		var handedOff = false;
 		try {
 			foreach (var leftKey in leftKeys) {
-				var rights = _index.Forward.GetValuesUnsafe(leftKey);
+				var rights = _rightsIndex.GetValuesUnsafe(leftKey);
 				if (rights is null || rights.Count == 0)
 					continue;
 
 				container.Init(leftKey, rights.Count);
 
 				foreach (var rightKey in rights) {
-					var lefts = _index.Reverse.GetValuesUnsafe(rightKey);
+					var lefts = _leftsIndex.GetValuesUnsafe(rightKey);
 					if (lefts is null)
 						continue;
 					var view = new LeftKeySetView<TLeftKey>(lefts);
@@ -265,7 +274,7 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 		var inner = new InnerKeyedContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
 		try {
 			foreach (var leftKey in candidates) {
-				var rights = _index.Forward.GetValuesUnsafe(leftKey);
+				var rights = _rightsIndex.GetValuesUnsafe(leftKey);
 				if (rights is null || rights.Count == 0)
 					continue;
 
@@ -277,7 +286,7 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 				inner.Init(leftKey, rights.Count);
 
 				foreach (var rightKey in rights) {
-					var lefts = _index.Reverse.GetValuesUnsafe(rightKey);
+					var lefts = _leftsIndex.GetValuesUnsafe(rightKey);
 					if (lefts is null)
 						continue;
 					var view = new LeftKeySetView<TLeftKey>(lefts);
