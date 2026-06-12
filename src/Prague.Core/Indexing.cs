@@ -212,6 +212,10 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 
 	internal readonly CacheUniqueIndex<TIndexKey, TKey, TKey> _cacheReverse = null!;
 
+	// Set for collection-backed indexes: yields the per-entity list of index keys, so the entity is
+	// registered under each element. Null for scalar indexes (the common case), which use KeySelector.
+	private readonly Func<TKey, TValue, IReadOnlyList<TIndexKey>>? _collectionSelector;
+
 	protected CacheKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector, bool reverse = false) {
 		KeySelector = keySelector;
 		if (reverse) {
@@ -220,6 +224,18 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector):this(keySelector, false) {
+	}
+
+	public CacheKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector) {
+		_collectionSelector = collectionSelector;
+		KeySelector = null!;
+	}
+
+	// Raw storage with no selector: never registered for cache maintenance (Add/Remove/Update are not
+	// called via ICacheIndex); populated externally through AddUnderKey/RemoveUnderKey. Used as the
+	// forward/reverse half of a CacheCollectionSymmetricKeyValueListIndex.
+	internal CacheKeyValueListIndex() {
+		KeySelector = null!;
 	}
 
 	internal Func<TKey, TValue, TIndexKey> KeySelector { get; }
@@ -237,6 +253,11 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	public bool ContainsKey(TIndexKey key) => _cache.TryGetValue(key, out _);
 
 	public void Update(TKey key, TValue orginialValue, TValue newValue, long timestampMs) {
+		if (_collectionSelector is not null) {
+			UpdateCollection(key, orginialValue, newValue, timestampMs);
+			return;
+		}
+
 		var oldIndexKey = KeySelector(key, orginialValue);
 		var newIndexKey = KeySelector(key, newValue);
 
@@ -274,8 +295,44 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		_cacheReverse?.Add(newIndexKey, key, timestampMs);
 	}
 
+	// Population is unified onto a span path: scalar feeds a zero-alloc 1-item span over the computed
+	// key; collection feeds a span over the concrete List<T>/array. Both loop the per-key helpers.
+
 	public void Add(TKey key, TValue value, long timestampMs) {
+		if (_collectionSelector is not null) {
+			AddCollection(key, value, timestampMs);
+			return;
+		}
+
 		var indexKey = KeySelector(key, value);
+		AddKeys(MemoryMarshal.CreateReadOnlySpan(ref indexKey, 1), key, timestampMs);
+	}
+
+	public void Remove(TKey key, TValue orginialValue, long timestampMs) {
+		if (_collectionSelector is not null) {
+			RemoveCollection(key, orginialValue, timestampMs);
+			return;
+		}
+
+		var indexKey = KeySelector(key, orginialValue);
+		RemoveKeys(MemoryMarshal.CreateReadOnlySpan(ref indexKey, 1), key, timestampMs);
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void AddKeys(ReadOnlySpan<TIndexKey> indexKeys, TKey key, long timestampMs) {
+		foreach (var indexKey in indexKeys)
+			AddUnderKey(indexKey, key, timestampMs);
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void RemoveKeys(ReadOnlySpan<TIndexKey> indexKeys, TKey key, long timestampMs) {
+		foreach (var indexKey in indexKeys)
+			RemoveUnderKey(indexKey, key, timestampMs);
+	}
+
+	// Registers/unregisters one (indexKey -> key) edge. Idempotent on Add; a no-op on Remove once the
+	// edge is gone (so duplicate elements in a collection cannot mis-count _keysSize/ApproximateCount).
+	internal void AddUnderKey(TIndexKey indexKey, TKey key, long timestampMs) {
 		var r = _cache.AddOrUpdate(indexKey,
 			static (_, k) => { var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(); s.Add(k); return s; },
 			static (_, hs, k) => { hs.Add(k); return hs; }, key);
@@ -292,8 +349,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		_cacheReverse?.Add(indexKey, key, timestampMs);
 	}
 
-	public void Remove(TKey key, TValue orginialValue, long timestampMs) {
-		var indexKey = KeySelector(key, orginialValue);
+	internal void RemoveUnderKey(TIndexKey indexKey, TKey key, long timestampMs) {
 		_cacheReverse?.Remove(indexKey, key, timestampMs);
 		var r = _cache.UpdateOrRemove(indexKey,
 			static (_, hs, ov) => {
@@ -310,10 +366,78 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 
 		if (r.NewValue is not null)
 			sizeDelta += (ulong)r.NewValue.Count;
-		else
+		else if (r.OldValue is not null)
 			_keysSize--;
 
 		ApproximateCount += sizeDelta;
+	}
+
+	// ── Collection-backed population (register the owner under each element) ──
+
+	private void AddCollection(TKey key, TValue value, long timestampMs) {
+		var coll = _collectionSelector!(key, value);
+		switch (coll) {
+			case null:
+				return;
+			case TIndexKey[] arr:
+				AddKeys(arr, key, timestampMs);
+				return;
+			case List<TIndexKey> list:
+				AddKeys(CollectionsMarshal.AsSpan(list), key, timestampMs);
+				return;
+			default:
+				for (var i = 0; i < coll.Count; i++)
+					AddUnderKey(coll[i], key, timestampMs);
+				return;
+		}
+	}
+
+	private void RemoveCollection(TKey key, TValue value, long timestampMs) {
+		var coll = _collectionSelector!(key, value);
+		switch (coll) {
+			case null:
+				return;
+			case TIndexKey[] arr:
+				RemoveKeys(arr, key, timestampMs);
+				return;
+			case List<TIndexKey> list:
+				RemoveKeys(CollectionsMarshal.AsSpan(list), key, timestampMs);
+				return;
+			default:
+				for (var i = 0; i < coll.Count; i++)
+					RemoveUnderKey(coll[i], key, timestampMs);
+				return;
+		}
+	}
+
+	// Element-set diff: add (new \ old) first for reader visibility, then remove (old \ new). Runs only on
+	// value changes (the cold update path), so a plain membership scan over IReadOnlyList is fine here.
+	private void UpdateCollection(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+		var oldColl = _collectionSelector!(key, originalValue);
+		var newColl = _collectionSelector!(key, newValue);
+		var oldCount = oldColl?.Count ?? 0;
+		var newCount = newColl?.Count ?? 0;
+		var cmp = EqualityComparer<TIndexKey>.Default;
+
+		for (var i = 0; i < newCount; i++) {
+			var e = newColl![i];
+			if (!ListContains(oldColl, oldCount, e, cmp))
+				AddUnderKey(e, key, timestampMs);
+		}
+
+		for (var i = 0; i < oldCount; i++) {
+			var e = oldColl![i];
+			if (!ListContains(newColl, newCount, e, cmp))
+				RemoveUnderKey(e, key, timestampMs);
+		}
+	}
+
+	private static bool ListContains(IReadOnlyList<TIndexKey>? list, int count, TIndexKey value,
+		EqualityComparer<TIndexKey> cmp) {
+		for (var i = 0; i < count; i++)
+			if (cmp.Equals(list![i], value))
+				return true;
+		return false;
 	}
 
 	public ulong GetCounters(out ulong values) {
@@ -600,5 +724,100 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 			target.UnionWith(JoinedKeyPair<TJoinKey, TKey>.IntoKeyed(key), values);
 		else
 			target.IntersectWith(JoinedKeyPair<TJoinKey, TKey>.Into, values);
+	}
+}
+
+/// <summary>
+///   Symmetric collection index: the entity is registered under each element of its collection property in
+///   BOTH directions. <see cref="Forward" /> maps element → {owner keys} (e.g. tagId → {bookKeys}), used for
+///   queries and for fanning out the owner→referenced join. <see cref="Reverse" /> maps owner key →
+///   {element keys} (e.g. bookKey → {tagIds}), used to fan a single right value out to its many lefts in the
+///   M:N collection-join resolver. Both halves are plain <see cref="CacheKeyValueListIndex{TKey,TValue,TIndexKey}" />
+///   storages populated single-pass via the per-key helpers.
+/// </summary>
+public sealed class CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey>
+	: ICacheIndex<TKey, TValue>, ICountableCacheIndex
+	where TKey : notnull
+	where TIndexKey : notnull {
+	private readonly Func<TKey, TValue, IReadOnlyList<TIndexKey>> _collectionSelector;
+
+	/// <summary>element key → {owner keys} (e.g. tagId → {bookKeys}).</summary>
+	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> Forward { get; } = new();
+
+	/// <summary>owner key → {element keys} (e.g. bookKey → {tagIds}).</summary>
+	public CacheKeyValueListIndex<TIndexKey, TValue, TKey> Reverse { get; } = new();
+
+	public CacheCollectionSymmetricKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector) {
+		_collectionSelector = collectionSelector;
+	}
+
+	public ulong GetCounters(out ulong values) => Forward.GetCounters(out values);
+
+	public void Add(TKey key, TValue value, long timestampMs) =>
+		ApplyAll(_collectionSelector(key, value), key, timestampMs, add: true);
+
+	public void Remove(TKey key, TValue originalValue, long timestampMs) =>
+		ApplyAll(_collectionSelector(key, originalValue), key, timestampMs, add: false);
+
+	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+		var oldColl = _collectionSelector(key, originalValue);
+		var newColl = _collectionSelector(key, newValue);
+		var oldCount = oldColl?.Count ?? 0;
+		var newCount = newColl?.Count ?? 0;
+		var cmp = EqualityComparer<TIndexKey>.Default;
+
+		for (var i = 0; i < newCount; i++) {
+			var e = newColl![i];
+			if (!Contains(oldColl, oldCount, e, cmp))
+				ApplyOne(e, key, timestampMs, add: true);
+		}
+
+		for (var i = 0; i < oldCount; i++) {
+			var e = oldColl![i];
+			if (!Contains(newColl, newCount, e, cmp))
+				ApplyOne(e, key, timestampMs, add: false);
+		}
+	}
+
+	private void ApplyAll(IReadOnlyList<TIndexKey>? coll, TKey key, long timestampMs, bool add) {
+		switch (coll) {
+			case null:
+				return;
+			case TIndexKey[] arr:
+				ApplySpan(arr, key, timestampMs, add);
+				return;
+			case List<TIndexKey> list:
+				ApplySpan(CollectionsMarshal.AsSpan(list), key, timestampMs, add);
+				return;
+			default:
+				for (var i = 0; i < coll.Count; i++)
+					ApplyOne(coll[i], key, timestampMs, add);
+				return;
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void ApplySpan(ReadOnlySpan<TIndexKey> elements, TKey key, long timestampMs, bool add) {
+		foreach (var element in elements)
+			ApplyOne(element, key, timestampMs, add);
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void ApplyOne(TIndexKey element, TKey key, long timestampMs, bool add) {
+		if (add) {
+			Forward.AddUnderKey(element, key, timestampMs);
+			Reverse.AddUnderKey(key, element, timestampMs);
+		} else {
+			Forward.RemoveUnderKey(element, key, timestampMs);
+			Reverse.RemoveUnderKey(key, element, timestampMs);
+		}
+	}
+
+	private static bool Contains(IReadOnlyList<TIndexKey>? list, int count, TIndexKey value,
+		EqualityComparer<TIndexKey> cmp) {
+		for (var i = 0; i < count; i++)
+			if (cmp.Equals(list![i], value))
+				return true;
+		return false;
 	}
 }
