@@ -130,4 +130,41 @@ public class JoinManyCollectionIndexCoreTests {
 		Assert.That(byTag[20].Right.Count, Is.EqualTo(1));
 		Assert.That(byTag[20].Right.First().Title, Is.EqualTo("Hobbit"));
 	}
+
+	[Test]
+	public void InnerJoinMany_WithFilter_DropsTagsWhoseBooksAreAllRejected() {
+		_tagCache.AddOrUpdate(10, new MnTag { Id = 10, Name = "fantasy" });
+		_tagCache.AddOrUpdate(20, new MnTag { Id = 20, Name = "classic" });
+
+		_bookCache.AddOrUpdate(1, new MnTaggedBook { Id = 1, Title = "Hobbit", TagIds = new List<int> { 10 } });
+		_bookCache.AddOrUpdate(2, new MnTaggedBook { Id = 2, Title = "Dune", TagIds = new List<int> { 20 } });
+
+		// Filter keeps only titles starting with "H": tag 10 keeps Hobbit, but tag 20's only book (Dune)
+		// is rejected → tag 20 drops out entirely (not just an empty result).
+		var results = _tagCache.Query()
+			.InnerJoinManyCollection(_bookCache, _index, q => q.Where(b => b.Title.StartsWith("H")))
+			.Execute();
+
+		Assert.That(results.Count, Is.EqualTo(1));
+		Assert.That(results.Single().Left.Id, Is.EqualTo(10));
+		Assert.That(results.Single().Right.Single().Title, Is.EqualTo("Hobbit"));
+	}
+
+	[Test]
+	public void JoinMany_WithFilterAndArg_StaticLambda() {
+		_tagCache.AddOrUpdate(10, new MnTag { Id = 10, Name = "fantasy" });
+
+		_bookCache.AddOrUpdate(1, new MnTaggedBook { Id = 1, Title = "Hobbit", TagIds = new List<int> { 10 } });
+		_bookCache.AddOrUpdate(2, new MnTaggedBook { Id = 2, Title = "Dune", TagIds = new List<int> { 10 } });
+
+		const string prefix = "H";
+		var results = _tagCache.Query()
+			.JoinManyCollection(_bookCache, _index,
+				static (q, p) => q.Where(b => b.Title.StartsWith(p)), prefix)
+			.Execute();
+
+		var fantasy = results.Single();
+		Assert.That(fantasy.Right.Count, Is.EqualTo(1));
+		Assert.That(fantasy.Right.First().Title, Is.EqualTo("Hobbit"));
+	}
 }
