@@ -897,6 +897,12 @@ public class CacheGenerator : IIncrementalGenerator {
 			var indexName = $"{prop.Name}Index";
 			var propertyType = prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
+			// A Many index on a collection property indexes the entity under EACH element. Emit the
+			// symmetric collection index (forward element → {owners} + reverse owner → {elements}); the
+			// reverse half powers M:N collection joins.
+			ITypeSymbol? manyElementType = null;
+			var isCollectionMany = indexType == "Many" && IsCollectionType(prop.Type, out manyElementType);
+
 			sb.AppendLine();
 			if (indexType == "Unique" && isSymmetric)
 				sb.AppendLine(
@@ -904,6 +910,9 @@ public class CacheGenerator : IIncrementalGenerator {
 			else if (indexType == "Unique")
 				sb.AppendLine(
 					$"        public readonly CacheUniqueIndex<{keyTypeName}, {documentTypeName}, {propertyType}> {indexName};");
+			else if (isCollectionMany)
+				sb.AppendLine(
+					$"        public readonly CacheCollectionSymmetricKeyValueListIndex<{keyTypeName}, {documentTypeName}, {manyElementType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}> {indexName};");
 			else if (indexType == "Many" && isSymmetric)
 				sb.AppendLine(
 					$"        public readonly CacheSymmetricKeyValueListIndex<{keyTypeName}, {documentTypeName}, {propertyType}> {indexName};");
@@ -1088,6 +1097,7 @@ public class CacheGenerator : IIncrementalGenerator {
 				isSymmetric = true;
 			}
 			var indexName = $"{prop.Name}Index";
+			var isCollectionMany = indexType == "Many" && IsCollectionType(prop.Type, out _);
 
 			if (indexType == "Unique" && isSymmetric) {
 				sb.AppendLine($"            {indexName} = Cache.AddSymmetricKeyValueIndex(static (key, doc) => doc.{prop.Name});");
@@ -1098,6 +1108,12 @@ public class CacheGenerator : IIncrementalGenerator {
 				sb.AppendLine($"            {indexName} = Cache.AddKeyValueIndex(static (key, doc) => doc.{prop.Name});");
 				sb.AppendLine(
 					$"            DataCacheStatisticsMarshall.AddIndex(_statistics, \"{indexName}\", DataCacheIndexType.Unique, {indexName});");
+			}
+			else if (isCollectionMany) {
+				sb.AppendLine(
+					$"            {indexName} = Cache.CacheCollectionSymmetricKeyValueListIndex(static (key, doc) => doc.{prop.Name});");
+				sb.AppendLine(
+					$"            DataCacheStatisticsMarshall.AddIndex(_statistics, \"{indexName}\", DataCacheIndexType.Many, {indexName});");
 			}
 			else if (indexType == "Many" && isSymmetric) {
 				sb.AppendLine(
@@ -5430,10 +5446,14 @@ public class CacheGenerator : IIncrementalGenerator {
 			.Where(p => p.DeclaredAccessibility == Accessibility.Public && p.GetMethod != null)
 			.ToList();
 
-		// Get indexed properties
+		// Get indexed properties for the string-query parser. Collection-backed Many indexes are excluded:
+		// they are keyed by the element type and live behind the symmetric index's .Forward half, which the
+		// scalar string-query path (parse-property-type → UseIndex) cannot express. They remain queryable via
+		// the fluent WithXxx API.
 		var indexedProps = classSymbol.GetMembers()
 			.OfType<IPropertySymbol>()
-			.Where(p => p.GetAttributes().Any(a => a.AttributeClass?.Name == "DataCacheIndexAttribute"))
+			.Where(p => p.GetAttributes().Any(a => a.AttributeClass?.Name == "DataCacheIndexAttribute")
+			            && !IsCollectionType(p.Type, out _))
 			.ToList();
 
 		sb.AppendLine();
@@ -6343,7 +6363,11 @@ public class CacheGenerator : IIncrementalGenerator {
 			var methodName = $"With{indexed.CustomIndexName ?? prop.Name}";
 			var isValueType = prop.Type.IsValueType;
 
-			if (indexType == "Unique" || indexType == "Many") {
+			if (indexType == "Many" && IsCollectionType(prop.Type, out var withElementType)) {
+				// Collection Many: query by a single ELEMENT against the symmetric index's forward half.
+				EmitWithMethods(methodName, $"{indexName}.Forward",
+					withElementType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), withElementType.IsValueType);
+			} else if (indexType == "Unique" || indexType == "Many") {
 				EmitWithMethods(methodName, indexName, propertyType, isValueType);
 			} else if (indexType == "Range") {
 				sb.AppendLine();
