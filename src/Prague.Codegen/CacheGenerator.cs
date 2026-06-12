@@ -708,11 +708,47 @@ public class CacheGenerator : IIncrementalGenerator {
 					referencedKeyType = dataCacheItemInterface.TypeArguments[0];
 			}
 
-			// Validate that the property type matches the referenced cache's key type
+			// Validate that the property type matches the referenced cache's key type.
+			// Collection FK (List<TKey> etc.): the ELEMENT type must equal the referenced PK type —
+			// the property is the owner's set of references (M:N). A collection FK only supports
+			// ManyToOne; OneToOne-on-collection is rejected (CACHE050).
 			if (referencedKeyType != null) {
 				var propertyType = fkRaw.Property.Type;
+				var isCollectionFk = IsCollectionType(propertyType, out var collectionElementType);
 
-				if (!SymbolEqualityComparer.Default.Equals(propertyType, referencedKeyType)) {
+				if (isCollectionFk) {
+					if (fkRaw.JoinType == "OneToOne") {
+						context.ReportDiagnostic(Diagnostic.Create(
+							new DiagnosticDescriptor(
+								"CACHE050",
+								"OneToOne foreign key on collection property",
+								"Property '{0}' has a collection type '{1}' but [DataCacheForeignKey<{2}>(OneToOne)] is declared. Collection foreign keys only support DataCacheJoinType.ManyToOne (M:N collection join). Use ManyToOne or a scalar FK property.",
+								"CacheGenerator",
+								DiagnosticSeverity.Error,
+								true),
+							fkRaw.Property.Locations.FirstOrDefault(),
+							fkRaw.Property.Name,
+							propertyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+							referencedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+					}
+					else if (collectionElementType != null &&
+					         !SymbolEqualityComparer.Default.Equals(collectionElementType, referencedKeyType)) {
+						context.ReportDiagnostic(Diagnostic.Create(
+							new DiagnosticDescriptor(
+								"CACHE049",
+								"Collection foreign key element type mismatch",
+								"Property '{0}' is a collection with element type '{1}' but [DataCacheForeignKey<{2}>] references a cache with key type '{3}'. The collection element type must match the referenced cache's key type.",
+								"CacheGenerator",
+								DiagnosticSeverity.Error,
+								true),
+							fkRaw.Property.Locations.FirstOrDefault(),
+							fkRaw.Property.Name,
+							collectionElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+							referencedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+							referencedKeyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+					}
+				}
+				else if (!SymbolEqualityComparer.Default.Equals(propertyType, referencedKeyType)) {
 					var diagnostic = Diagnostic.Create(
 						new DiagnosticDescriptor(
 							"CACHE009",
@@ -974,6 +1010,19 @@ public class CacheGenerator : IIncrementalGenerator {
 				continue;
 			}
 
+			// Collection FK (List<TKey> etc.) with ManyToOne → auto-create the symmetric collection
+			// index (element → {owners} forward + owner → {elements} reverse). This is the M:N
+			// driving index for both forward (owner→referenced) and reverse (element→owners) joins.
+			ITypeSymbol? fkElementType = null;
+			var isCollectionFk = indexType == "Many" && IsCollectionType(prop.Type, out fkElementType) && fkElementType != null;
+			if (isCollectionFk) {
+				foreignKeyIndexes.Add((prop, "Collection", indexName, true, null, false));
+				sb.AppendLine();
+				sb.AppendLine(
+					$"        public readonly CacheCollectionSymmetricKeyValueListIndex<{keyTypeName}, {documentTypeName}, {fkElementType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}> {indexName};");
+				continue;
+			}
+
 			foreignKeyIndexes.Add((prop, indexType, indexName, isSymmetric, null, false));
 
 			sb.AppendLine();
@@ -1152,6 +1201,13 @@ public class CacheGenerator : IIncrementalGenerator {
 					sb.AppendLine(
 						$"            DataCacheStatisticsMarshall.AddIndex(_statistics, \"{indexName}\", DataCacheIndexType.Unique, {indexName});");
 				}
+			}
+			else if (indexType == "Collection") {
+				// Collection FK (ManyToOne on List<TKey>): symmetric collection index keyed per element.
+				sb.AppendLine(
+					$"            {indexName} = Cache.CacheCollectionSymmetricKeyValueListIndex(static (key, doc) => doc.{prop.Name});");
+				sb.AppendLine(
+					$"            DataCacheStatisticsMarshall.AddIndex(_statistics, \"{indexName}\", DataCacheIndexType.Many, {indexName});");
 			}
 			else if (indexType == "Unique") {
 				sb.AppendLine($"            {indexName} = Cache.AddKeyValueIndex(static (key, doc) => doc.{prop.Name});");
@@ -1504,6 +1560,12 @@ public class CacheGenerator : IIncrementalGenerator {
 						// Get the JoinType from the foreign key attribute
 						var joinType = GetForeignKeyJoinType(fkAttr);
 						var indexType = GetIndexTypeForForeignKey(joinType);
+
+						// Collection FK (List<TKey> ManyToOne) on the OTHER entity → reverse M:N collection
+						// join on THIS entity (element → owners). Tag the joinable entry "Collection" so the
+						// reverse-emit loop routes to JoinManyCollection over the other cache's collection index.
+						if (joinType == "ManyToOne" && IsCollectionType(fk.Property.Type, out _))
+							indexType = "Collection";
 
 						// Get the key type of the other entity (the one with the foreign key)
 						var otherKeyProperty = otherClassSymbol.GetMembers()
@@ -6550,6 +6612,57 @@ public class CacheGenerator : IIncrementalGenerator {
 				if (indexType == "Unique")
 					continue; // OneToOne reverse emitted by the next loop (RightUniqueIndex JoinOne).
 
+				// Collection FK (M:N) reverse: the other entity owns a List<thisPK> collection FK.
+				// This entity (an element) joins back to all owners via JoinManyCollection over the
+				// other cache's symmetric collection index (element -> {owners}). TOwnerValue = the
+				// other (owner) value type.
+				if (indexType == "Collection") {
+					var collCacheFqn = $"global::{allCacheInfo.First(c => c.CacheClassName == otherCacheName).Namespace}.{otherCacheName}";
+
+					var nonExecBuilderColl = $"CacheQueryBuilderCombined<Prague.Core.TypeSystem.NonExecutableQuery<{collCacheFqn}>, " +
+					                         $"PairedCacheQueryBuilderCoreCombined<LeftKeySetView<{keyTypeName}>, {otherKeyTypeName}, {otherTypeFullName}>, " +
+					                         $"{otherKeyTypeName}, {otherTypeFullName}, " +
+					                         $"Resolvers<BaseResolver<{otherKeyTypeName}, {otherTypeFullName}>>, {otherTypeFullName}>";
+
+					Func<string, string> resolverColl = f => $"JoinManyCollectionResolver<{keyTypeName}, {documentTypeName}, {collCacheFqn}, {otherKeyTypeName}, {otherTypeFullName}, {otherTypeFullName}, {f}>";
+
+					string newResultTypeColl;
+					if (level == 0) {
+						newResultTypeColl = $"JoinResult<{documentTypeName}, QueryResults<{otherTypeFullName}>>";
+					} else {
+						var resultTypeParams = string.Join(", ", Enumerable.Range(1, level).Select(i => $"T{i}"));
+						newResultTypeColl = $"JoinResult<{documentTypeName}, {resultTypeParams}, QueryResults<{otherTypeFullName}>>";
+					}
+
+					var fkJoinArgsColl = $"cache.{otherFieldName}!, cache.{otherFieldName}!.{foreignKeyIndexName}";
+
+					EmitFkJoinWithOverloads(sb,
+						$"Join with {otherTypeFullName} via reverse collection FK (many-to-many) - owners referencing this element.",
+						methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+						keyTypeName, documentTypeName, newResultTypeColl, nonExecBuilderColl, resolverColl,
+						"JoinManyCollection", fkJoinArgsColl);
+
+					// Sort->JoinWith parallel - outer, no-filter only.
+					var joinReturnTypeCollSorted = $"CacheQueryBuilderCombined<Prague.Core.TypeSystem.SortedQuery<TInner>, TExecutor, {keyTypeName}, {documentTypeName}, Resolvers<TResolverChain, {resolverColl($"NoFilter<{nonExecBuilderColl}>")}>, {newResultTypeColl}>";
+					sb.AppendLine();
+					sb.AppendLine($"        /// <summary>Join with {otherTypeFullName} via reverse collection FK (many-to-many) after a Sort.</summary>");
+					sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+					sb.AppendLine($"        public static {joinReturnTypeCollSorted}");
+					sb.AppendLine($"            {methodName}<{joinGenericParamsSorted}>({joinBuilderParamSorted})");
+					sb.AppendLine($"        {joinConstraintsSorted}");
+					sb.AppendLine("        {");
+					sb.AppendLine($"            var cache = {getCacheCodeSorted};");
+					sb.AppendLine($"            return Unsafe.AsRef(in builder).JoinManyCollection({fkJoinArgsColl});");
+					sb.AppendLine("        }");
+
+					EmitFkJoinWithOverloads(sb,
+						$"Inner join with {otherTypeFullName} via reverse collection FK (many-to-many) - drops lefts with no matching owners.",
+						$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+						keyTypeName, documentTypeName, newResultTypeColl, nonExecBuilderColl, resolverColl,
+						"InnerJoinManyCollection", fkJoinArgsColl);
+					continue;
+				}
+
 				var otherCacheClassFqn = $"global::{allCacheInfo.First(c => c.CacheClassName == otherCacheName).Namespace}.{otherCacheName}";
 
 				// NonExec builder type for the resolver's TFilter param (NoFilter wraps this).
@@ -6680,6 +6793,68 @@ public class CacheGenerator : IIncrementalGenerator {
 			foreach (var fkRaw in foreignKeyPropertiesRaw) {
 				if (fkRaw.JoinType != "ManyToOne") continue;
 				if (fkRaw.SelectorType != null) continue;
+
+				// Collection FK (List<TKey> ManyToOne): the driving cache OWNS the collection. Forward
+				// join fans each owner out to its referenced elements via JoinManyCollectionForward over
+				// this cache's own symmetric collection index. Result is per-owner QueryResults<TOther>.
+				if (IsCollectionType(fkRaw.Property.Type, out _)) {
+					var fwdReferencedType = fkRaw.ReferencedType;
+					if (fwdReferencedType == null) continue;
+					var fwdReferencedCacheInfo = GetReferencedCacheInfo(fwdReferencedType);
+					if (fwdReferencedCacheInfo == null) continue;
+					var fwdReferencedClassName = fwdReferencedType.Name;
+					var fwdReferencedTypeFullName = fwdReferencedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+					var fwdReferencedFieldName = $"_{fwdReferencedClassName.ToLower()}Cache";
+					var fwdForeignKeyPropertyName = fkRaw.Property.Name;
+					var (_, fwdReferencedKeyTypeName, _) = ExtractKeyInfo(fwdReferencedType);
+					if (fwdReferencedKeyTypeName == null) continue;
+					var fwdReferencedCacheClassFqn = fwdReferencedCacheInfo.Value.FullCacheClassName ?? $"global::{fwdReferencedCacheInfo.Value.Namespace}.{fwdReferencedCacheInfo.Value.CacheClassName}";
+					var fwdMethodName = $"JoinWith{fwdReferencedClassName}";
+					var fwdIndexFieldName = $"{fwdForeignKeyPropertyName}Index";
+
+					var nonExecBuilderFwdColl = $"CacheQueryBuilderCombined<Prague.Core.TypeSystem.NonExecutableQuery<{fwdReferencedCacheClassFqn}>, " +
+					                            $"PairedCacheQueryBuilderCoreCombined<LeftKeySetView<{keyTypeName}>, {fwdReferencedKeyTypeName}, {fwdReferencedTypeFullName}>, " +
+					                            $"{fwdReferencedKeyTypeName}, {fwdReferencedTypeFullName}, " +
+					                            $"Resolvers<BaseResolver<{fwdReferencedKeyTypeName}, {fwdReferencedTypeFullName}>>, {fwdReferencedTypeFullName}>";
+
+					Func<string, string> resolverFwdColl = f => $"JoinManyCollectionResolver<{keyTypeName}, {documentTypeName}, {fwdReferencedCacheClassFqn}, {fwdReferencedKeyTypeName}, {fwdReferencedTypeFullName}, {documentTypeName}, {f}>";
+
+					string newResultTypeFwdColl;
+					if (level == 0) {
+						newResultTypeFwdColl = $"JoinResult<{documentTypeName}, QueryResults<{fwdReferencedTypeFullName}>>";
+					} else {
+						var resultTypeParams = string.Join(", ", Enumerable.Range(1, level).Select(i => $"T{i}"));
+						newResultTypeFwdColl = $"JoinResult<{documentTypeName}, {resultTypeParams}, QueryResults<{fwdReferencedTypeFullName}>>";
+					}
+
+					var fkJoinArgsFwdColl = $"cache.{fwdReferencedFieldName}!, cache.{fwdIndexFieldName}";
+
+					EmitFkJoinWithOverloads(sb,
+						$"Join with {fwdReferencedTypeFullName} via {fwdForeignKeyPropertyName} (collection many-to-one) - each referenced element per owner.",
+						fwdMethodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+						keyTypeName, documentTypeName, newResultTypeFwdColl, nonExecBuilderFwdColl, resolverFwdColl,
+						"JoinManyCollectionForward", fkJoinArgsFwdColl);
+
+					// Sort->JoinWith parallel - outer, no-filter only.
+					var joinReturnTypeFwdCollSorted = $"CacheQueryBuilderCombined<Prague.Core.TypeSystem.SortedQuery<TInner>, TExecutor, {keyTypeName}, {documentTypeName}, Resolvers<TResolverChain, {resolverFwdColl($"NoFilter<{nonExecBuilderFwdColl}>")}>, {newResultTypeFwdColl}>";
+					sb.AppendLine();
+					sb.AppendLine($"        /// <summary>Join with {fwdReferencedTypeFullName} via {fwdForeignKeyPropertyName} (collection many-to-one) after a Sort.</summary>");
+					sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+					sb.AppendLine($"        public static {joinReturnTypeFwdCollSorted}");
+					sb.AppendLine($"            {fwdMethodName}<{joinGenericParamsSorted}>({joinBuilderParamSorted})");
+					sb.AppendLine($"        {joinConstraintsSorted}");
+					sb.AppendLine("        {");
+					sb.AppendLine($"            var cache = {getCacheCodeSorted};");
+					sb.AppendLine($"            return Unsafe.AsRef(in builder).JoinManyCollectionForward({fkJoinArgsFwdColl});");
+					sb.AppendLine("        }");
+
+					EmitFkJoinWithOverloads(sb,
+						$"Inner join with {fwdReferencedTypeFullName} via {fwdForeignKeyPropertyName} (collection many-to-one) - drops owners with no referenced elements.",
+						$"InnerJoin{fwdMethodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+						keyTypeName, documentTypeName, newResultTypeFwdColl, nonExecBuilderFwdColl, resolverFwdColl,
+						"InnerJoinManyCollectionForward", fkJoinArgsFwdColl);
+					continue;
+				}
 
 				var referencedType = fkRaw.ReferencedType;
 				if (referencedType == null) continue;
