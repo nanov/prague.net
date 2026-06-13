@@ -3436,7 +3436,7 @@ public class CacheGenerator : IIncrementalGenerator {
 		// For types with custom equality (in equalityTypes), use IValueComparer overload
 		if (needsDeepEquality) {
 			var helperNamespace = GetHelperNamespace(compilation);
-			return $"(({leftProp} == null && {rightProp} == null) || ({leftProp} != null && {rightProp} != null && Prague.Core.Utils.CompareUtils.CompareDictionaries<{keyFullTypeName}, {valueFullTypeName}, {helperNamespace}.{GetEqualityHelperClass(compilation)}>({leftProp}, {rightProp})))";
+			return $"(({leftProp} == null && {rightProp} == null) || ({leftProp} != null && {rightProp} != null && Prague.Core.Utils.CompareUtils.CompareDictionaries<{keyFullTypeName}, {valueFullTypeName}, {helperNamespace}.{GetEqualityHelperClass(compilation)}>({leftProp}, {rightProp}, forceDeep)))";
 		}
 
 		// For reference types without custom equality, use default comparer
@@ -3939,12 +3939,12 @@ public class CacheGenerator : IIncrementalGenerator {
 				sb.AppendLine("        /// Uses runtime type discrimination to dispatch to concrete type equality.");
 				sb.AppendLine($"        /// Supports: {fullTypeName} and all derived types.");
 				sb.AppendLine("        /// </summary>");
-				sb.AppendLine($"        public static bool EqualsPolymorphic_{methodSuffix}<T1, T2>(T1? left, T2? right)");
+				sb.AppendLine($"        public static bool EqualsPolymorphic_{methodSuffix}<T1, T2>(T1? left, T2? right, bool forceDeep = false)");
 				sb.AppendLine($"            where T1 : {fullTypeName}");
 				sb.AppendLine($"            where T2 : {fullTypeName}");
 				sb.AppendLine("        {");
-				sb.AppendLine("            if (ReferenceEquals(left, right)) return true;");
-				sb.AppendLine("            if (left is null || right is null) return false;");
+				sb.AppendLine("            if (!forceDeep && ReferenceEquals(left, right)) return true;");
+				sb.AppendLine("            if (left is null || right is null) return ReferenceEquals(left, right);");
 				sb.AppendLine();
 				sb.AppendLine("            // Runtime type check - different types are not equal");
 				sb.AppendLine("            if (left.GetType() != right.GetType()) return false;");
@@ -3982,7 +3982,7 @@ public class CacheGenerator : IIncrementalGenerator {
 					var derivedTypeName = derivedType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).TrimEnd('?');
 					var derivedSimpleName = derivedType.Name;
 					sb.AppendLine(
-						$"                {derivedTypeName} {derivedSimpleName.ToLower()} => Equals({derivedSimpleName.ToLower()}, Unsafe.As<{derivedTypeName}>(right)),");
+						$"                {derivedTypeName} {derivedSimpleName.ToLower()} => Equals({derivedSimpleName.ToLower()}, Unsafe.As<{derivedTypeName}>(right), forceDeep),");
 				}
 
 				sb.AppendLine("                _ => false");
@@ -4022,10 +4022,12 @@ public class CacheGenerator : IIncrementalGenerator {
 				continue;
 
 			sb.AppendLine();
-			sb.AppendLine($"        public static bool Equals({fullTypeName}? left, {fullTypeName}? right)");
+			sb.AppendLine($"        public static bool Equals({fullTypeName}? left, {fullTypeName}? right) => Equals(left, right, false);");
+			sb.AppendLine();
+			sb.AppendLine($"        public static bool Equals({fullTypeName}? left, {fullTypeName}? right, bool forceDeep)");
 			sb.AppendLine("        {");
-			sb.AppendLine("            if (ReferenceEquals(left, right)) return true;");
-			sb.AppendLine("            if (left is null || right is null) return false;");
+			sb.AppendLine("            if (!forceDeep && ReferenceEquals(left, right)) return true;");
+			sb.AppendLine("            if (left is null || right is null) return ReferenceEquals(left, right);");
 			sb.AppendLine();
 
 			foreach (var prop in properties) {
@@ -4107,6 +4109,19 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine($"        public bool CacheEquals({typeName}? other)");
 		sb.AppendLine("        {");
 		sb.AppendLine($"            return {GetHelperNamespace(compilation)}.{GetEqualityHelperClass(compilation)}.Equals(this, other);");
+		sb.AppendLine("        }");
+		sb.AppendLine();
+
+		// Generate CacheEquals overload honoring forceDeep
+		sb.AppendLine("        /// <summary>");
+		sb.AppendLine(
+			"        /// Determines whether the specified instance is equal to the current instance using cache equality semantics.");
+		sb.AppendLine(
+			"        /// When <paramref name=\"forceDeep\"/> is true, skips the reference-equality fast path and runs the full structural comparison at every nested level.");
+		sb.AppendLine("        /// </summary>");
+		sb.AppendLine($"        public bool CacheEquals({typeName}? other, bool forceDeep)");
+		sb.AppendLine("        {");
+		sb.AppendLine($"            return {GetHelperNamespace(compilation)}.{GetEqualityHelperClass(compilation)}.Equals(this, other, forceDeep);");
 		sb.AppendLine("        }");
 		sb.AppendLine();
 
@@ -4195,6 +4210,19 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine("        }");
 		sb.AppendLine();
 
+		// Generate CacheEquals overload honoring forceDeep
+		sb.AppendLine("        /// <summary>");
+		sb.AppendLine(
+			"        /// Determines whether the specified instance is equal to the current instance using cache equality semantics.");
+		sb.AppendLine(
+			"        /// When <paramref name=\"forceDeep\"/> is true, skips the reference-equality fast path and runs the full structural comparison at every nested level.");
+		sb.AppendLine("        /// </summary>");
+		sb.AppendLine($"        public bool CacheEquals({typeName}? other, bool forceDeep)");
+		sb.AppendLine("        {");
+		sb.AppendLine($"            return {GetHelperNamespace(compilation)}.{GetEqualityHelperClass(compilation)}.Equals(this, other, forceDeep);");
+		sb.AppendLine("        }");
+		sb.AppendLine();
+
 		// Generate CacheGetHashCode method
 		sb.AppendLine("        /// <summary>");
 		sb.AppendLine("        /// Returns the hash code for this instance using cache equality semantics.");
@@ -4262,7 +4290,7 @@ public class CacheGenerator : IIncrementalGenerator {
 			// SequenceEqual uses EqualityComparer<T>.Default which uses reference equality for POCOs
 			// Use CacheEqualityHelper.Equals for proper structural equality comparison
 			return
-				$"(({leftProp} == null && {rightProp} == null) || ({leftProp} != null && {rightProp} != null && System.Linq.Enumerable.Count({leftProp}) == System.Linq.Enumerable.Count({rightProp}) && System.Linq.Enumerable.All(System.Linq.Enumerable.Zip({leftProp}, {rightProp}, (l, r) => (l == null && r == null) || (l != null && r != null && {GetHelperNamespace(compilation)}.{GetEqualityHelperClass(compilation)}.Equals(l, r))), x => x)))";
+				$"(({leftProp} == null && {rightProp} == null) || ({leftProp} != null && {rightProp} != null && System.Linq.Enumerable.Count({leftProp}) == System.Linq.Enumerable.Count({rightProp}) && System.Linq.Enumerable.All(System.Linq.Enumerable.Zip({leftProp}, {rightProp}, (l, r) => (l == null && r == null) || (l != null && r != null && {GetHelperNamespace(compilation)}.{GetEqualityHelperClass(compilation)}.Equals(l, r, forceDeep))), x => x)))";
 		}
 
 		// For non-nullable value types (primitives, enums, structs), use direct equality
@@ -4299,7 +4327,7 @@ public class CacheGenerator : IIncrementalGenerator {
 		}
 
 		// For reference types, we'll have generated a helper method in CacheEqualityHelper
-		return $"{GetHelperNamespace(compilation)}.{GetEqualityHelperClass(compilation)}.{equalsMethod}({leftProp}, {rightProp})";
+		return $"{GetHelperNamespace(compilation)}.{GetEqualityHelperClass(compilation)}.{equalsMethod}({leftProp}, {rightProp}, forceDeep)";
 	}
 
 	private static string GenerateHashCodeExpression(IPropertySymbol property, string objVar,

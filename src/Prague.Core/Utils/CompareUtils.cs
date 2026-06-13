@@ -27,6 +27,25 @@ public static class CompareUtils {
 	}
 
 	/// <summary>
+	/// Optimized dictionary comparison that propagates <paramref name="forceDeep"/> to the value
+	/// comparison, so a forced deep compare skips the reference-equality fast path across the
+	/// dictionary boundary as well.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static bool CompareDictionaries<TKey, TValue, TComparer>(Dictionary<TKey, TValue> left, Dictionary<TKey, TValue> right, bool forceDeep)
+		where TKey : notnull
+		where TComparer : IValueComparer<TValue> {
+		if (left.Count != right.Count) return false;
+
+		foreach (var kvp in left) {
+			ref readonly var rightValue = ref CollectionsMarshal.GetValueRefOrNullRef(right, kvp.Key);
+			if (Unsafe.IsNullRef(in rightValue)) return false;
+			if (!TComparer.Equals(kvp.Value, rightValue, forceDeep)) return false;
+		}
+		return true;
+	}
+
+	/// <summary>
 	/// Optimized dictionary comparison using CollectionsMarshal for zero-allocation lookups.
 	/// Uses vectorized byte comparison for large unmanaged value types.
 	/// </summary>
