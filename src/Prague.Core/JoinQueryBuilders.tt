@@ -2787,6 +2787,14 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 	var methodTypeParamsM = $"<TDiscriminator, TExecutor, TResolverChain, TKey, TValue{extraTs}, TRightCache, TRightKey, TRightValue>";
 	var methodTypeParamsMArg = $"<TDiscriminator, TExecutor, TResolverChain, TKey, TValue{extraTs}, TRightCache, TRightKey, TArg, TRightValue>";
 
+	// Nested (right-list resolver, inner-join continuation) — outer no-filter only (v1).
+	// Seed discriminator is ExecutableQuery<TRightCache> (the wrapper) so codegen FK sugar composes inside the lambda.
+	var seedBuilderNested = "CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>";
+	var nestedBuilderNested = "CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>";
+	var resolverNested = "JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>";
+	var nextResultNested = $"JoinResult<TValue{extraTs}, QueryResults<TInnerResult>>";
+	var methodTypeParamsNested = $"<TDiscriminator, TExecutor, TResolverChain, TKey, TValue{extraTs}, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>";
+
 	// LeftSym identity — paired-core's TLeft is LeftKeySetView<TKey>; TLookupKey distinct.
 	var nonExecBuilderLsM = "CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>";
 	var noFilterLsM = $"NoFilter<{nonExecBuilderLsM}>";
@@ -2979,6 +2987,71 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgM #>(filter, arg), default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverFilterArgM #>>, <#= nextResultMany #>>(
 			new Resolvers<TResolverChain, <#= resolverFilterArgM #>>(builder._resolverChain, resolver), true);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Nested (right-list resolver) — outer JoinMany / InnerJoinMany with an inner-join
+	// continuation. Each right is itself joined via the lambda; result nests as
+	// JoinResult<TValue, …, QueryResults<TInnerResult>>. Outer no-filter only (the inner
+	// filter/selector lives inside the continuation).
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// ── MN1: nested outer, no filter ─────────────────────────────────────────
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, <#= resolverNested #>>,
+		<#= nextResultNested #>>
+		JoinMany<#= methodTypeParamsNested #>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, <#= currentResultTypeParams #>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<<#= seedBuilderNested #>, <#= nestedBuilderNested #>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new <#= resolverNested #>(
+			(TRightCache)rightCache, rightIndex, innerBuilder);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverNested #>>, <#= nextResultNested #>>(
+			new Resolvers<TResolverChain, <#= resolverNested #>>(builder._resolverChain, resolver), true);
+	}
+
+	// ── MNI1: nested inner, no filter (drops parents with empty nested collection) ──
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, <#= resolverNested #>>,
+		<#= nextResultNested #>>
+		InnerJoinMany<#= methodTypeParamsNested #>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, <#= currentResultTypeParams #>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<<#= seedBuilderNested #>, <#= nestedBuilderNested #>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new <#= resolverNested #>(
+			(TRightCache)rightCache, rightIndex, innerBuilder, isInner: true);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverNested #>>, <#= nextResultNested #>>(
+			new Resolvers<TResolverChain, <#= resolverNested #>>(builder._resolverChain, resolver), true);
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════

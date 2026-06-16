@@ -15,6 +15,7 @@ public class NestedFkSugarTests {
 	private AuthorCache _authors = null!;
 	private BookCache _books = null!;
 	private BookReviewCache _reviews = null!;
+	private AuthorProfileCache _profiles = null!;
 
 	[SetUp]
 	public void SetUp() {
@@ -22,14 +23,19 @@ public class NestedFkSugarTests {
 			.Register<AuthorCache>()
 			.Register<BookCache>()
 			.Register<BookReviewCache>()
+			.Register<AuthorProfileCache>()
 			.Build();
 		_authors = _registry.GetCache<AuthorCache>();
 		_books = _registry.GetCache<BookCache>();
 		_reviews = _registry.GetCache<BookReviewCache>();
+		_profiles = _registry.GetCache<AuthorProfileCache>();
 
 		_authors.AddOrUpdate(new Author { Id = 1, Name = "Tolkien" });
 		_authors.AddOrUpdate(new Author { Id = 2, Name = "Asimov" });
 		_authors.AddOrUpdate(new Author { Id = 3, Name = "Orphan" }); // no books
+
+		_profiles.AddOrUpdate(new AuthorProfile { Id = 1, AuthorId = 1, Bio = "fantasy" });
+		_profiles.AddOrUpdate(new AuthorProfile { Id = 2, AuthorId = 2, Bio = "sci-fi" });
 
 		_books.AddOrUpdate(new Book { Id = 101, AuthorId = 1, Title = "Hobbit" });
 		_books.AddOrUpdate(new Book { Id = 102, AuthorId = 1, Title = "LOTR" });
@@ -88,6 +94,33 @@ public class NestedFkSugarTests {
 		Assert.That(byAuthor[1].Right.Count, Is.EqualTo(2), "both of author 1's books have reviews");
 		Assert.That(byAuthor[2].Right.Count, Is.EqualTo(0), "author 2's only book (201) has no reviews → dropped");
 		Assert.That(byAuthor[3].Right.Count, Is.EqualTo(0), "author 3 has no books");
+	}
+
+	[Test]
+	public void Level1_ChainedNestedJoin_AfterAnotherJoin() {
+		// The nested join at a NON-zero chain level: JoinWithAuthorProfile (level 0 → 1) then
+		// JoinWithBook(nested) at level 1. Result:
+		//   JoinResult<Author, AuthorProfile?, QueryResults<JoinResult<Book, QueryResults<BookReview>>>>
+		var results = _authors.Query()
+			.JoinWithAuthorProfile()
+			.JoinWithBook(b => b.JoinWithBookReview())
+			.Execute();
+
+		Assert.That(results.Count, Is.EqualTo(3));
+		var byAuthor = results.ToDictionary(r => r.Left.Id);
+
+		// Right = profile (the level-0 join); Right2 = nested books-with-reviews (the level-1 nested join).
+		Assert.That(byAuthor[1].Right!.Bio, Is.EqualTo("fantasy"));
+		Assert.That(byAuthor[1].Right2.Count, Is.EqualTo(2));
+		var a1books = byAuthor[1].Right2.ToDictionary(jr => jr.Left.Id);
+		Assert.That(a1books[101].Right.Count, Is.EqualTo(2)); // book 101 → 2 reviews
+		Assert.That(a1books[102].Right.Count, Is.EqualTo(1)); // book 102 → 1 review
+
+		Assert.That(byAuthor[2].Right!.Bio, Is.EqualTo("sci-fi"));
+		Assert.That(byAuthor[2].Right2.Count, Is.EqualTo(1));
+
+		Assert.That(byAuthor[3].Right, Is.Null);              // no profile
+		Assert.That(byAuthor[3].Right2.Count, Is.EqualTo(0)); // no books
 	}
 
 	[Test]
