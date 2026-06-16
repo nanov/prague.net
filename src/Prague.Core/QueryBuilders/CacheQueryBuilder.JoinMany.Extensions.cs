@@ -1371,7 +1371,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
 			CacheKeyValueListIndex<TRightKey, TRightValue, TLeftKey> rightIndex,
 			Func<
-				CacheQueryBuilderCombined<ExecutableQuery<InMemoryDataCache<TRightKey, TRightValue>>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>,
+				CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>,
 				CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
@@ -1386,8 +1386,10 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 		where TInnerChain : struct, IResolvers
 		where TInnerResult : struct, IJoinResult<TRightValue> {
 		var typedCache = (TRightCache)rightCache;
-		// Invoke the continuation ONCE at build time to capture the inner plan into the type.
-		var innerBuilder = nested(typedCache.Cache.Query());
+		// Invoke the continuation ONCE at build time to capture the inner plan into the type. The seed
+		// is the right cache's OWN Query() (discriminator ExecutableQuery<TRightCache>) so codegen FK
+		// wrappers compose their JoinWith sugar inside the continuation.
+		var innerBuilder = nested(rightCache.Query());
 		var resolver = new JoinManyNestedResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
 			typedCache, rightIndex, innerBuilder);
 		return Unsafe.AsRef(in builder).AddResolver<
@@ -1413,7 +1415,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
 			CacheKeyValueListIndex<TRightKey, TRightValue, TLeftKey> rightIndex,
 			Func<
-				CacheQueryBuilderCombined<ExecutableQuery<InMemoryDataCache<TRightKey, TRightValue>>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>,
+				CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>,
 				CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
@@ -1428,7 +1430,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 		where TInnerChain : struct, IResolvers
 		where TInnerResult : struct, IJoinResult<TRightValue> {
 		var typedCache = (TRightCache)rightCache;
-		var innerBuilder = nested(typedCache.Cache.Query());
+		var innerBuilder = nested(rightCache.Query());
 		var resolver = new JoinManyNestedResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
 			typedCache, rightIndex, innerBuilder, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<
