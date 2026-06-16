@@ -195,6 +195,20 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		return allResults;
 	}
 
+	// Hands the keyed result map and its disposer to the caller, transferring ownership:
+	// our own Dispose/HardDispose become no-ops for these (set to default). Used by the
+	// nested-join path, which needs key→row lookups (not the flattened QueryResults) to
+	// scatter inner rows back to their outer parent, and must keep any pooled inner-Many
+	// buffers (held by the disposer) alive until the OUTER result is disposed.
+	internal void ExtractKeyedResults(
+		out ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> results,
+		out QueryResultsDisposer disposer) {
+		results = _results;
+		disposer = _disposer;
+		_results = default;
+		_disposer = default;
+	}
+
 	public void Dispose() => _results.Dispose();
 	public void HardDispose() {
 		_disposer.Dispose();
