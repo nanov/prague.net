@@ -693,3 +693,265 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 		}
 	}
 }
+
+// ── JoinMany NESTED resolver ──────────────────────────────────────────────────
+//
+// True nested join: the Many side (e.g. Desk) is itself joined (e.g. Desk⋈Occupier),
+// so each parent (Room) row carries QueryResults<JoinResult<Desk, Occupier?>>. The inner
+// join is scoped to each Desk, NOT back to the Room.
+//
+// Shared-execution model: the inner plan runs EXACTLY ONCE over the union of every parent's
+// children (keyed by child key), then a key→row scatter partitions the inner rows back to
+// their parents. This is O(1) inner executions, not O(parents). The inner element type is an
+// unconstrained JoinResult (only IJoinResult<TDesk>), which the right-list resolver forbids
+// (its TRightValue : ICacheClonable) — hence a distinct resolver.
+
+/// <summary>
+/// Resolver for a nested JoinMany: the Many-side cache is itself queried via a captured inner
+/// plan, producing <c>QueryResults&lt;TInnerResult&gt;</c> per parent. Identity selector, no outer
+/// filter (v1). The inner plan is a full <see cref="CacheQueryBuilderCombined{T1,T2,T3,T4,T5,T6}"/>
+/// built once at query-build time from the continuation lambda.
+/// </summary>
+/// <typeparam name="TLeftKey">Parent (Room) key type.</typeparam>
+/// <typeparam name="TLeftValue">Parent (Room) value type.</typeparam>
+/// <typeparam name="TRightCache">Child (Desk) cache wrapper.</typeparam>
+/// <typeparam name="TRightKey">Child (Desk) key type.</typeparam>
+/// <typeparam name="TRightValue">Child (Desk) value type — the inner join's left.</typeparam>
+/// <typeparam name="TInnerDisc">Inner builder discriminator.</typeparam>
+/// <typeparam name="TInnerExec">Inner builder executor (over the child cache).</typeparam>
+/// <typeparam name="TInnerChain">Inner builder resolver chain.</typeparam>
+/// <typeparam name="TInnerResult">Inner result row, e.g. <c>JoinResult&lt;Desk, Occupier?&gt;</c>.</typeparam>
+public struct JoinManyNestedResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>
+	: IJoinManyResolver<TLeftKey, TLeftValue, TInnerResult>
+	where TLeftKey : notnull, IEquatable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
+	where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+	where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+	where TInnerDisc : struct
+	where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+	where TInnerChain : struct, IResolvers
+	where TInnerResult : struct, IJoinResult<TRightValue> {
+
+	// ── Fields ───────────────────────────────────────────────────────────────
+
+	private readonly TRightCache _rightCache;
+	private readonly CacheKeyValueListIndex<TRightKey, TRightValue, TLeftKey> _rightIndex;
+	private CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult> _innerBuilder;
+	private readonly bool _isInner;
+
+	static JoinManyNestedResolver() {
+		// Deep-clone each inner row (Child + its own join slots) via the inner plan's resolver
+		// chain. Drives the OUTER ExecuteCloned `_clone` (slice) path; the no-slice clone path
+		// clones on scatter (see Execute).
+		SlotCloner<QueryResults<TInnerResult>>.Register(
+			static (ref QueryResults<TInnerResult> v) =>
+				v.CloneElements(new ResolveChainCloner<TInnerChain, TRightValue, TInnerResult>()));
+	}
+
+	internal JoinManyNestedResolver(
+		TRightCache rightCache,
+		CacheKeyValueListIndex<TRightKey, TRightValue, TLeftKey> rightIndex,
+		CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult> innerBuilder,
+		bool isInner = false) {
+		_rightCache = rightCache;
+		_rightIndex = rightIndex;
+		_innerBuilder = innerBuilder;
+		_isInner = isInner;
+	}
+
+	// ── Static / property values ─────────────────────────────────────────────
+
+	public static bool IsSorter { get; } = false;
+	public bool Inner => _isInner;
+
+	// ── Clone (slot cascade registered in Phase 3 — no-op until then) ─────────
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
+		ref var item = ref value.TUnsafeGetValAt<QueryResults<TInnerResult>>(index);
+		SlotCloner<QueryResults<TInnerResult>>.Clone(ref item);
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static void CloneValue(ref QueryResults<TInnerResult> value) => SlotCloner<QueryResults<TInnerResult>>.Clone(ref value);
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void Clone(ref QueryResults<TInnerResult> value) => CloneValue(ref value);
+
+	// ── Per-parent scatter container ───────────────────────────────────────────
+	//
+	// Mirrors UnsafeResolverContainer but over the (unconstrained) inner result type and
+	// without per-element clone-on-add (clone is handled at the OUTER BuildResults level via
+	// the SlotCloner cascade). Init/PrepareSharedBuffer/Add follow the standard keyed-init
+	// protocol against the parent's QueryResults<TInnerResult> slot.
+
+	private ref struct NestedScatterContainer<TAccessor>
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
+		private TAccessor _accessor;
+		private readonly bool _shouldPool;
+		private int _totalCount;
+		private TInnerResult[]? _sharedBuffer;
+
+		public NestedScatterContainer(TAccessor accessor, bool shouldPool) {
+			_accessor = accessor;
+			_shouldPool = shouldPool;
+			_totalCount = 0;
+			_sharedBuffer = null;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public void Init(TLeftKey parentKey, int count) {
+			ref var slot = ref _accessor.GetValueRef<TLeftKey, QueryResults<TInnerResult>>(parentKey);
+			if (!Unsafe.IsNullRef(in slot)) {
+				slot.SetPendingCapacity(count);
+				_totalCount += count;
+			}
+		}
+
+		public void PrepareSharedBuffer() {
+			_sharedBuffer = _shouldPool ? ArrayPool<TInnerResult>.Shared.Rent(_totalCount) : new TInnerResult[_totalCount];
+			var offset = 0;
+			var keys = _accessor.GetKeys<TLeftKey>();
+			for (var i = 0; i < keys.Length; i++) {
+				ref var slot = ref _accessor.GetValueRef<TLeftKey, QueryResults<TInnerResult>>(keys[i]);
+				if (!Unsafe.IsNullRef(in slot))
+					offset = slot.AssignSharedBuffer(_sharedBuffer, offset);
+			}
+		}
+
+		public TInnerResult[]? GetSharedBuffer() => _shouldPool ? _sharedBuffer : null;
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public void Add(TLeftKey parentKey, TInnerResult row) {
+			ref var slot = ref _accessor.GetValueRef<TLeftKey, QueryResults<TInnerResult>>(parentKey);
+			if (!Unsafe.IsNullRef(in slot))
+				slot.UnsafeAdd(row);
+		}
+	}
+
+	// ── Core execution ─────────────────────────────────────────────────────────
+
+	private void Execute<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, ref QueryResultsDisposer disposer)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
+
+		var parentKeys = accessor.GetKeys<TLeftKey>();
+		if (parentKeys.IsEmpty)
+			return;
+
+		// 1. Union of every parent's child keys → the inner candidate set (identity selector).
+		var union = new ValueSet<TRightKey, DefaultKeyComparer<TRightKey>>(parentKeys.Length);
+		foreach (var parentKey in parentKeys) {
+			var bucket = _rightIndex.GetValuesUnsafe(Unsafe.As<TLeftKey, TLeftKey>(ref Unsafe.AsRef(in parentKey)));
+			if (bucket is null || bucket.Count == 0)
+				continue;
+			union.UnionWith(bucket);
+		}
+
+		// 2. Run the inner plan ONCE over the union → keyed by child key. The union is handed to
+		// the inner plan as its candidate set and the inner execution OWNS it from here (it disposes
+		// Candidates when it consumes them) — we must NOT dispose `union` ourselves (double-return).
+		// On the no-slice ExecuteCloned path (cloneOnAdd), the inner plan clones at add time
+		// (null-safe), so the extracted rows are already independent of the source caches.
+		var inner = _innerBuilder;
+		inner.UnsafeSeedCandidates(union);
+		inner.ExecuteCoreJoinedKeyed<TInnerResult>(disposer.IsActive, cloneOnAdd, out var innerByKey, out var innerDisposer);
+
+		try {
+			// 3a. Count present inner rows per parent → keyed-init the parent slots.
+			var container = new NestedScatterContainer<TAccessor>(accessor, disposer.IsActive);
+			foreach (var parentKey in parentKeys) {
+				var bucket = _rightIndex.GetValuesUnsafe(parentKey);
+				if (bucket is null || bucket.Count == 0)
+					continue;
+				var count = 0;
+				foreach (var childKey in bucket)
+					if (innerByKey.TryGetValue(childKey, out _))
+						count++;
+				if (count > 0)
+					container.Init(parentKey, count);
+			}
+
+			container.PrepareSharedBuffer();
+
+			// 3b. Scatter inner rows into their parent's contiguous slice. Rows were already
+			// cloned (if requested) by the inner plan at add time, so this is a plain copy.
+			foreach (var parentKey in parentKeys) {
+				var bucket = _rightIndex.GetValuesUnsafe(parentKey);
+				if (bucket is null || bucket.Count == 0)
+					continue;
+				foreach (var childKey in bucket)
+					if (innerByKey.TryGetValue(childKey, out var row))
+						container.Add(parentKey, row);
+			}
+
+			// 4. Pooling/disposal cascade: register the parent partition buffer and absorb the
+			// inner plan's pooled buffers (depth-3 inner-Many slices) into the outer disposer, so
+			// they are returned exactly once when the outer result is disposed. (No-op while
+			// non-pooled — disposer.IsActive is false for Execute().)
+			RegisterPooledBuffer(ref disposer, container.GetSharedBuffer());
+			if (disposer.IsActive)
+				disposer.Absorb(in innerDisposer);
+		}
+		finally {
+			// The inner dict's value array is no longer needed once rows are copied into the parent
+			// partitions; return it to the pool now (when pooled — withValues:true). Inner-Many
+			// slices (depth-3), referenced by the copied rows, live in innerDisposer's buffers which
+			// were absorbed above, so clearing the dict's value slots here does not touch them.
+			// (`union` is deliberately NOT disposed here — the inner plan owns it; see above.)
+			innerByKey.Dispose(disposer.IsActive);
+		}
+	}
+
+	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
+		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer)
+		=> Execute(ref accessor, cloneOnAdd, ref disposer);
+
+	void IJoinManyResolver<TLeftKey, TLeftValue, TInnerResult>.ExecuteReverseMany<TContainer>(
+		ref TContainer container, ReadOnlySpan<TLeftKey> keys)
+		=> throw new NotSupportedException("Nested JoinMany behind a chained Many is not supported in v1.");
+
+	private static void RegisterPooledBuffer(ref QueryResultsDisposer disposer, TInnerResult[]? buffer) {
+		if (disposer.IsActive && buffer is { Length: > 0 })
+			disposer.AddPooledBuffer(buffer);
+	}
+
+	// ── IndexedInner (InnerJoinMany-nested: drop parents with no inner rows) ─────
+
+	/// <summary>
+	/// Triggers the outer executor's candidate population (the parent key set) before the inner
+	/// attach runs — mirrors the JoinMany right-list resolver's inner-prepare step.
+	/// </summary>
+	void IJoinResolver.PrepareIndexedInner<TExecutor>(
+		ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
+		_ = leftQuery.GetCandidates<TLeftKey>();
+	}
+
+	/// <summary>
+	/// Inner-join attach: materialize a slot for every candidate parent so the shared <see cref="Execute"/>
+	/// fill path (which writes through existing slots) populates them, then <c>RetainNonEmptyManySlots</c>
+	/// drops parents whose inner collection stayed empty (no children, or all inner-join-dropped) and
+	/// narrows <paramref name="leftQuery"/>'s candidates to the survivors — the subsequent base execute
+	/// fills <c>Left</c> for those only.
+	/// </summary>
+	void IJoinResolver.UnsafeExecuteIndexedInner<TAccessor, TExecutor>(
+		ref TAccessor accessor,
+		ref TExecutor leftQuery,
+		bool cloneOnAdd,
+		bool isFirst,
+		ref QueryResultsDisposer disposer) {
+		ref var candidates = ref leftQuery.GetCandidates<TLeftKey>();
+		if (!candidates.IsInitlized || candidates.Count == 0)
+			return;
+
+		// Materialize each candidate parent's Many slot (Left stays default until base execute).
+		foreach (var parentKey in candidates)
+			_ = accessor.GetValueRefOrAddDefault<TLeftKey, QueryResults<TInnerResult>>(parentKey, out _);
+
+		// Same union → inner-execute → scatter as the outer path, now over the materialized slots.
+		Execute(ref accessor, cloneOnAdd, ref disposer);
+
+		// Drop parents whose inner QueryResults is empty and narrow candidates to the survivors.
+		accessor.RetainNonEmptyManySlots<TLeftKey, TInnerResult>(ref candidates);
+	}
+}

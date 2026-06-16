@@ -1736,6 +1736,35 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 		}
 	}
 
+	// Nested-join seam: run the full joined pipeline but hand back the keyed result map
+	// (desk key → JoinResult row) instead of the flattened QueryResults, plus the disposer
+	// holding any pooled inner-Many buffers. The caller (JoinManyNestedResolver) seeds
+	// Candidates with the union of the outer parents' children first, runs this once, then
+	// scatters rows back to parents by key. Ownership of `results`/`disposer` moves to the caller.
+	internal void ExecuteCoreJoinedKeyed<TJoinResult>(
+		bool pool,
+		bool clone,
+		out ValueDictionary<TLeftKey, TJoinResult, DefaultKeyComparer<TLeftKey>> results,
+		out QueryResultsDisposer disposer)
+		where TJoinResult : struct, IJoinResult<TLeftValue> {
+
+		// clone=true uses the inner plan's add-time cloning (null-safe: only matched values are
+		// cloned), so the extracted rows are independent of the source caches.
+		var container = new JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, TJoinResult>(
+			ref _resolverChain, pool, clone, 0, int.MaxValue, _manyCount);
+		container.PrepareIndexedInner(ref this);
+		container.ExecuteIndexedInner(ref this);
+		_leftQuery.ExecuteBase(ref container);
+		container.ExecuteJoins();
+		container.ExtractKeyedResults(out results, out disposer);
+	}
+
+	// Overwrite the candidate set the next Execute* walks. Used by the nested-join resolver
+	// to constrain an inner plan to the union of the outer parents' children before executing it.
+	internal void UnsafeSeedCandidates(ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> candidates) {
+		_leftQuery.Candidates = candidates;
+	}
+
 	internal QueryResults<TLeftValue> ExecuteCoreSimple<TResolver>(ref TResolver resolver, bool pool, bool clone, int skip, int take)
 		where TResolver: struct, IJoinResolver {
 		var container = new SimpleResultContainer<TLeftKey, TLeftValue, TResolver>(resolver, pool, clone, skip, take);

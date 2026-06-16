@@ -6572,6 +6572,25 @@ public class CacheGenerator : IIncrementalGenerator {
 					$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeRev, nonExecBuilderRev, resolverRev,
 					"InnerJoinMany", fkJoinArgsRev);
+
+				// Nested continuation overloads (all chain levels — the per-level runtime nested
+				// JoinMany/InnerJoinMany overloads are T4-generated). JoinWith{TOther}(b => b.JoinXxx(...))
+				// nests a sub-join scoped to each TOther, producing QueryResults<JoinResult<TOther, ...>>.
+				// The continuation receives a fresh query builder over the TOther cache (so TOther's own
+				// JoinWith sugar composes). Output result appends the nested Many slot at this level.
+				var nestedResultType = level == 0
+					? $"JoinResult<{documentTypeName}, QueryResults<TInnerResult>>"
+					: $"JoinResult<{documentTypeName}, {string.Join(", ", Enumerable.Range(1, level).Select(i => $"T{i}"))}, QueryResults<TInnerResult>>";
+				EmitFkNestedJoinWithOverload(sb,
+					$"Nested join with {otherTypeFullName} via reverse FK (one-to-many) — each {otherTypeFullName} is itself joined via the continuation.",
+					methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+					keyTypeName, documentTypeName, otherCacheClassFqn, otherKeyTypeName, otherTypeFullName,
+					nestedResultType, "JoinMany", fkJoinArgsRev);
+				EmitFkNestedJoinWithOverload(sb,
+					$"Nested inner join with {otherTypeFullName} via reverse FK (one-to-many) — drops parents whose nested collection is empty.",
+					$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+					keyTypeName, documentTypeName, otherCacheClassFqn, otherKeyTypeName, otherTypeFullName,
+					nestedResultType, "InnerJoinMany", fkJoinArgsRev);
 			}
 
 			// Reverse JoinWith{TOther} for OneToOne — uses JoinOneRightUniqueIndexResolver.
@@ -6879,6 +6898,53 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine("        {");
 		sb.AppendLine($"            var cache = {getCacheCode};");
 		sb.AppendLine($"            return Unsafe.AsRef(in builder).{delegateName}({baseDelegateArgs}, filter, arg);");
+		sb.AppendLine("        }");
+	}
+
+	/// <summary>
+	/// Emits a single nested-continuation overload of a reverse one-to-many <c>JoinWith{TOther}</c> /
+	/// <c>InnerJoinWith{TOther}</c>. The continuation receives a fresh query builder rooted at the TOther
+	/// cache and returns it with an inner join applied; the result nests as
+	/// <c>JoinResult&lt;TThis, QueryResults&lt;TInnerResult&gt;&gt;</c>. Forwards to the runtime nested
+	/// <c>JoinMany</c> / <c>InnerJoinMany</c> overload; the inner builder's
+	/// TInnerDisc/TInnerExec/TInnerChain/TInnerResult are inferred from the continuation.
+	/// </summary>
+	private static void EmitFkNestedJoinWithOverload(
+		StringBuilder sb,
+		string summary,
+		string methodName,
+		string methodGenericParams,
+		string builderParam,
+		string constraints,
+		string getCacheCode,
+		string keyTypeName,
+		string documentTypeName,
+		string otherCacheClassFqn,
+		string otherKeyTypeName,
+		string otherTypeFullName,
+		string nestedResultType,
+		string delegateName,
+		string baseDelegateArgs) {
+
+		// Seed discriminator is the TOther WRAPPER (ExecutableQuery<TOtherCache>) — not the raw
+		// InMemoryDataCache — so TOther's own JoinWith FK sugar (which needs ICacheCarrier<TOtherCache>)
+		// is callable inside the continuation. The runtime JoinMany seed is generic over TRightCache,
+		// so the same overload accepts this wrapper seed.
+		var seedBuilder = $"CacheQueryBuilderCombined<Prague.Core.TypeSystem.ExecutableQuery<{otherCacheClassFqn}>, CacheQueryBuilderCoreCombined<{otherKeyTypeName}, {otherTypeFullName}>, {otherKeyTypeName}, {otherTypeFullName}, Resolvers<BaseResolver<{otherKeyTypeName}, {otherTypeFullName}>>, {otherTypeFullName}>";
+		var nestedBuilder = $"CacheQueryBuilderCombined<TInnerDisc, TInnerExec, {otherKeyTypeName}, {otherTypeFullName}, TInnerChain, TInnerResult>";
+		var resolver = $"JoinManyNestedResolver<{keyTypeName}, {documentTypeName}, {otherCacheClassFqn}, {otherKeyTypeName}, {otherTypeFullName}, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>";
+		var returnType = $"CacheQueryBuilderCombined<TDiscriminator, TExecutor, {keyTypeName}, {documentTypeName}, Resolvers<TResolverChain, {resolver}>, {nestedResultType}>";
+		var nestedConstraints = $"{constraints}\n        where TInnerDisc : struct\n        where TInnerExec : struct, ICandidatesExecutor<{otherKeyTypeName}, {otherTypeFullName}>\n        where TInnerChain : struct, IResolvers\n        where TInnerResult : struct, IJoinResult<{otherTypeFullName}>";
+
+		sb.AppendLine();
+		sb.AppendLine($"        /// <summary>{summary}</summary>");
+		sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+		sb.AppendLine($"        public static {returnType}");
+		sb.AppendLine($"            {methodName}<{methodGenericParams}, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>({builderParam}, Func<{seedBuilder}, {nestedBuilder}> nested)");
+		sb.AppendLine($"        {nestedConstraints}");
+		sb.AppendLine("        {");
+		sb.AppendLine($"            var cache = {getCacheCode};");
+		sb.AppendLine($"            return Unsafe.AsRef(in builder).{delegateName}({baseDelegateArgs}, nested);");
 		sb.AppendLine("        }");
 	}
 

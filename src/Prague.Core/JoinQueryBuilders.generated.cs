@@ -2734,6 +2734,71 @@ public static class CacheQueryBuilderCombinedJoinManyLevel1Extensions {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	// Nested (right-list resolver) — outer JoinMany / InnerJoinMany with an inner-join
+	// continuation. Each right is itself joined via the lambda; result nests as
+	// JoinResult<TValue, …, QueryResults<TInnerResult>>. Outer no-filter only (the inner
+	// filter/selector lives inside the continuation).
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// ── MN1: nested outer, no filter ─────────────────────────────────────────
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>,
+		JoinResult<TValue, T1, QueryResults<TInnerResult>>>
+		JoinMany<TDiscriminator, TExecutor, TResolverChain, TKey, TValue, T1, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, JoinResult<TValue, T1>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			(TRightCache)rightCache, rightIndex, innerBuilder);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>, JoinResult<TValue, T1, QueryResults<TInnerResult>>>(
+			new Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>(builder._resolverChain, resolver), true);
+	}
+
+	// ── MNI1: nested inner, no filter (drops parents with empty nested collection) ──
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>,
+		JoinResult<TValue, T1, QueryResults<TInnerResult>>>
+		InnerJoinMany<TDiscriminator, TExecutor, TResolverChain, TKey, TValue, T1, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, JoinResult<TValue, T1>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			(TRightCache)rightCache, rightIndex, innerBuilder, isInner: true);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>, JoinResult<TValue, T1, QueryResults<TInnerResult>>>(
+			new Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>(builder._resolverChain, resolver), true);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	// LeftSym identity (3 outer + 3 inner overloads per level)
 	// ═══════════════════════════════════════════════════════════════════════════
 
@@ -6111,6 +6176,71 @@ public static class CacheQueryBuilderCombinedJoinManyLevel2Extensions {
 			(TRightCache)rightCache, rightIndex, new JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>(filter, arg), default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyRightListIndexResolver<TKey, TValue, TRightCache, TRightKey, TKey, TRightValue, JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>, IdentitySelector<TKey>>>, JoinResult<TValue, T1, T2, QueryResults<TRightValue>>>(
 			new Resolvers<TResolverChain, JoinManyRightListIndexResolver<TKey, TValue, TRightCache, TRightKey, TKey, TRightValue, JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>, IdentitySelector<TKey>>>(builder._resolverChain, resolver), true);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Nested (right-list resolver) — outer JoinMany / InnerJoinMany with an inner-join
+	// continuation. Each right is itself joined via the lambda; result nests as
+	// JoinResult<TValue, …, QueryResults<TInnerResult>>. Outer no-filter only (the inner
+	// filter/selector lives inside the continuation).
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// ── MN1: nested outer, no filter ─────────────────────────────────────────
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>,
+		JoinResult<TValue, T1, T2, QueryResults<TInnerResult>>>
+		JoinMany<TDiscriminator, TExecutor, TResolverChain, TKey, TValue, T1, T2, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, JoinResult<TValue, T1, T2>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			(TRightCache)rightCache, rightIndex, innerBuilder);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>, JoinResult<TValue, T1, T2, QueryResults<TInnerResult>>>(
+			new Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>(builder._resolverChain, resolver), true);
+	}
+
+	// ── MNI1: nested inner, no filter (drops parents with empty nested collection) ──
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>,
+		JoinResult<TValue, T1, T2, QueryResults<TInnerResult>>>
+		InnerJoinMany<TDiscriminator, TExecutor, TResolverChain, TKey, TValue, T1, T2, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, JoinResult<TValue, T1, T2>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			(TRightCache)rightCache, rightIndex, innerBuilder, isInner: true);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>, JoinResult<TValue, T1, T2, QueryResults<TInnerResult>>>(
+			new Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>(builder._resolverChain, resolver), true);
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
@@ -9494,6 +9624,71 @@ public static class CacheQueryBuilderCombinedJoinManyLevel3Extensions {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	// Nested (right-list resolver) — outer JoinMany / InnerJoinMany with an inner-join
+	// continuation. Each right is itself joined via the lambda; result nests as
+	// JoinResult<TValue, …, QueryResults<TInnerResult>>. Outer no-filter only (the inner
+	// filter/selector lives inside the continuation).
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// ── MN1: nested outer, no filter ─────────────────────────────────────────
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>,
+		JoinResult<TValue, T1, T2, T3, QueryResults<TInnerResult>>>
+		JoinMany<TDiscriminator, TExecutor, TResolverChain, TKey, TValue, T1, T2, T3, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, JoinResult<TValue, T1, T2, T3>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			(TRightCache)rightCache, rightIndex, innerBuilder);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>, JoinResult<TValue, T1, T2, T3, QueryResults<TInnerResult>>>(
+			new Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>(builder._resolverChain, resolver), true);
+	}
+
+	// ── MNI1: nested inner, no filter (drops parents with empty nested collection) ──
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>,
+		JoinResult<TValue, T1, T2, T3, QueryResults<TInnerResult>>>
+		InnerJoinMany<TDiscriminator, TExecutor, TResolverChain, TKey, TValue, T1, T2, T3, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, JoinResult<TValue, T1, T2, T3>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			(TRightCache)rightCache, rightIndex, innerBuilder, isInner: true);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>, JoinResult<TValue, T1, T2, T3, QueryResults<TInnerResult>>>(
+			new Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>(builder._resolverChain, resolver), true);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	// LeftSym identity (3 outer + 3 inner overloads per level)
 	// ═══════════════════════════════════════════════════════════════════════════
 
@@ -12871,6 +13066,71 @@ public static class CacheQueryBuilderCombinedJoinManyLevel4Extensions {
 			(TRightCache)rightCache, rightIndex, new JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>(filter, arg), default, isInner: true);
 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyRightListIndexResolver<TKey, TValue, TRightCache, TRightKey, TKey, TRightValue, JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>, IdentitySelector<TKey>>>, JoinResult<TValue, T1, T2, T3, T4, QueryResults<TRightValue>>>(
 			new Resolvers<TResolverChain, JoinManyRightListIndexResolver<TKey, TValue, TRightCache, TRightKey, TKey, TRightValue, JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>, IdentitySelector<TKey>>>(builder._resolverChain, resolver), true);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Nested (right-list resolver) — outer JoinMany / InnerJoinMany with an inner-join
+	// continuation. Each right is itself joined via the lambda; result nests as
+	// JoinResult<TValue, …, QueryResults<TInnerResult>>. Outer no-filter only (the inner
+	// filter/selector lives inside the continuation).
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// ── MN1: nested outer, no filter ─────────────────────────────────────────
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>,
+		JoinResult<TValue, T1, T2, T3, T4, QueryResults<TInnerResult>>>
+		JoinMany<TDiscriminator, TExecutor, TResolverChain, TKey, TValue, T1, T2, T3, T4, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, JoinResult<TValue, T1, T2, T3, T4>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			(TRightCache)rightCache, rightIndex, innerBuilder);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>, JoinResult<TValue, T1, T2, T3, T4, QueryResults<TInnerResult>>>(
+			new Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>(builder._resolverChain, resolver), true);
+	}
+
+	// ── MNI1: nested inner, no filter (drops parents with empty nested collection) ──
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>,
+		JoinResult<TValue, T1, T2, T3, T4, QueryResults<TInnerResult>>>
+		InnerJoinMany<TDiscriminator, TExecutor, TResolverChain, TKey, TValue, T1, T2, T3, T4, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, JoinResult<TValue, T1, T2, T3, T4>> builder,
+			IDataCache<TRightCache, TRightKey, TRightValue> rightCache,
+			CacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex,
+			Func<CacheQueryBuilderCombined<ExecutableQuery<TRightCache>, CacheQueryBuilderCoreCombined<TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, CacheQueryBuilderCombined<TInnerDisc, TInnerExec, TRightKey, TRightValue, TInnerChain, TInnerResult>> nested)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
+		where TInnerDisc : struct
+		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
+		where TInnerChain : struct, IResolvers
+		where TInnerResult : struct, IJoinResult<TRightValue> {
+		var innerBuilder = nested(rightCache.Query());
+		var resolver = new JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>(
+			(TRightCache)rightCache, rightIndex, innerBuilder, isInner: true);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>, JoinResult<TValue, T1, T2, T3, T4, QueryResults<TInnerResult>>>(
+			new Resolvers<TResolverChain, JoinManyNestedResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>>(builder._resolverChain, resolver), true);
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════

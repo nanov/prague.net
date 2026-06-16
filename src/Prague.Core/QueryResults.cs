@@ -610,13 +610,46 @@ public struct QueryResultsDisposer {
 	public readonly bool IsActive => _active;
 
 	/// <summary>Register a pooled buffer to be returned to <see cref="ArrayPool{T}.Shared"/> on dispose.</summary>
-	public void AddPooledBuffer<T>(T[] buffer) {
-		var entry = new PooledBufferEntry { Buffer = buffer, Returner = PragueArrayReturn<T>.Return };
-		if (_count < InlineCapacity)
+	public void AddPooledBuffer<T>(T[] buffer)
+		=> AddEntry(new PooledBufferEntry { Buffer = buffer, Returner = PragueArrayReturn<T>.Return });
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void AddEntry(PooledBufferEntry entry) {
+		if (_count < InlineCapacity) {
 			_inline[_count] = entry;
-		else
-			_overflow![_count - InlineCapacity] = entry;
+		} else {
+			var oi = _count - InlineCapacity;
+			// Nested joins register more buffers than the outer chain's Many count (one shared
+			// partition per nesting level + each level's absorbed inner buffers), so grow on demand.
+			// Non-nested queries size _overflow exactly at construction and never reach this.
+			if (_overflow is null || oi >= _overflow.Length)
+				GrowOverflow(oi + 1);
+			_overflow![oi] = entry;
+		}
 		_count++;
+	}
+
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private void GrowOverflow(int min) {
+		var size = _overflow is null ? Math.Max(min, InlineCapacity) : Math.Max(min, _overflow.Length * 2);
+		var grown = new PooledBufferEntry[size];
+		if (_overflow is not null)
+			Array.Copy(_overflow, grown, _count - InlineCapacity);
+		_overflow = grown;
+	}
+
+	/// <summary>
+	/// Moves another disposer's registered buffers into this one (transferring ownership), so a
+	/// nested join's inner pooled buffers are returned exactly once when the OUTER result is
+	/// disposed. The source disposer must NOT be disposed afterwards (its entries now live here).
+	/// </summary>
+	internal void Absorb(in QueryResultsDisposer other) {
+		if (!other._active)
+			return;
+		for (var i = 0; i < other._count; i++) {
+			ref readonly var e = ref i < InlineCapacity ? ref other._inline[i] : ref other._overflow![i - InlineCapacity];
+			AddEntry(e);
+		}
 	}
 
 	public readonly void Dispose() {
