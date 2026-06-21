@@ -429,11 +429,12 @@ public static class KafkaDataCachesDependencyInjection {
 		Action<KafkaCachesOptions, IServiceProvider>? configsFactory, Action<KafkaCacheHandlersBuilder> configure,
 		Action<KafkaCachesGlobalOptionsBuilder>? options = null) {
 		var optionsBuilder = services.AddOptions<KafkaCachesOptions>(configsSectionName);
-		if (configsFactory is null)
-			optionsBuilder.Configure<IConfiguration>((opts, configuration) => {
-				configuration.GetSection(configsSectionName).Bind(opts);
-			});
-		else
+		// Always bind the IConfiguration section first — it acts as the base / defaults.
+		optionsBuilder.Configure<IConfiguration>((opts, configuration) => {
+			configuration.GetSection(configsSectionName).Bind(opts);
+		});
+		// Then layer the user delegate on top so code overrides/augments the bound config.
+		if (configsFactory is not null)
 			services.AddTransient<IConfigureOptions<KafkaCachesOptions>>(sp => new ConfigureNamedOptions<KafkaCachesOptions>(
 				configsSectionName, o => { configsFactory(o, sp); }));
 
