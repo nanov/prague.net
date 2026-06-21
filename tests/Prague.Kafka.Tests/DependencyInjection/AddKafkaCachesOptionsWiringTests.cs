@@ -6,6 +6,7 @@ using MessagePack;
 using MessagePack.Formatters;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using NUnit.Framework;
 
 [TestFixture]
@@ -36,6 +37,30 @@ public class AddKafkaCachesOptionsWiringTests {
 		// is supplied — no BuildServiceProvider needed.
 		Assert.That(PragueMessagePack.Options.Resolver, Is.SameAs(probe),
 			"AddKafkaCaches options callback must configure PragueMessagePack.Options so the user's resolver becomes active.");
+	}
+
+	[Test]
+	public void AddKafkaCaches_WithDelegate_BindsConfigurationThenAppliesDelegate() {
+		var services = new ServiceCollection();
+		var config = new ConfigurationBuilder()
+			.AddInMemoryCollection(new Dictionary<string, string?> {
+				{ "KafkaConfig:BootstrapServers", "from-config" },
+				{ "KafkaConfig:ClientSettings:foo", "bar" }
+			}).Build();
+		services.AddSingleton<IConfiguration>(config);
+		services.AddLogging();
+
+		services.AddKafkaCaches("KafkaConfig",
+			(o, _) => o.BootstrapServers = "from-code",
+			_ => { });
+
+		var sp = services.BuildServiceProvider();
+		var opts = sp.GetRequiredService<IOptionsMonitor<KafkaCachesOptions>>().Get("KafkaConfig");
+
+		Assert.That(opts.BootstrapServers, Is.EqualTo("from-code"),
+			"The user delegate must run after the IConfiguration bind and override the bound value.");
+		Assert.That(opts.ClientSettings.GetValueOrDefault("foo"), Is.EqualTo("bar"),
+			"Values bound from IConfiguration must survive — proving the section is still bound when a delegate is supplied.");
 	}
 
 	[Test]
