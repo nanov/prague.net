@@ -92,18 +92,22 @@ New internal class `ReaderGate` (`src/Prague.Core/Collections/ReaderGate.cs`, sh
 - **Reader side (zero atomic ops):** each reader thread owns a cache-line-padded slot
   (`ThreadLocal`-registered, process-lifetime; slots of dead threads are leaked — a
   dead thread's slot reads 0 forever, so leaks are harmless and bounded by peak thread
-  count). Pin = plain store
-  `slot.Depth++`; unpin = plain store `slot.Depth--` (only the owning thread writes its
-  slot; nested reads supported). No `Interlocked`, no fence.
+  count). Pin = plain stores `slot.Depth++; slot.Sequence++`; unpin = plain store
+  `slot.Depth--` (only the owning thread writes its slot; nested reads supported). No
+  `Interlocked`, no fence.
 - **Writer side (rare, batched, already under the structure's write lock):** retired
-  nodes/arrays go to a limbo list owned by the writer. Drain: call
-  `Interlocked.MemoryBarrierProcessWide()`, then read all registered slots; if all are
-  quiescent, everything parked *before* the barrier is unreachable by any current or
-  future reader (readers pinning after the barrier observe the unlink — standard RCU
-  synchronize argument) and returns to the pool. If not quiescent, limbo simply persists
-  to the next drain attempt.
+  nodes/arrays go to a limbo list owned by the writer. When parking a batch, the writer
+  calls `Interlocked.MemoryBarrierProcessWide()` and snapshots the `(Depth, Sequence)`
+  of every currently-pinned slot into the batch header. A batch is reclaimable once each
+  snapshotted slot has either dropped to `Depth == 0` or advanced its `Sequence` (that
+  reader unpinned at least once since the batch was parked; readers pinning *after* the
+  barrier observe the unlink — standard RCU grace-period argument — so they can never
+  reach the parked nodes and do not block reclamation). This makes drains immune to
+  starvation under continuous overlapping reader traffic: global quiescence is not
+  required, only per-reader progress.
 - **Drain triggers:** attempted on every retire while limbo is non-empty (the barrier
-  cost only applies then; empty limbo costs one null check), and on `Dispose`.
+  cost only applies then; empty limbo costs one null check), and on `Dispose`. Limbo is
+  therefore bounded by the churn that occurs within one grace period.
 - Fail-open by construction: a reader thread stuck inside a scan delays reclamation; it
   can never cause reuse-under-reader.
 
