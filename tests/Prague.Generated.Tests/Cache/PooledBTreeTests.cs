@@ -990,4 +990,129 @@ public class PooledBTreeTests {
 				tree.Dispose();
 				Assert.DoesNotThrow(() => tree.Dispose());
 		}
+
+	// ───────────────────── Duplicate runs spanning leaf boundaries ─────────────────────
+	// With LeafCapacity=64, more than 64 entries under the same index key force the
+	// run of equal keys to span several leaves. Lookups that descend to a single leaf
+	// (equal separators route right) then miss pairs sitting in earlier leaves of the
+	// run — Remove silently returns false and the entry stays forever.
+
+	[Test]
+	public void Remove_DuplicateRunSpanningLeaves_RemovesEveryPair() {
+		var tree = new PooledBTree<int, string>();
+		for (var i = 0; i < 200; i++)
+			tree.Add(42, $"val_{i}");
+
+		for (var i = 0; i < 200; i++)
+			Assert.That(tree.Remove(42, $"val_{i}"), Is.True, $"val_{i} was not found by Remove");
+
+		Assert.That(tree.Length, Is.EqualTo(0));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Remove_DuplicateRunWithNeighbors_RemovesFromLeftLeavesOfRun() {
+		var tree = new PooledBTree<int, string>();
+		for (var i = 0; i < 100; i++)
+			tree.Add(10, $"low_{i}");
+		for (var i = 0; i < 100; i++)
+			tree.Add(42, $"mid_{i}");
+		for (var i = 0; i < 100; i++)
+			tree.Add(90, $"high_{i}");
+
+		for (var i = 0; i < 100; i++)
+			Assert.That(tree.Remove(42, $"mid_{i}"), Is.True, $"mid_{i} was not found by Remove");
+
+		Assert.That(tree.Length, Is.EqualTo(200));
+
+		var agg = new ListAggregator<int, string>();
+		tree.Range(42, 42, ref agg);
+		Assert.That(agg.Items, Is.Empty);
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Contains_DuplicateRunSpanningLeaves_FindsEveryPair() {
+		var tree = new PooledBTree<int, string>();
+		for (var i = 0; i < 200; i++)
+			tree.Add(42, $"val_{i}");
+
+		for (var i = 0; i < 200; i++)
+			Assert.That(tree.Contains(42, $"val_{i}"), Is.True, $"val_{i} not found by Contains");
+
+		Assert.That(tree.Contains(42, "absent"), Is.False);
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Add_DuplicatePairInSpanningRun_ReturnsFalse() {
+		var tree = new PooledBTree<int, string>();
+		for (var i = 0; i < 200; i++)
+			tree.Add(42, $"val_{i}");
+
+		// val_0 lives in the leftmost leaf of the run; a single-leaf duplicate check misses it
+		Assert.That(tree.Add(42, "val_0"), Is.False);
+		Assert.That(tree.Length, Is.EqualTo(200));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void RangeFromExclusive_DuplicateRunSpanningLeaves_ExcludesAllEqualKeys() {
+		var tree = new PooledBTree<int, string>();
+		for (var i = 0; i < 200; i++)
+			tree.Add(42, $"dup_{i}");
+		for (var i = 0; i < 10; i++)
+			tree.Add(100, $"tail_{i}");
+
+		var agg = new ListAggregator<int, string>();
+		tree.RangeFromExclusive(42, ref agg);
+
+		Assert.That(agg.Items.Count, Is.EqualTo(10),
+			"keys equal to the exclusive bound leaked from later leaves of the run");
+		Assert.That(agg.Items.All(x => x.Index == 100), Is.True);
+		tree.Dispose();
+	}
+
+	[Test]
+	public void RangeCustom_ExclusiveFrom_DuplicateRunSpanningLeaves_ExcludesAllEqualKeys() {
+		var tree = new PooledBTree<int, string>();
+		for (var i = 0; i < 200; i++)
+			tree.Add(42, $"dup_{i}");
+		for (var i = 0; i < 10; i++)
+			tree.Add(100, $"tail_{i}");
+
+		var agg = new ListAggregator<int, string>();
+		tree.RangeCustom(42, 100, includeFrom: false, includeTo: true, ref agg);
+
+		Assert.That(agg.Items.Count, Is.EqualTo(10),
+			"keys equal to the exclusive lower bound leaked from later leaves of the run");
+		Assert.That(agg.Items.All(x => x.Index == 100), Is.True);
+		tree.Dispose();
+	}
+
+	[Test]
+	public void UpdateChurn_RangeIndexPattern_LengthStaysBounded() {
+		// Simulates CacheRangeIndex.Update: every item update adds the new timestamp
+		// key and removes the old one. Many items share the same key (millisecond
+		// timestamps), so runs of equal keys span leaves and removes must not miss.
+		var tree = new PooledBTree<long, long>();
+		const int items = 500;
+		var current = new long[items];
+		for (var i = 0; i < items; i++) {
+			current[i] = 1000;
+			tree.Add(1000, i);
+		}
+
+		for (var round = 1; round <= 20; round++) {
+			var newKey = 1000 + round;
+			for (var i = 0; i < items; i++) {
+				tree.Add(newKey, i);
+				Assert.That(tree.Remove(current[i], i), Is.True, $"round {round}, item {i} leaked");
+				current[i] = newKey;
+			}
+		}
+
+		Assert.That(tree.Length, Is.EqualTo(items));
+		tree.Dispose();
+	}
 }
