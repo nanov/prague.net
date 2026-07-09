@@ -44,8 +44,10 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	// ───────────────────── Node types ─────────────────────
 
-	private abstract class Node {
+	private abstract class Node : ReaderGate.IRetirable {
 		public abstract bool IsLeaf { get; }
+
+		public abstract void ReclaimToPool();
 	}
 
 	private sealed class LeafNode : Node {
@@ -61,6 +63,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			Keys = ArrayPool<TIndex>.Shared.Rent(LeafCapacity);
 			Values = ArrayPool<TValue>.Shared.Rent(LeafCapacity);
 		}
+
+		public override void ReclaimToPool() => ReturnToPool();
 
 		public void ReturnToPool() {
 			var keys = Keys;
@@ -90,6 +94,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			Keys = ArrayPool<TIndex>.Shared.Rent(InternalCapacity - 1);
 			Children = ArrayPool<Node>.Shared.Rent(InternalCapacity);
 		}
+
+		public override void ReclaimToPool() => ReturnToPool();
 
 		public void ReturnToPool() {
 			var keys = Keys;
@@ -663,8 +669,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		if (_lastLeaf == leaf)
 			_lastLeaf = leaf.Prev ?? leaf;
 
-		// Return arrays to pool
-		leaf.ReturnToPool();
+		// Defer the pool return past the reader grace period: lock-free readers
+		// (Range*, TryGetMin/Max, Contains) may still hold this node. Its Keys/Values
+		// and Next/Prev stay intact until reclamation, so a parked reader continues
+		// the chain correctly (documented staleness: it may re-see or miss the
+		// removed entries).
+		ReaderGate.Retire(leaf);
 
 		// Remove from parent
 		if (depth > 0)
@@ -701,21 +711,32 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		// If parent is now empty and is root, make the remaining child the new root
 		if (parent.KeyCount == 0 && parent == _root) {
 			_root = parent.Children[0];
-			parent.ReturnToPool();
+			ReaderGate.Retire(parent);
 		}
 		else if (parent.KeyCount == 0 && level > 0) {
 			// Parent is empty but not root: replace the grandparent's pointer to parent
 			// with parent's sole remaining child. A recursive RemoveFromParent here would
 			// drop that child entirely, orphaning its subtree.
 			ancestors[level - 1]!.Children[childIndices[level - 1]] = parent.Children[0];
-			parent.ReturnToPool();
+			ReaderGate.Retire(parent);
 		}
 	}
 
 	// ───────────────────── Contains ─────────────────────
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool Contains(TIndex index, TValue value) {
+		var slot = ReaderGate.Enter();
+		try {
+			return ContainsCore(index, value);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool ContainsCore(TIndex index, TValue value) {
 		var leaf = FindLeaf(index);
 		var pos = LeafLowerBound(leaf, index);
 		if (FindExact(leaf, index, value, pos) >= 0)
@@ -730,8 +751,19 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	// ───────────────────── TryGetMin / TryGetMax ─────────────────────
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool TryGetMin(out TIndex index, out TValue value) {
+		var slot = ReaderGate.Enter();
+		try {
+			return TryGetMinCore(out index, out value);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool TryGetMinCore(out TIndex index, out TValue value) {
 		var leaf = _firstLeaf;
 		if (leaf.Count > 0) {
 			index = leaf.Keys[0];
@@ -744,8 +776,19 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return false;
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool TryGetMax(out TIndex index, out TValue value) {
+		var slot = ReaderGate.Enter();
+		try {
+			return TryGetMaxCore(out index, out value);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool TryGetMaxCore(out TIndex index, out TValue value) {
 		var leaf = _lastLeaf;
 		if (leaf.Count > 0) {
 			index = leaf.Keys[leaf.Count - 1];
@@ -767,8 +810,20 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query [from, to] — inclusive on both bounds.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void Range<TResultsAggregator>(TIndex from, TIndex to, ref TResultsAggregator agg)
+		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
+		var slot = ReaderGate.Enter();
+		try {
+			RangeCore(from, to, ref agg);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	private void RangeCore<TResultsAggregator>(TIndex from, TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(from);
 		var pos = LeafLowerBound(leaf, from);
@@ -792,8 +847,20 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query [start, ∞) — from start inclusive.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeFrom<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
+		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
+		var slot = ReaderGate.Enter();
+		try {
+			RangeFromCore(start, ref agg);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	private void RangeFromCore<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(start);
 		var pos = LeafLowerBound(leaf, start);
@@ -814,8 +881,20 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query (-∞, to] — up to to inclusive.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeTo<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
+		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
+		var slot = ReaderGate.Enter();
+		try {
+			RangeToCore(to, ref agg);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	private void RangeToCore<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = _firstLeaf;
 
@@ -837,8 +916,20 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query (-∞, to) — up to to exclusive.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeToExclusive<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
+		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
+		var slot = ReaderGate.Enter();
+		try {
+			RangeToExclusiveCore(to, ref agg);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	private void RangeToExclusiveCore<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = _firstLeaf;
 
@@ -860,8 +951,20 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query (start, ∞) — from start exclusive.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeFromExclusive<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
+		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
+		var slot = ReaderGate.Enter();
+		try {
+			RangeFromExclusiveCore(start, ref agg);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	private void RangeFromExclusiveCore<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(start);
 		var pos = LeafUpperBound(leaf, start);
@@ -893,8 +996,21 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query with custom inclusive/exclusive bounds.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeCustom<TResultsAggregator>(TIndex from, TIndex to, bool includeFrom, bool includeTo,
+		ref TResultsAggregator agg)
+		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
+		var slot = ReaderGate.Enter();
+		try {
+			RangeCustomCore(from, to, includeFrom, includeTo, ref agg);
+		}
+		finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	private void RangeCustomCore<TResultsAggregator>(TIndex from, TIndex to, bool includeFrom, bool includeTo,
 		ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(from);
@@ -945,6 +1061,10 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 		// Walk internal nodes via BFS/DFS and return key arrays
 		DisposeInternalNodes(_root);
+
+		// Nodes retired earlier may still sit in the gate limbo — give it a chance to
+		// reclaim now that this tree no longer produces reader traffic.
+		ReaderGate.TryDrain();
 	}
 
 		private static void DisposeInternalNodes(Node node) {
