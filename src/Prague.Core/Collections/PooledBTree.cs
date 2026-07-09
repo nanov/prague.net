@@ -219,6 +219,27 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	}
 
 	/// <summary>
+	///   Binary search within an internal node for the LEFTMOST child that can contain
+	///   the given key. Keys equal to a separator route LEFT (the run of equal keys may
+	///   start in the child before the separator).
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int FindChildIndexLeft(InternalNode node, TIndex index) {
+		var lo = 0;
+		var hi = node.KeyCount - 1;
+		while (lo <= hi) {
+			var mid = (lo + hi) >>> 1;
+			var cmp = index.CompareTo(node.Keys[mid]);
+			if (cmp > 0) // equal goes LEFT (to find leftmost child with this key)
+				lo = mid + 1;
+			else
+				hi = mid - 1;
+		}
+
+		return lo;
+	}
+
+	/// <summary>
 	///   Finds the leftmost leaf that could contain keys >= index.
 	///   Routes equal keys LEFT so range scans start from the first matching leaf.
 	/// </summary>
@@ -532,9 +553,57 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 		var pos = LeafLowerBound(leaf, index);
 		var exactPos = FindExact(leaf, index, value, pos);
-		if (exactPos < 0)
+		if (exactPos >= 0) {
+			RemoveFromLeaf(leaf, exactPos, ancestors, childIndices, depth);
+			return true;
+		}
+
+		// Fast-path miss. If the run of equal keys begins inside this leaf (pos > 0 —
+		// a smaller key precedes it), no earlier leaf can hold the pair: the miss is
+		// definitive. Only when the run may have started in earlier leaves (pos == 0
+		// and the previous leaf ends with an equal key) can the pair hide elsewhere.
+		if (pos > 0 || leaf.Prev == null
+			|| leaf.Prev.Keys[leaf.Prev.Count - 1].CompareTo(index) != 0)
 			return false;
 
+		return RemoveFromSubtree(_root, index, value, ancestors, childIndices, 0);
+	}
+
+	/// <summary>
+	///   Cold path for runs of equal keys spanning leaves: descends into every child
+	///   whose key range can contain (index, value) and removes the first exact match.
+	///   The recursion keeps ancestors/childIndices valid for the leaf where the pair
+	///   is actually found so structural cleanup works. Depth is bounded by MaxDepth.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private bool RemoveFromSubtree(Node node, TIndex index, TValue value,
+		InternalNode?[] ancestors, int[] childIndices, int depth) {
+		if (node.IsLeaf) {
+			var leaf = Unsafe.As<LeafNode>(node);
+			var pos = LeafLowerBound(leaf, index);
+			var exactPos = FindExact(leaf, index, value, pos);
+			if (exactPos < 0)
+				return false;
+
+			RemoveFromLeaf(leaf, exactPos, ancestors, childIndices, depth);
+			return true;
+		}
+
+		var intern = Unsafe.As<InternalNode>(node);
+		var first = FindChildIndexLeft(intern, index);
+		var last = FindChildIndex(intern, index);
+		for (var childIdx = first; childIdx <= last; childIdx++) {
+			ancestors[depth] = intern;
+			childIndices[depth] = childIdx;
+			if (RemoveFromSubtree(intern.Children[childIdx], index, value, ancestors, childIndices, depth + 1))
+				return true;
+		}
+
+		return false;
+	}
+
+	private void RemoveFromLeaf(LeafNode leaf, int exactPos,
+		InternalNode?[] ancestors, int[] childIndices, int depth) {
 		// Shift elements left
 		leaf.Count--;
 		if (exactPos < leaf.Count) {
@@ -553,7 +622,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			RemoveEmptyLeaf(leaf, ancestors, childIndices, depth);
 
 		_length--;
-		return true;
 	}
 
 	[MethodImpl(MethodImplOptions.NoInlining)]
