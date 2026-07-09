@@ -89,12 +89,18 @@ Unique-key workloads and single-leaf duplicate runs never enter any slow path.
 New internal class `ReaderGate` (`src/Prague.Core/Collections/ReaderGate.cs`, shared by
 `PooledBTree` and `PooledSet` scoped readers):
 
-- **Reader side (zero atomic ops):** each reader thread owns a cache-line-padded slot
-  (`ThreadLocal`-registered, process-lifetime; slots of dead threads are leaked — a
-  dead thread's slot reads 0 forever, so leaks are harmless and bounded by peak thread
-  count). Pin = plain stores `slot.Depth++; slot.Sequence++`; unpin = plain store
+- **Reader side (zero atomic ops):** each reader thread owns a cache-line-padded slot,
+  acquired through a thread-local owner object. Slots are recycled: the owner's
+  finalizer pushes the slot onto a lock-free free stack when the thread dies (a thread
+  can only die unpinned — unpin runs on unwind via `try/finally`), and new threads pop
+  from the stack before allocating. Live slot count is therefore bounded by **peak
+  concurrent reader threads**, with nothing accumulating over process lifetime.
+  Recycling is safe under the grace-period rule below: a batch blocks only on slots seen
+  pinned at park time, and a recycled slot's advanced `Sequence` proves the intervening
+  unpin. Pin = plain stores `slot.Depth++; slot.Sequence++`; unpin = plain store
   `slot.Depth--` (only the owning thread writes its slot; nested reads supported). No
-  `Interlocked`, no fence.
+  `Interlocked`, no fence on the hot path (slot acquire/release at thread birth/death is
+  cold and may use `Interlocked`).
 - **Writer side (rare, batched, already under the structure's write lock):** retired
   nodes/arrays go to a limbo list owned by the writer. When parking a batch, the writer
   calls `Interlocked.MemoryBarrierProcessWide()` and snapshots the `(Depth, Sequence)`
