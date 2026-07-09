@@ -1272,19 +1272,42 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 				_bitHelper.MarkBit(index);
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 		public void IntersectWith(PooledSet<TFrom, DefaultKeyComparer<TFrom>> other) {
 			if (IsCleared) return;
-			var slots = other.Slots;
-			var lastIndex = other.LastIndex;
-			ref var start = ref MemoryMarshal.GetArrayDataReference(slots);
-			for (var i = 0; i < lastIndex; i++) {
-				ref var slot = ref Unsafe.Add(ref start, i);
-				if (slot.HashCode >= 0) {
-					var index = _self.InternalIndexOf(_into.Into(slot.Value));
-					if (index >= 0)
-						_bitHelper.MarkBit(index);
+			var gate = ReaderGate.Enter();
+			try {
+				// Single consistent snapshot — reading through separate properties could
+				// straddle a concurrent Grow and go out of bounds. The gate pin keeps the
+				// arrays out of the pool for the whole scan.
+				other.GetSnapshot(out var slots, out var versions, out var lastIndex);
+				ref var start = ref MemoryMarshal.GetArrayDataReference(slots);
+				for (var i = 0; i < lastIndex; i++) {
+					ref var slot = ref Unsafe.Add(ref start, i);
+					if (versions == null) {
+						// Atomically-copyable T: stale-or-new, never torn.
+						var hashCode = Volatile.Read(ref slot.HashCode);
+						if (hashCode < 0) continue;
+						var index = _self.InternalIndexOf(_into.Into(slot.Value));
+						if (index >= 0)
+							_bitHelper.MarkBit(index);
+					}
+					else {
+						// Version-guarded copy-out (multi-word T): rejects torn copies
+						// even under remove + re-add with an equal hash (ABA).
+						var version = Volatile.Read(ref versions[i]);
+						var hashCode = Volatile.Read(ref slot.HashCode);
+						if (hashCode < 0) continue;
+						var value = slot.Value;
+						if (Volatile.Read(ref versions[i]) != version) continue;
+						var index = _self.InternalIndexOf(_into.Into(value));
+						if (index >= 0)
+							_bitHelper.MarkBit(index);
+					}
 				}
+			}
+			finally {
+				ReaderGate.Exit(gate);
 			}
 		}
 
@@ -1421,19 +1444,37 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 				_bitHelper.MarkBit(index);
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 		public void IntersectWith(PooledSet<T, DefaultKeyComparer<T>> other) {
 			if (IsCleared) return;
-			var slots = other.Slots;
-			var lastIndex = other.LastIndex;
-			ref var start = ref MemoryMarshal.GetArrayDataReference(slots);
-			for (var i = 0; i < lastIndex; i++) {
-				ref var slot = ref Unsafe.Add(ref start, i);
-				if (slot.HashCode >= 0) {
-					var index = _self.InternalIndexOf(slot.Value, slot.HashCode);
-					if (index >= 0)
-						_bitHelper.MarkBit(index);
+			var gate = ReaderGate.Enter();
+			try {
+				// Single consistent snapshot — see the TFrom overload for the rationale.
+				other.GetSnapshot(out var slots, out var versions, out var lastIndex);
+				ref var start = ref MemoryMarshal.GetArrayDataReference(slots);
+				for (var i = 0; i < lastIndex; i++) {
+					ref var slot = ref Unsafe.Add(ref start, i);
+					if (versions == null) {
+						var hashCode = Volatile.Read(ref slot.HashCode);
+						if (hashCode < 0) continue;
+						var index = _self.InternalIndexOf(slot.Value, hashCode);
+						if (index >= 0)
+							_bitHelper.MarkBit(index);
+					}
+					else {
+						var version = Volatile.Read(ref versions[i]);
+						var hashCode = Volatile.Read(ref slot.HashCode);
+						if (hashCode < 0) continue;
+						var value = slot.Value;
+						if (Volatile.Read(ref versions[i]) != version) continue;
+						var index = _self.InternalIndexOf(value, hashCode);
+						if (index >= 0)
+							_bitHelper.MarkBit(index);
+					}
 				}
+			}
+			finally {
+				ReaderGate.Exit(gate);
 			}
 		}
 

@@ -21,7 +21,7 @@ public class PooledSetLifetimeTests {
 		set.Add(11);
 		set.Add(22);
 		set.Add(33);
-		var liveSlots = set.Slots;
+		set.GetSnapshot(out var liveSlots, out _, out _);
 
 		// Exactly what app code gets from CacheKeyValueListIndex.GetValues(key)
 		IEnumerable<long> view = set;
@@ -53,7 +53,7 @@ public class PooledSetLifetimeTests {
 			set.Add(i);
 		}
 
-		var slotsBeforeGrow = set.Slots;
+		set.GetSnapshot(out var slotsBeforeGrow, out _, out _);
 
 		var seen = new List<long>();
 		var enumerator = set.GetEnumerator();
@@ -66,7 +66,7 @@ public class PooledSetLifetimeTests {
 				set.Add(i);
 			}
 
-			var slotsAfterGrow = set.Slots;
+			set.GetSnapshot(out var slotsAfterGrow, out _, out _);
 			Assert.That(ReferenceEquals(slotsBeforeGrow, slotsAfterGrow), Is.False, "Grow must swap tables");
 
 			// The captured snapshot still serves the original 100 keys, untouched
@@ -146,7 +146,7 @@ public class PooledSetLifetimeTests {
 		set.Add(11);
 		set.Add(22);
 		set.Add(33);
-		var liveSlots = set.Slots;
+		set.GetSnapshot(out var liveSlots, out _, out _);
 
 		IEnumerable<long> view = set;
 		using var enumerator = view.GetEnumerator();
