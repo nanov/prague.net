@@ -517,21 +517,13 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		_keySelector = keySelector;
 	}
 
-	/// <summary>
-	///   Gets the approximate count of items in this index. This is an O(1) operation.
-	///   Note: Due to concurrent operations, this count may be slightly inaccurate at any given moment.
-	/// </summary>
-	public ulong ApproximateCount { get; private set; }
-
 	public void Add(TKey key, TValue value, long timestampMs) {
 		_index.Add(_keySelector(key, value), key);
-		ApproximateCount++;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Remove(TKey key, TValue value, long timestamp) {
 		_index.Remove(_keySelector(key, value), key);
-		ApproximateCount--;
 	}
 
 	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
@@ -546,8 +538,10 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	}
 
 	public ulong GetCounters(out ulong vlaues) {
-		vlaues = ApproximateCount;
-		return ApproximateCount;
+		// Report the real B-tree size, not a logically-maintained counter: a divergence
+		// between the two is exactly how stale (leaked) index entries manifest.
+		vlaues = (ulong)_index.Length;
+		return (ulong)_index.Length;
 	}
 
 	public IReadOnlyCollection<TKey> GetValuesGte(TIndexKey lowerValue) {
