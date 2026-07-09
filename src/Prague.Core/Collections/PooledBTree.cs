@@ -322,6 +322,28 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return -1;
 	}
 
+	/// <summary>
+	///   Cold path for runs of equal keys spanning leaves: the fast-path leaf's run
+	///   portion missed, and pos == 0 means the run may extend into earlier leaves.
+	///   Walks backwards while the previous leaf's last key still equals the index.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static bool ContainsInPrevLeaves(LeafNode leaf, TIndex index, TValue value) {
+		var prev = leaf.Prev;
+		while (prev != null && prev.Count > 0 && prev.Keys[prev.Count - 1].CompareTo(index) == 0) {
+			for (var i = prev.Count - 1; i >= 0; i--) {
+				if (prev.Keys[i].CompareTo(index) != 0)
+					break;
+				if (value.Equals(prev.Values[i]))
+					return true;
+			}
+
+			prev = prev.Prev;
+		}
+
+		return false;
+	}
+
 	// ───────────────────── Add ─────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -337,9 +359,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 		var leaf = FindLeafWithPath(index, ancestors, childIndices, out var depth);
 
-		// Check for duplicate
+		// Check for duplicate — including earlier leaves when the equal-key run may
+		// span a leaf boundary (pos == 0; see ContainsInPrevLeaves)
 		var pos = LeafLowerBound(leaf, index);
 		if (FindExact(leaf, index, value, pos) >= 0)
+			return false;
+		if (pos == 0 && ContainsInPrevLeaves(leaf, index, value))
 			return false;
 
 		// Find insertion point considering value ordering for stable placement
@@ -693,7 +718,14 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	public bool Contains(TIndex index, TValue value) {
 		var leaf = FindLeaf(index);
 		var pos = LeafLowerBound(leaf, index);
-		return FindExact(leaf, index, value, pos) >= 0;
+		if (FindExact(leaf, index, value, pos) >= 0)
+			return true;
+
+		// pos > 0 ⇒ a smaller key precedes the run in this leaf ⇒ miss is definitive.
+		if (pos > 0)
+			return false;
+
+		return ContainsInPrevLeaves(leaf, index, value);
 	}
 
 	// ───────────────────── TryGetMin / TryGetMax ─────────────────────
@@ -834,6 +866,17 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var leaf = FindLeafForRange(start);
 		var pos = LeafUpperBound(leaf, start);
 
+		// A run of keys equal to the exclusive bound can span leaves: pos == Count means
+		// every key in this leaf is <= start, so re-apply the upper bound on the next
+		// leaf. Once a leaf has pos < Count, every later key in the chain is > start.
+		while (pos == leaf.Count) {
+			var next = leaf.Next;
+			if (next == null)
+				return;
+			leaf = next;
+			pos = LeafUpperBound(leaf, start);
+		}
+
 		while (leaf != null) {
 			var keys = leaf.Keys;
 			var values = leaf.Values;
@@ -855,7 +898,22 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(from);
-		var pos = includeFrom ? LeafLowerBound(leaf, from) : LeafUpperBound(leaf, from);
+		int pos;
+		if (includeFrom) {
+			pos = LeafLowerBound(leaf, from);
+		}
+		else {
+			// Exclusive lower bound: skip the run of keys equal to `from` across leaves
+			// (see RangeFromExclusive).
+			pos = LeafUpperBound(leaf, from);
+			while (pos == leaf.Count) {
+				var next = leaf.Next;
+				if (next == null)
+					return;
+				leaf = next;
+				pos = LeafUpperBound(leaf, from);
+			}
+		}
 
 		while (leaf != null) {
 			var keys = leaf.Keys;
