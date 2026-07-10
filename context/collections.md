@@ -23,8 +23,12 @@ Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `Inters
   are covered by `ReaderGate`'s grace period; the last release hands the arrays to the
   gate, never straight to the pool — readers can never observe recycled memory.
   Version-guarded copy-out compiles only for multi-word `T` (`AtomicCopy` JIT-folds it
-  away for `long`/`int`/`string` keys). `Dispose` retires the generation and is safe
-  with outstanding enumerators.
+  away for `long`/`int`/`string` keys). `Dispose` publishes a shared never-retired
+  sentinel generation before retiring the old one (publish-then-retire, like `Grow`),
+  so reads on a disposed set are safe and empty; it is idempotent and safe with
+  outstanding enumerators. The ref struct enumerator pins via the per-thread
+  `ReaderGate` slot (no shared-line Interlocked); only the boxed enumerator refcounts
+  its generation.
 - `ReaderGate` (`src/Prague.Core/Collections/ReaderGate.cs`) — process-wide
   grace-period reclamation shared by `PooledSet` and `PooledBTree`: readers pin with
   padded per-thread slots (two stores + one local fence, no RMW); writers park retired

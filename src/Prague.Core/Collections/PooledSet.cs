@@ -23,6 +23,24 @@ namespace Prague.Core.Collections;
 ///   Readers may observe a STALE view (recently added/removed entries, a chain walk
 ///   wandering after remove+reuse — bounded by the cycle guard) — the documented
 ///   staleness model.
+///
+///   Performance notes:
+///   - Allocations: steady-state zero on Add/Remove/Contains/enumeration. Per bucket
+///     lifecycle: one PooledSet + one Tables object (arrays are pool round-trips). The
+///     ref struct enumerator is stack-only and pin-free on shared state; the boxed
+///     enumerator allocates (it must escape) and carries a Tables pin.
+///   - Dispatch: sealed class; TKeyComparer is a struct constraint so GetHashCode /
+///     Equals devirtualize and inline per closed generic; AtomicCopy is a JIT-folded
+///     static, so the version-guard branch does not exist in codegen for small keys.
+///   - Contention: the ref struct enumerator pins via the per-thread ReaderGate slot
+///     (no Interlocked on shared lines). Tables._state (boxed-enumerator pins) is laid
+///     out past the first cache line so its RMWs never invalidate the line that
+///     lookups hash against.
+///   - Dispose publishes a shared, never-retired sentinel generation before retiring
+///     the old one (the same publish-then-retire pattern as Grow) — post-seal readers
+///     of a disposed set land on the sentinel and can never capture retiring memory.
+///     No structure ops are permitted after Dispose (Grow hard-throws on the sentinel;
+///     Add/Remove assert in debug).
 /// </summary>
 internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnumerable<T>, IEnumerable, IDisposable
 	where TKeyComparer : struct, IKeyComparer<T> {
@@ -32,12 +50,16 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		!typeof(T).IsValueType
 		|| (Unsafe.SizeOf<T>() <= 8 && !RuntimeHelpers.IsReferenceOrContainsReferences<T>());
 
+	[StructLayout(LayoutKind.Sequential)]
 	internal sealed class Tables : ReaderGate.IRetirable {
 		private const int RetiredBit = 1 << 30;
 		private const int ReturnedBit = int.MinValue;
 
-		public readonly int[] Buckets; // rented; valid range [0, Size)
+		// Hot-first layout: header + the four array refs + Size/LastIndex/FastMod fill
+		// the first cache line; the Interlocked-contended _state lands past it so
+		// boxed-enumerator pin RMWs never invalidate the line lookups hash against.
 		public readonly HashSlot<T>[] Slots; // rented; valid range [0, Size)
+		public readonly int[] Buckets; // rented; valid range [0, Size)
 
 		// Free-list links live OUTSIDE the slots: reusing slot.Next for the free list
 		// would send an in-flight chain reader parked on a just-removed slot into the
@@ -48,11 +70,12 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		public readonly int[]? Versions; // rented
 
 		public readonly int Size;
-		public readonly ulong FastModMultiplier;
 
 		// Writer-mutated; published volatile AFTER a new slot's HashCode so a reader
 		// never scans a not-yet-published slot.
 		public int LastIndex;
+
+		public readonly ulong FastModMultiplier;
 
 		private int _state; // pins (bits 0..29) | Retired (bit 30) | Returned (bit 31)
 
@@ -125,7 +148,9 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	}
 
 	public ref struct Enumerator {
-		private Tables? _tables;
+		// A ref struct is stack-bound and same-thread, so the per-thread ReaderGate
+		// slot covers its whole lifetime — no Interlocked on the shared Tables state.
+		private ReaderGate.Slot? _gateSlot;
 		private readonly HashSlot<T>[] _slots;
 		private readonly int[]? _versions;
 		private readonly int _lastIndex;
@@ -144,10 +169,10 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		internal Enumerator(Tables? tables, int lastIndex) {
-			_tables = tables;
-			_slots = tables?.Slots ?? [];
-			_versions = tables?.Versions;
+		internal Enumerator(ReaderGate.Slot gateSlot, Tables tables, int lastIndex) {
+			_gateSlot = gateSlot;
+			_slots = tables.Slots;
+			_versions = tables.Versions;
 			_lastIndex = lastIndex;
 			_currentValue = default!;
 			_currentHashCode = 0;
@@ -193,12 +218,12 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void Dispose() {
-			var tables = _tables;
-			if (tables == null)
+			var slot = _gateSlot;
+			if (slot == null)
 				return;
 
-			_tables = null;
-			tables.Unpin();
+			_gateSlot = null;
+			ReaderGate.Exit(slot);
 		}
 	}
 
@@ -214,10 +239,10 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 		object? IEnumerator.Current => Current;
 
-		internal BoxedEnumerator(Tables? tables, int lastIndex) {
+		internal BoxedEnumerator(Tables tables, int lastIndex) {
 			_tables = tables;
-			_slots = tables?.Slots ?? [];
-			_versions = tables?.Versions;
+			_slots = tables.Slots;
+			_versions = tables.Versions;
 			_lastIndex = lastIndex;
 			_currentValue = default!;
 			_index = -1;
@@ -284,6 +309,13 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	public static readonly PooledSet<T, TKeyComparer> Empty = new();
 
+	// Shared, never-retired sentinel published by Dispose BEFORE retiring the live
+	// generation — the "unlink" that makes post-seal scoped readers of a disposed set
+	// safe (they land here instead of on retiring memory), and it always TryPins for
+	// boxed enumerators, so their acquire loop converges. One per closed generic;
+	// its tiny arrays live for the process.
+	private static readonly Tables DisposedTables = new(1, 0);
+
 	public int Count => _count;
 
 	public bool IsEmpty => _count == 0;
@@ -315,6 +347,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	public bool Add(T item) {
 		var hashCode = GetHashCode(item);
 		var tables = _tables;
+		System.Diagnostics.Debug.Assert(!ReferenceEquals(tables, DisposedTables), "Add after Dispose");
 		var bucket = GetBucket(tables, hashCode);
 		ref var bucketsRef = ref MemoryMarshal.GetArrayDataReference(tables.Buckets);
 		ref var slotsRef = ref MemoryMarshal.GetArrayDataReference(tables.Slots);
@@ -366,6 +399,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	public bool Remove(T item) {
 		var hashCode = GetHashCode(item);
 		var tables = _tables;
+		System.Diagnostics.Debug.Assert(!ReferenceEquals(tables, DisposedTables), "Remove after Dispose");
 		var bucket = GetBucket(tables, hashCode);
 		ref var bucketsRef = ref MemoryMarshal.GetArrayDataReference(tables.Buckets);
 		ref var slotsRef = ref MemoryMarshal.GetArrayDataReference(tables.Slots);
@@ -454,15 +488,14 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public Enumerator GetEnumerator() {
-		while (true) {
-			var tables = Volatile.Read(ref _tables);
-			if (tables.TryPin())
-				return new Enumerator(tables, Volatile.Read(ref tables.LastIndex));
-
-			// _tables unchanged after a failed pin ⇒ the set is disposed: enumerate nothing.
-			if (ReferenceEquals(Volatile.Read(ref _tables), tables))
-				return new Enumerator(null, 0);
-		}
+		// Gate-scoped pin taken BEFORE reading _tables: by the gate litmus this either
+		// lands in the writer's seal snapshot (blocking reclaim of whatever generation
+		// we capture) or we observe the writer's replacement publish (Grow's new
+		// tables / Dispose's sentinel) — we can never capture memory that is free to
+		// be reclaimed. foreach always Disposes ref struct enumerators, releasing it.
+		var slot = ReaderGate.Enter();
+		var tables = Volatile.Read(ref _tables);
+		return new Enumerator(slot, tables, Volatile.Read(ref tables.LastIndex));
 	}
 
 	IEnumerator<T> IEnumerable<T>.GetEnumerator() => CreateBoxedEnumerator();
@@ -475,8 +508,9 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 			if (tables.TryPin())
 				return new BoxedEnumerator(tables, Volatile.Read(ref tables.LastIndex));
 
-			if (ReferenceEquals(Volatile.Read(ref _tables), tables))
-				return new BoxedEnumerator(null, 0);
+			// A failed pin means that generation just retired; the writer already
+			// published its replacement (Grow's new tables, or Dispose's sentinel —
+			// which always pins), so the retry converges.
 		}
 	}
 
@@ -484,7 +518,15 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		if (ReferenceEquals(this, Empty))
 			return; // the shared Empty sentinel must never retire its generation
 
-		_tables.Retire();
+		var tables = _tables;
+		if (ReferenceEquals(tables, DisposedTables))
+			return; // idempotent
+
+		// Unlink first (publish-then-retire, exactly like Grow): the sentinel store
+		// precedes the gate's seal fence, so post-seal scoped readers land on the
+		// sentinel and can never capture the retiring generation.
+		Volatile.Write(ref _tables, DisposedTables);
+		tables.Retire();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -501,6 +543,12 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private Tables Grow() {
 		var oldTables = _tables;
+		// Growing the shared disposed sentinel would retire it process-wide for every
+		// disposed set of this key type — hard-stop the use-after-dispose here (cold
+		// path, zero hot-path cost).
+		if (ReferenceEquals(oldTables, DisposedTables))
+			throw new ObjectDisposedException(nameof(PooledSet<T, TKeyComparer>));
+
 		var newTables = new Tables(HashHelpers.ExpandPrime(_count), oldTables.LastIndex);
 		if (oldTables.LastIndex > 0)
 			Array.Copy(oldTables.Slots, newTables.Slots, oldTables.LastIndex);

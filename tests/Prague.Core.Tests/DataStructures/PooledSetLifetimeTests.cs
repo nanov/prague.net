@@ -118,6 +118,31 @@ public class PooledSetLifetimeTests {
 	}
 
 	[Test]
+	public void ReadsAfterDispose_LandOnSentinel_SafeAndEmpty() {
+		var set = new PooledSet<long, DefaultKeyComparer<long>>();
+		set.Add(11);
+		set.Add(22);
+		set.Remove(11);
+		set.Remove(22);
+		set.Dispose();
+		set.Dispose(); // idempotent
+
+		// Scoped readers on a disposed set must be safe (sentinel generation) and see
+		// nothing — never the retired arrays.
+		Assert.That(set.Contains(11), Is.False);
+
+		var seen = 0;
+		foreach (var _ in set)
+			seen++;
+		Assert.That(seen, Is.EqualTo(0), "struct enumerator on a disposed set");
+
+		IEnumerable<long> view = set;
+		foreach (var _ in view)
+			seen++;
+		Assert.That(seen, Is.EqualTo(0), "boxed enumerator on a disposed set");
+	}
+
+	[Test]
 	public void AddRemoveChurn_FreelistReuse_StaysConsistent() {
 		var set = new PooledSet<long, DefaultKeyComparer<long>>();
 		for (var round = 0; round < 20; round++) {
