@@ -9,8 +9,13 @@ using System.Runtime.CompilerServices;
 ///   - O(log n + k) range queries with sequential leaf-chain iteration
 ///   - O(1) TryGetMin / TryGetMax via cached first/last leaf pointers
 ///   - Zero per-element heap allocation (leaf data stored in pooled arrays)
-///   Thread safety: single writer assumed. Readers iterate the leaf chain which
-///   remains consistent during writes (split appends new leaf, never deallocates mid-read).
+///   Thread safety: single writer serialized by the internal write lock; readers are
+///   lock-free with documented staleness (a concurrent range scan may transiently skip
+///   or double-see an entry during in-leaf shifts, and results reflect no single point
+///   in time). New nodes are release-published and leaf counts acquire-read, so a
+///   reader never observes a node before its contents. Structurally removed nodes are
+///   retired through ReaderGate and return to the pool only after the reader grace
+///   period, so a parked reader never observes recycled memory.
 /// </summary>
 internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	where TIndex : IComparable<TIndex>
