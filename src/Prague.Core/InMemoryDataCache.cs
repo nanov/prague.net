@@ -1505,6 +1505,36 @@ public sealed class InMemoryDataCache<TKey, TValue>
 		return index;
 	}
 
+	/// <summary>
+	///   Creates a collection-backed Many index: each element of the per-entity collection becomes an index
+	///   key pointing back to the entity (inverted index). The returned index is a plain
+	///   <see cref="CacheKeyValueListIndex{TKey,TValue,TIndexKey}" /> in collection mode, so it composes with
+	///   the existing query (<c>UseIndex</c>) and <c>JoinMany</c> machinery unchanged.
+	/// </summary>
+	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionKeyValueListIndex<TIndexKey>(
+		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
+		where TIndexKey : notnull {
+		var index = new CacheKeyValueListIndex<TKey, TValue, TIndexKey>(collectionSelector);
+		var len = _indeces.Length;
+		Array.Resize(ref _indeces, len + 1);
+		_indeces[len] = index;
+		return index;
+	}
+
+	/// <summary>
+	///   Creates a symmetric collection-backed index (forward element → {owners} + reverse owner → {elements}).
+	///   The reverse half lets the M:N collection-join resolver fan a single right value out to its many lefts.
+	/// </summary>
+	public CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionSymmetricKeyValueListIndex<TIndexKey>(
+		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
+		where TIndexKey : notnull {
+		var index = new CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey>(collectionSelector);
+		var len = _indeces.Length;
+		Array.Resize(ref _indeces, len + 1);
+		_indeces[len] = index;
+		return index;
+	}
+
 	public CacheRangeIndex<TKey, TValue, TIndexKey> CacheRangeIndex<TIndexKey>(Func<TKey, TValue, TIndexKey> indexer)
 		where TIndexKey : IComparable<TIndexKey> {
 		var index = new CacheRangeIndex<TKey, TValue, TIndexKey>(indexer);
