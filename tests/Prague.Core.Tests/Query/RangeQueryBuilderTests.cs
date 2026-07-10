@@ -461,6 +461,108 @@ public class RangeQueryBuilderTests {
 		Assert.That(result, Does.Contain("Value5"));
 	}
 
+	// Regression tests for the missed Dispose() on the non-first `.Lt()` (strict upper-bound)
+	// branch in CacheQueryBuilderCoreCombined.UseIndexCore. That branch builds a ValueIntersect
+	// whose Dispose() runs the intersection Flush (removes unmarked candidates). Without the
+	// Dispose the Flush never ran, so a standalone `.Lt()` applied AFTER a prior narrowing failed
+	// to prune out-of-range candidates and the query returned a superset.
+
+	[Test]
+	public void UseIndex_LtAfterListIndex_PrunesOutOfRangeCandidates() {
+		// Arrange
+		var cache = new InMemoryDataCache<int, TestItem>();
+		var rangeIndex = cache.CacheRangeIndex((key, item) => item.Priority);
+		var categoryIndex = cache.CacheKeyValueListIndex((key, item) => item.Category);
+
+		cache.AddOrUpdate(1, new TestItem { Priority = 5, Category = "A" });
+		cache.AddOrUpdate(2, new TestItem { Priority = 10, Category = "A" });
+		cache.AddOrUpdate(3, new TestItem { Priority = 15, Category = "B" });
+		cache.AddOrUpdate(4, new TestItem { Priority = 20, Category = "A" });
+
+		// Act - category A first (seeds candidates {1,2,4}), then a standalone strict `< 15`.
+		// Only priorities 5 and 10 qualify; priority 20 must be pruned.
+		var query = cache.Query()
+			.UseIndex(categoryIndex, "A")
+			.UseIndex(rangeIndex, q => q.Lt(15));
+		var result = query.Execute();
+
+		// Assert
+		Assert.That(result.Count, Is.EqualTo(2), "Should prune the out-of-range priority-20 item");
+		Assert.That(result.Select(x => x.Priority).OrderBy(x => x).ToArray(),
+			Is.EqualTo(new[] { 5, 10 }));
+	}
+
+	[Test]
+	public void UseIndex_LtAfterListIndex_ExcludesBoundaryAndOutOfRange() {
+		// Arrange
+		var cache = new InMemoryDataCache<int, TestItem>();
+		var rangeIndex = cache.CacheRangeIndex((key, item) => item.Priority);
+		var categoryIndex = cache.CacheKeyValueListIndex((key, item) => item.Category);
+
+		cache.AddOrUpdate(1, new TestItem { Priority = 10, Category = "A" });
+		cache.AddOrUpdate(2, new TestItem { Priority = 10, Category = "A" }); // boundary, must be excluded by Lt(10)
+		cache.AddOrUpdate(3, new TestItem { Priority = 30, Category = "A" }); // out of range
+		cache.AddOrUpdate(4, new TestItem { Priority = 3, Category = "A" });  // in range
+
+		// Act - category A first, then strict `< 10`.
+		var query = cache.Query()
+			.UseIndex(categoryIndex, "A")
+			.UseIndex(rangeIndex, q => q.Lt(10));
+		var result = query.Execute();
+
+		// Assert - only priority 3 survives; 10 (boundary) and 30 (out of range) are pruned.
+		Assert.That(result.Count, Is.EqualTo(1), "Lt(10) after a prior filter must exclude the boundary and out-of-range items");
+		Assert.That(result.Single().Priority, Is.EqualTo(3));
+	}
+
+	[Test]
+	public void UseIndex_GteThenSeparateLt_PrunesCorrectly() {
+		// Arrange
+		var cache = new InMemoryDataCache<int, CacheEquatable<string>>();
+		var rangeIndex = cache.CacheRangeIndex((key, value) => key);
+
+		for (var i = 1; i <= 10; i++) cache.AddOrUpdate(i, $"Value{i}");
+
+		// Act - two separate range calls: Gte(3) seeds candidates, then a standalone Lt(8).
+		// The second call takes the non-first `(None, Than)` branch. Expect 3,4,5,6,7.
+		var query = cache.Query()
+			.UseIndex(rangeIndex, q => q.Gte(3))
+			.UseIndex(rangeIndex, q => q.Lt(8));
+		var result = query.Execute().Select(x => x.Value).ToList();
+
+		// Assert
+		Assert.That(result.Count, Is.EqualTo(5), "Should find values 3-7");
+		Assert.That(result, Does.Contain("Value3"));
+		Assert.That(result, Does.Contain("Value7"));
+		Assert.That(result, Does.Not.Contain("Value2"), "below the Gte lower bound");
+		Assert.That(result, Does.Not.Contain("Value8"), "at/above the Lt upper bound");
+		Assert.That(result, Does.Not.Contain("Value10"), "must be pruned by the standalone Lt");
+	}
+
+	[Test]
+	public void UseIndex_WithArgs_LtAfterListIndex_PrunesCorrectly() {
+		// Arrange - exercises the TArgs overload path into the same non-first `.Lt()` branch.
+		var cache = new InMemoryDataCache<int, TestItem>();
+		var rangeIndex = cache.CacheRangeIndex((key, item) => item.Priority);
+		var categoryIndex = cache.CacheKeyValueListIndex((key, item) => item.Category);
+
+		cache.AddOrUpdate(1, new TestItem { Priority = 5, Category = "A" });
+		cache.AddOrUpdate(2, new TestItem { Priority = 25, Category = "A" });
+		cache.AddOrUpdate(3, new TestItem { Priority = 8, Category = "A" });
+
+		// Act
+		var args = 10;
+		var query = cache.Query()
+			.UseIndex(categoryIndex, "A")
+			.UseIndex(rangeIndex, static (q, a) => q.Lt(a), args);
+		var result = query.Execute();
+
+		// Assert - priorities 5 and 8 survive; 25 is pruned.
+		Assert.That(result.Count, Is.EqualTo(2), "Should prune the out-of-range priority-25 item");
+		Assert.That(result.Select(x => x.Priority).OrderBy(x => x).ToArray(),
+			Is.EqualTo(new[] { 5, 8 }));
+	}
+
 	private class TestItem : ICacheEquatable<TestItem>, ICacheClonable<TestItem> {
 		public int Priority { get; set; }
 		public string Category { get; set; } = string.Empty;
