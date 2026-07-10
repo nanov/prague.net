@@ -16,7 +16,25 @@ Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `Inters
 
 ## PooledSet&lt;T&gt; / LeftKeySetView&lt;T&gt;
 
-- `PooledSet<T>` — `internal sealed class`.
+- `PooledSet<T>` — `internal sealed class`. Single writer, lock-free readers. All
+  reader-visible state lives in a volatile-published `Tables` generation whose arrays
+  stay ArrayPool-rented: escaping readers (the enumerators `GetValues` hands out) pin
+  the generation via a refcount; scoped readers (`Contains`, `ValueSet.IntersectWith`)
+  are covered by `ReaderGate`'s grace period; the last release hands the arrays to the
+  gate, never straight to the pool — readers can never observe recycled memory.
+  Version-guarded copy-out compiles only for multi-word `T` (`AtomicCopy` JIT-folds it
+  away for `long`/`int`/`string` keys). `Dispose` publishes a shared never-retired
+  sentinel generation before retiring the old one (publish-then-retire, like `Grow`),
+  so reads on a disposed set are safe and empty; it is idempotent and safe with
+  outstanding enumerators. The ref struct enumerator pins via the per-thread
+  `ReaderGate` slot (no shared-line Interlocked); only the boxed enumerator refcounts
+  its generation.
+- `ReaderGate` (`src/Prague.Core/Collections/ReaderGate.cs`) — process-wide
+  grace-period reclamation shared by `PooledSet` and `PooledBTree`: readers pin with
+  padded per-thread slots (two stores + one local fence, no RMW); writers park retired
+  memory in a limbo batch stamped with pinned slots' sequence numbers and reclaim once
+  each has unpinned (store-buffer-litmus fences on both sides; slots recycle through a
+  finalizer-backed free list).
 - `LeftKeySetView<T>` (`src/Prague.Core/LeftKeySetView.cs`) — `public readonly struct`, single `internal PooledSet<T> Set` field, internal-only ctor, **zero public members**. Exists only so the LeftSym join resolver's generic signatures can appear publicly without CS0703. Inside Core it's reinterpreted back via `Unsafe.As<LeftKeySetView<T>, PooledSet<T>>(ref view)` — zero-cost (identical single-reference layout). **Do not add public members** unless intentionally exposing set contents.
 
 ## IncrementalIntersecter&lt;TKey,TInto&gt;
