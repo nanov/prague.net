@@ -76,9 +76,27 @@ public class ConcurrentReclamationStressTests {
 						tree.RangeFrom(0, ref agg);
 						for (var i = 0; i < agg.Items.Count; i++) {
 							var (key, value) = agg.Items[i];
-							if (!IsValid(value))
+							if (!IsValid(value)) {
+								// DIAGNOSTIC: neighborhood + persistence probe
+								var lo = Math.Max(0, i - 3);
+								var hi = Math.Min(agg.Items.Count - 1, i + 3);
+								var neighborhood = string.Join(" | ",
+									agg.Items.GetRange(lo, hi - lo + 1)
+										.ConvertAll(p => $"({p.Index}, 0x{p.Value:X})"));
+								var reAgg = new CollectingAggregator { Items = new List<(long, long)>(Items * 4) };
+								tree.RangeFrom(0, ref reAgg);
+								var persistent = "transient";
+								foreach (var (k2, v2) in reAgg.Items) {
+									if (!IsValid(v2)) {
+										persistent = $"persistent as ({k2}, 0x{v2:X})";
+										break;
+									}
+								}
+
 								throw new InvalidOperationException(
-									$"foreign pair served: ({key}, 0x{value:X}) — recycled memory reached a reader");
+									$"foreign pair ({key}, 0x{value:X}) at [{i}]/{agg.Items.Count}; " +
+									$"neighborhood: {neighborhood}; rescan: {persistent}");
+							}
 						}
 
 						tree.Contains(1000, Encode(0));

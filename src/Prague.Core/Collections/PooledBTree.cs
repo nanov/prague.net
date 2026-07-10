@@ -177,7 +177,16 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (!node.IsLeaf) {
 			var intern = Unsafe.As<InternalNode>(node);
 			var childIdx = FindChildIndex(intern, index);
-			node = intern.Children[childIdx];
+			var child = intern.Children[childIdx];
+			if (child == null) {
+				// Lock-free descent raced an in-place structural shift (stale KeyCount
+				// vs cleared child slot) — restart from the root; the writer's change
+				// is transient and the retry lands on a consistent view.
+				node = _root;
+				continue;
+			}
+
+			node = child;
 		}
 
 		return Unsafe.As<LeafNode>(node);
@@ -254,18 +263,14 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var node = _root;
 		while (!node.IsLeaf) {
 			var intern = Unsafe.As<InternalNode>(node);
-			var lo = 0;
-			var hi = intern.KeyCount - 1;
-			while (lo <= hi) {
-				var mid = (lo + hi) >>> 1;
-				var cmp = index.CompareTo(intern.Keys[mid]);
-				if (cmp > 0) // equal goes LEFT (to find leftmost leaf with this key)
-					lo = mid + 1;
-				else
-					hi = mid - 1;
+			var child = intern.Children[FindChildIndexLeft(intern, index)];
+			if (child == null) {
+				// See FindLeaf: transient race with an in-place structural shift.
+				node = _root;
+				continue;
 			}
 
-			node = intern.Children[lo];
+			node = child;
 		}
 
 		return Unsafe.As<LeafNode>(node);
@@ -280,7 +285,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int LeafLowerBound(LeafNode leaf, TIndex index) {
 		var lo = 0;
-		var hi = leaf.Count - 1;
+		var hi = Volatile.Read(ref leaf.Count) - 1; // acquire: pairs with InsertIntoLeaf's release
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
 			var cmp = leaf.Keys[mid].CompareTo(index);
@@ -299,7 +304,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int LeafUpperBound(LeafNode leaf, TIndex index) {
 		var lo = 0;
-		var hi = leaf.Count - 1;
+		var hi = Volatile.Read(ref leaf.Count) - 1; // acquire: pairs with InsertIntoLeaf's release
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
 			var cmp = leaf.Keys[mid].CompareTo(index);
@@ -318,7 +323,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int FindExact(LeafNode leaf, TIndex index, TValue value, int startPos) {
-		for (var i = startPos; i < leaf.Count; i++) {
+		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
+		for (var i = startPos; i < count; i++) {
 			var cmp = leaf.Keys[i].CompareTo(index);
 			if (cmp > 0) break;
 			if (cmp == 0 && value.Equals(leaf.Values[i]))
@@ -336,8 +342,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private static bool ContainsInPrevLeaves(LeafNode leaf, TIndex index, TValue value) {
 		var prev = leaf.Prev;
-		while (prev != null && prev.Count > 0 && prev.Keys[prev.Count - 1].CompareTo(index) == 0) {
-			for (var i = prev.Count - 1; i >= 0; i--) {
+		while (prev != null) {
+			var count = Volatile.Read(ref prev.Count); // acquire: pairs with InsertIntoLeaf's release
+			if (count == 0 || prev.Keys[count - 1].CompareTo(index) != 0)
+				break;
+
+			for (var i = count - 1; i >= 0; i--) {
 				if (prev.Keys[i].CompareTo(index) != 0)
 					break;
 				if (value.Equals(prev.Values[i]))
@@ -402,7 +412,11 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 		leaf.Keys[pos] = index;
 		leaf.Values[pos] = value;
-		leaf.Count++;
+		// Release-publish the grown count AFTER the slot stores: on weak memory models
+		// a plain Count++ can become visible first, letting a concurrent reader scan
+		// the not-yet-written tail slot and serve dirt left in the pooled array.
+		// Readers pair this with an acquire read of Count.
+		Volatile.Write(ref leaf.Count, leaf.Count + 1);
 	}
 
 	[MethodImpl(MethodImplOptions.NoInlining)]
@@ -458,16 +472,20 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			InsertIntoLeaf(newLeaf, newInsertPos, index, value);
 		}
 
-		// Link new leaf into the chain
+		// Link new leaf into the chain. Publication order matters for lock-free chain
+		// readers on weak memory models: the new leaf's freshly-rented arrays were just
+		// filled with plain stores, so every edge that makes it reachable must be a
+		// release store — otherwise a reader can observe the link before the contents
+		// and serve stale pool garbage.
 		newLeaf.Next = leaf.Next;
 		newLeaf.Prev = leaf;
 		if (leaf.Next != null)
-			leaf.Next.Prev = newLeaf;
-		leaf.Next = newLeaf;
+			Volatile.Write(ref leaf.Next.Prev, newLeaf);
+		Volatile.Write(ref leaf.Next, newLeaf);
 
 		// Update last leaf if needed
 		if (_lastLeaf == leaf && newLeaf.Next == null)
-			_lastLeaf = newLeaf;
+			Volatile.Write(ref _lastLeaf, newLeaf);
 
 		// Promote separator key to parent
 		var promotedKey = newLeaf.Keys[0];
@@ -478,13 +496,14 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	private void InsertIntoParent(Node leftChild, TIndex key, Node rightChild,
 		InternalNode?[] ancestors, int[] childIndices, int depth) {
 		if (depth == 0) {
-			// Root was a leaf, create new root
+			// Root was a leaf, create new root. Release-publish: the new root's
+			// freshly-rented arrays must be visible before the root pointer is.
 			var newRoot = new InternalNode();
 			newRoot.Keys[0] = key;
 			newRoot.Children[0] = leftChild;
 			newRoot.Children[1] = rightChild;
 			newRoot.KeyCount = 1;
-			_root = newRoot;
+			Volatile.Write(ref _root, newRoot);
 			return;
 		}
 
@@ -502,7 +521,9 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			}
 
 			parent.Keys[insertAt] = key;
-			parent.Children[insertAt + 1] = rightChild;
+			// Release-publish the new node: its rented arrays were filled with plain
+			// stores and must be visible before any pointer to it.
+			Volatile.Write(ref parent.Children[insertAt + 1], rightChild);
 			parent.KeyCount++;
 			return;
 		}
@@ -765,7 +786,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private bool TryGetMinCore(out TIndex index, out TValue value) {
 		var leaf = _firstLeaf;
-		if (leaf.Count > 0) {
+		if (Volatile.Read(ref leaf.Count) > 0) {
 			index = leaf.Keys[0];
 			value = leaf.Values[0];
 			return true;
@@ -790,9 +811,10 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private bool TryGetMaxCore(out TIndex index, out TValue value) {
 		var leaf = _lastLeaf;
-		if (leaf.Count > 0) {
-			index = leaf.Keys[leaf.Count - 1];
-			value = leaf.Values[leaf.Count - 1];
+		var count = Volatile.Read(ref leaf.Count);
+		if (count > 0) {
+			index = leaf.Keys[count - 1];
+			value = leaf.Values[count - 1];
 			return true;
 		}
 
@@ -831,7 +853,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (leaf != null) {
 			var keys = leaf.Keys;
 			var values = leaf.Values;
-			var count = leaf.Count;
+			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++) {
 				if (keys[i].CompareTo(to) > 0)
@@ -868,7 +890,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (leaf != null) {
 			var keys = leaf.Keys;
 			var values = leaf.Values;
-			var count = leaf.Count;
+			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++)
 				agg.Add(keys[i], values[i]);
@@ -901,7 +923,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (leaf != null) {
 			var keys = leaf.Keys;
 			var values = leaf.Values;
-			var count = leaf.Count;
+			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = 0; i < count; i++) {
 				if (keys[i].CompareTo(to) > 0)
@@ -936,7 +958,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (leaf != null) {
 			var keys = leaf.Keys;
 			var values = leaf.Values;
-			var count = leaf.Count;
+			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = 0; i < count; i++) {
 				if (keys[i].CompareTo(to) >= 0)
@@ -983,7 +1005,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (leaf != null) {
 			var keys = leaf.Keys;
 			var values = leaf.Values;
-			var count = leaf.Count;
+			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++)
 				agg.Add(keys[i], values[i]);
@@ -1034,7 +1056,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (leaf != null) {
 			var keys = leaf.Keys;
 			var values = leaf.Values;
-			var count = leaf.Count;
+			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++) {
 				var cmp = keys[i].CompareTo(to);

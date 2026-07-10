@@ -4,19 +4,18 @@ namespace Prague.Core.Collections;
 	using System.Runtime.InteropServices;
 
 /// <summary>
-///   Asymmetric reclamation gate for single-writer / lock-free-reader pooled structures.
-///   Readers pin around each scoped scan with two plain stores to a thread-owned,
-///   cache-line-padded slot — zero atomic operations, zero fences on the reader side.
-///   Writers retiring pooled memory call <see cref="Retire" />: after an
-///   <see cref="Interlocked.MemoryBarrierProcessWide" /> (which makes every in-flight
-///   reader pin visible and guarantees later readers observe the unlink), memory is
-///   reclaimed immediately when no pin is held, or parked in a limbo batch stamped with
-///   the pinned slots' sequence numbers. A batch is reclaimed once every stamped slot
-///   has unpinned at least once (Depth == 0 or Sequence advanced) — the RCU
-///   grace-period argument: a pin taken after the barrier starts from the structure's
-///   root and can no longer reach the unlinked memory, so it never blocks reclamation.
-///   Slots are recycled through a finalizer-backed free list, bounding gate memory by
-///   peak concurrent reader threads.
+///   Reclamation gate for single-writer / lock-free-reader pooled structures.
+///   Readers pin around each scoped scan with two plain stores plus one local full
+///   fence on a thread-owned, cache-line-padded slot — no atomic RMW, no shared-line
+///   contention. Writers retiring pooled memory call <see cref="Retire" />: items park
+///   in an open limbo batch that seals past a size/age threshold (or a forced drain);
+///   sealing issues the writer half of the store-buffer litmus (a full fence, then a
+///   snapshot of pinned slots' sequence numbers) — either the snapshot sees a reader's
+///   pin, or that reader has already observed the unlink and can never reach parked
+///   memory. A sealed batch is reclaimed once every stamped slot has unpinned at least
+///   once (Depth == 0 or Sequence advanced) — the RCU grace-period argument. Slots are
+///   recycled through a finalizer-backed free list, bounding gate memory by peak
+///   concurrent reader threads.
 /// </summary>
 internal static class ReaderGate {
 	/// <summary>Retired pooled memory awaiting a reader grace period.</summary>
@@ -30,10 +29,12 @@ internal static class ReaderGate {
 		// Padding isolates the hot fields on their own cache line: the object header +
 		// _pad0 fill the line before Depth/Sequence, _pad1 fills the line after, so
 		// writer-side snapshot reads never false-share with another thread's pins.
+#pragma warning disable CS0169 // Field is never used
 		private readonly Padding _pad0;
 		public int Depth;
 		public int Sequence;
 		private readonly Padding _pad1;
+#pragma warning restore CS0169 // Field is never used
 		public Slot? NextFree;
 
 		[StructLayout(LayoutKind.Explicit, Size = 56)]
@@ -56,8 +57,15 @@ internal static class ReaderGate {
 	private static Slot[] _slots = [];
 	private static Slot? _freeSlots;
 
+	// Seal (and pay the process-wide barrier) only when the open batch is big or old
+	// enough: per-message bucket churn retires constantly, and an unamortized barrier
+	// (~µs) per retire would dwarf the pool round-trip it protects.
+	private const int SealThreshold = 256;
+	private const long SealAgeMs = 4;
+
 	private static readonly Lock _limboLock = new();
 	private static List<IRetirable> _open = new();
+	private static long _openSince;
 	private static List<IRetirable>? _sealed;
 	private static Slot[]? _sealedSlots;
 	private static int[]? _sealedSeqs;
@@ -71,13 +79,16 @@ internal static class ReaderGate {
 		var owner = _owner ?? CreateOwner();
 		var slot = owner.Slot;
 		slot.Sequence++;
-		// The volatile write/read pair is compiler ordering only (free on x64): the JIT
-		// must not sink the pin store below, nor hoist the guarded data loads above,
-		// this point. Hardware store-load reordering (the pin store parked in a store
-		// buffer while data loads execute) is closed by the writer's process-wide
-		// barrier in SnapshotPins.
 		Volatile.Write(ref slot.Depth, slot.Depth + 1);
-		_ = Volatile.Read(ref slot.Depth);
+		// Full fence: the pin store must be globally visible before any guarded data
+		// load executes. Paired with the writer's fence in SnapshotPins this is the
+		// store-buffer litmus — either the writer's snapshot sees the pin, or this
+		// reader sees the writer's unlink; both are safe. A local fence (~1-2ns, no
+		// shared-line contention) is used instead of relying on
+		// Interlocked.MemoryBarrierProcessWide asymmetry: the process-wide flush is
+		// membarrier/IPI-based on Linux but NOT reliably store-buffer-draining on
+		// every platform (observed corruption on macOS/arm64).
+		Interlocked.MemoryBarrier();
 		return slot;
 	}
 
@@ -131,18 +142,21 @@ internal static class ReaderGate {
 
 	public static void Retire(IRetirable item) {
 		lock (_limboLock) {
+			if (_open.Count == 0)
+				_openSince = Environment.TickCount64;
 			_open.Add(item);
-			DrainLocked();
+			DrainLocked(force: false);
 		}
 	}
 
+	/// <summary>Forced drain: seals regardless of thresholds. Dispose paths and tests.</summary>
 	public static void TryDrain() {
 		lock (_limboLock) {
-			DrainLocked();
+			DrainLocked(force: true);
 		}
 	}
 
-	private static void DrainLocked() {
+	private static void DrainLocked(bool force) {
 		// 1. Reclaim the sealed batch once its grace period has passed. No barrier
 		//    needed here: a stale "still pinned" read just defers to the next drain.
 		if (_sealed != null && GracePassed(_sealedSlots!, _sealedSeqs!)) {
@@ -153,10 +167,12 @@ internal static class ReaderGate {
 			_sealedSeqs = null;
 		}
 
-		// 2. Seal the open batch. One outstanding sealed batch at a time: each
-		//    process-wide barrier is amortized over everything parked during the
-		//    previous grace period.
-		if (_sealed == null && _open.Count > 0) {
+		// 2. Seal the open batch. One outstanding sealed batch at a time, and only when
+		//    the batch is worth a barrier (size/age threshold, or a forced drain): the
+		//    process-wide barrier is amortized over everything parked since the last
+		//    seal. Unsealed items are merely reclaimed later — never unsafely.
+		if (_sealed == null && _open.Count > 0
+			&& (force || _open.Count >= SealThreshold || Environment.TickCount64 - _openSince >= SealAgeMs)) {
 			var pinned = SnapshotPins(out var seqs);
 			if (pinned.Length == 0) {
 				for (var i = 0; i < _open.Count; i++)
@@ -173,10 +189,11 @@ internal static class ReaderGate {
 	}
 
 	private static Slot[] SnapshotPins(out int[] seqs) {
-		// Serialize every core: pins still sitting in a store buffer become visible,
-		// and any pin taken after this point observes the already-unlinked structures,
-		// so it can never reach parked memory and needs no tracking.
-		Interlocked.MemoryBarrierProcessWide();
+		// Writer half of the store-buffer litmus: the unlink stores (before Retire)
+		// must be visible before the pin loads below. Any reader whose pin this
+		// snapshot misses has, by the paired reader fence, already observed the
+		// unlinked state — it can never reach parked memory and needs no tracking.
+		Interlocked.MemoryBarrier();
 
 		var slots = Volatile.Read(ref _slots);
 		List<Slot>? pinned = null;

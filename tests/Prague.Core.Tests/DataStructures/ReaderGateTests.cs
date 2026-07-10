@@ -22,9 +22,10 @@ public class ReaderGateTests {
 	}
 
 	[Test]
-	public void Retire_NoPinnedReaders_ReclaimsImmediately() {
+	public void Retire_NoPinnedReaders_ReclaimsOnDrain() {
 		var item = new TrackedRetirable();
 		ReaderGate.Retire(item);
+		ReaderGate.TryDrain();
 		Assert.That(item.Reclaims, Is.EqualTo(1));
 	}
 
@@ -51,10 +52,11 @@ public class ReaderGateTests {
 		var item = new TrackedRetirable();
 		var slot = ReaderGate.Enter();
 		ReaderGate.Retire(item);
+		ReaderGate.TryDrain(); // seal the batch against the currently-pinned slot
 		Assert.That(item.Reclaims, Is.EqualTo(0));
 		ReaderGate.Exit(slot);
 
-		// Re-pin before the drain: the CURRENT pin postdates the park barrier, so it
+		// Re-pin before the drain: the CURRENT pin postdates the seal barrier, so it
 		// cannot reach the parked item — sequence advance proves the grace period.
 		var slot2 = ReaderGate.Enter();
 		try {
