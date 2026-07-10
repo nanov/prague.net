@@ -2,6 +2,7 @@ namespace Prague.Core.Collections;
 
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 /// <summary>
 ///   A B+ tree backed by ArrayPool-rented arrays. Optimized for:
@@ -16,6 +17,22 @@ using System.Runtime.CompilerServices;
 ///   reader never observes a node before its contents. Structurally removed nodes are
 ///   retired through ReaderGate and return to the pool only after the reader grace
 ///   period, so a parked reader never observes recycled memory.
+///
+///   Performance notes:
+///   - Allocations: steady-state zero per operation. Splits allocate the node object
+///     (arrays are pool round-trips); path/split scratch is per-thread and reused
+///     uncleared (consumers only read what their own descent wrote). Ref-typed
+///     keys/values in leaves vacated by a concurrent shrink may read as default —
+///     part of the documented staleness model.
+///   - Dispatch: no virtual calls on any path — descents pattern-match the sealed
+///     node classes (method-table compare), TIndex.CompareTo / TValue.Equals are
+///     struct-constrained generic calls that devirtualize and inline per closed type.
+///   - Bounds checks are elided in scans and binary searches via
+///     MemoryMarshal.GetArrayDataReference: count &lt;= capacity is a writer invariant
+///     (stale counts included) and rented arrays are never shorter than capacity.
+///   - Adds of strictly-ascending keys (timestamps — the dominant range-index write
+///     pattern) take an O(1) append fast path into the last leaf: no descent, no
+///     duplicate scan, no path bookkeeping.
 /// </summary>
 internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	where TIndex : IComparable<TIndex>
@@ -49,9 +66,10 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	// ───────────────────── Node types ─────────────────────
 
+	// No IsLeaf virtual: descents pattern-match on the sealed node classes instead —
+	// the JIT emits a single method-table compare per level, where a virtual property
+	// costs a vtable load + call (and defeats branch prediction less predictably).
 	private abstract class Node : ReaderGate.IRetirable {
-		public abstract bool IsLeaf { get; }
-
 		public abstract void ReclaimToPool();
 	}
 
@@ -61,8 +79,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		public int Count;
 		public LeafNode? Next;
 		public LeafNode? Prev;
-
-		public override bool IsLeaf => true;
 
 		public LeafNode() {
 			Keys = ArrayPool<TIndex>.Shared.Rent(LeafCapacity);
@@ -93,8 +109,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		public Node[] Children;
 		public int KeyCount; // number of separator keys; child count = KeyCount + 1
 
-		public override bool IsLeaf => false;
-
 		public InternalNode() {
 			Keys = ArrayPool<TIndex>.Shared.Rent(InternalCapacity - 1);
 			Children = ArrayPool<Node>.Shared.Rent(InternalCapacity);
@@ -123,16 +137,11 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static InternalNode?[] GetAncestorsBuf() {
-		var buf = _ancestorsBuf;
-		if (buf == null) {
-			buf = new InternalNode?[MaxDepth];
-			_ancestorsBuf = buf;
-		}
-		else {
-			Array.Clear(buf);
-		}
-
-		return buf;
+		// No clearing: every consumer writes ancestors[0..depth) during its own descent
+		// before reading them, so stale entries are never observed. (The stale refs
+		// keep at most MaxDepth retired nodes alive per thread until the next descent —
+		// bounded and harmless; clearing cost 8 stores on every Add/Remove.)
+		return _ancestorsBuf ??= new InternalNode?[MaxDepth];
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -179,8 +188,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private LeafNode FindLeaf(TIndex index) {
 		var node = _root;
-		while (!node.IsLeaf) {
-			var intern = Unsafe.As<InternalNode>(node);
+		while (node is InternalNode intern) {
 			var childIdx = FindChildIndex(intern, index);
 			var child = intern.Children[childIdx];
 			if (child == null) {
@@ -206,8 +214,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		out int depth) {
 		var node = _root;
 		depth = 0;
-		while (!node.IsLeaf) {
-			var intern = Unsafe.As<InternalNode>(node);
+		while (node is InternalNode intern) {
 			var childIdx = FindChildIndex(intern, index);
 			ancestors[depth] = intern;
 			childIndices[depth] = childIdx;
@@ -224,11 +231,14 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int FindChildIndex(InternalNode node, TIndex index) {
+		// Bounds checks elided: mid <= KeyCount - 1 <= InternalCapacity - 2 and the
+		// rented separator array is always >= InternalCapacity - 1 long.
+		ref var keys = ref MemoryMarshal.GetArrayDataReference(node.Keys);
 		var lo = 0;
 		var hi = node.KeyCount - 1;
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
-			var cmp = index.CompareTo(node.Keys[mid]);
+			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
 			if (cmp >= 0) // equal goes right
 				lo = mid + 1;
 			else
@@ -245,11 +255,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int FindChildIndexLeft(InternalNode node, TIndex index) {
+		ref var keys = ref MemoryMarshal.GetArrayDataReference(node.Keys);
 		var lo = 0;
 		var hi = node.KeyCount - 1;
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
-			var cmp = index.CompareTo(node.Keys[mid]);
+			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
 			if (cmp > 0) // equal goes LEFT (to find leftmost child with this key)
 				lo = mid + 1;
 			else
@@ -266,8 +277,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private LeafNode FindLeafForRange(TIndex index) {
 		var node = _root;
-		while (!node.IsLeaf) {
-			var intern = Unsafe.As<InternalNode>(node);
+		while (node is InternalNode intern) {
 			var child = intern.Children[FindChildIndexLeft(intern, index)];
 			if (child == null) {
 				// See FindLeaf: transient race with an in-place structural shift.
@@ -289,11 +299,14 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int LeafLowerBound(LeafNode leaf, TIndex index) {
+		// Bounds checks elided: mid <= Count - 1 <= LeafCapacity - 1 and the rented
+		// key array is always >= LeafCapacity long.
+		ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 		var lo = 0;
 		var hi = Volatile.Read(ref leaf.Count) - 1; // acquire: pairs with InsertIntoLeaf's release
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
-			var cmp = leaf.Keys[mid].CompareTo(index);
+			var cmp = Unsafe.Add(ref keys, mid).CompareTo(index);
 			if (cmp < 0)
 				lo = mid + 1;
 			else
@@ -308,11 +321,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int LeafUpperBound(LeafNode leaf, TIndex index) {
+		ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 		var lo = 0;
 		var hi = Volatile.Read(ref leaf.Count) - 1; // acquire: pairs with InsertIntoLeaf's release
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
-			var cmp = leaf.Keys[mid].CompareTo(index);
+			var cmp = Unsafe.Add(ref keys, mid).CompareTo(index);
 			if (cmp <= 0)
 				lo = mid + 1;
 			else
@@ -328,11 +342,13 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int FindExact(LeafNode leaf, TIndex index, TValue value, int startPos) {
+		ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
+		ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 		for (var i = startPos; i < count; i++) {
-			var cmp = leaf.Keys[i].CompareTo(index);
+			var cmp = Unsafe.Add(ref keys, i).CompareTo(index);
 			if (cmp > 0) break;
-			if (cmp == 0 && value.Equals(leaf.Values[i]))
+			if (cmp == 0 && value.Equals(Unsafe.Add(ref values, i)))
 				return i;
 		}
 
@@ -375,6 +391,22 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	}
 
 	private bool AddCore(TIndex index, TValue value) {
+		// Monotonic-append fast path: range-index keys are typically timestamps, so new
+		// entries usually sort past the current maximum. A strictly-greater key cannot
+		// be a duplicate and appends into the (non-full) last leaf with no descent, no
+		// duplicate scan and no path bookkeeping — O(1) instead of O(log n).
+		var last = _lastLeaf;
+		var lastCount = last.Count; // writer-owned under the lock: plain read is exact
+		if (lastCount > 0 && lastCount < LeafCapacity
+			&& index.CompareTo(last.Keys[lastCount - 1]) > 0) {
+			last.Keys[lastCount] = index;
+			last.Values[lastCount] = value;
+			// Release-publish the grown count AFTER the slot stores (see InsertIntoLeaf).
+			Volatile.Write(ref last.Count, lastCount + 1);
+			_length++;
+			return true;
+		}
+
 		var ancestors = GetAncestorsBuf();
 		var childIndices = GetChildIdxBuf();
 
@@ -635,8 +667,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private bool RemoveFromSubtree(Node node, TIndex index, TValue value,
 		InternalNode?[] ancestors, int[] childIndices, int depth) {
-		if (node.IsLeaf) {
-			var leaf = Unsafe.As<LeafNode>(node);
+		if (node is LeafNode leaf) {
 			var pos = LeafLowerBound(leaf, index);
 			var exactPos = FindExact(leaf, index, value, pos);
 			if (exactPos < 0)
@@ -695,16 +726,19 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		if (_lastLeaf == leaf)
 			_lastLeaf = leaf.Prev ?? leaf;
 
+		// Remove from parent BEFORE retiring: a node may only be retired once no tree
+		// pointer leads to it. Retiring first would let the gate reclaim the leaf
+		// (quiescent case reclaims immediately) while the parent still routes readers
+		// into it — a descent would then dereference the nulled arrays.
+		if (depth > 0)
+			RemoveFromParent(ancestors, childIndices, depth);
+
 		// Defer the pool return past the reader grace period: lock-free readers
 		// (Range*, TryGetMin/Max, Contains) may still hold this node. Its Keys/Values
 		// and Next/Prev stay intact until reclamation, so a parked reader continues
 		// the chain correctly (documented staleness: it may re-see or miss the
 		// removed entries).
 		ReaderGate.Retire(leaf);
-
-		// Remove from parent
-		if (depth > 0)
-			RemoveFromParent(ancestors, childIndices, depth);
 	}
 
 	[MethodImpl(MethodImplOptions.NoInlining)]
@@ -852,14 +886,15 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var pos = LeafLowerBound(leaf, from);
 
 		while (leaf != null) {
-			var keys = leaf.Keys;
-			var values = leaf.Values;
+			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
+			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++) {
-				if (keys[i].CompareTo(to) > 0)
+				ref var key = ref Unsafe.Add(ref keys, i);
+				if (key.CompareTo(to) > 0)
 					return;
-				agg.Add(keys[i], values[i]);
+				agg.Add(key, Unsafe.Add(ref values, i));
 			}
 
 			leaf = leaf.Next;
@@ -888,6 +923,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var pos = LeafLowerBound(leaf, start);
 
 		while (leaf != null) {
+			// Indexed access measured faster than GetArrayDataReference refs for this
+			// simple scan shape (the JIT's addressing + layout win over byref chains).
 			var keys = leaf.Keys;
 			var values = leaf.Values;
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
@@ -920,14 +957,15 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var leaf = _firstLeaf;
 
 		while (leaf != null) {
-			var keys = leaf.Keys;
-			var values = leaf.Values;
+			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
+			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = 0; i < count; i++) {
-				if (keys[i].CompareTo(to) > 0)
+				ref var key = ref Unsafe.Add(ref keys, i);
+				if (key.CompareTo(to) > 0)
 					return;
-				agg.Add(keys[i], values[i]);
+				agg.Add(key, Unsafe.Add(ref values, i));
 			}
 
 			leaf = leaf.Next;
@@ -954,14 +992,15 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var leaf = _firstLeaf;
 
 		while (leaf != null) {
-			var keys = leaf.Keys;
-			var values = leaf.Values;
+			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
+			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = 0; i < count; i++) {
-				if (keys[i].CompareTo(to) >= 0)
+				ref var key = ref Unsafe.Add(ref keys, i);
+				if (key.CompareTo(to) >= 0)
 					return;
-				agg.Add(keys[i], values[i]);
+				agg.Add(key, Unsafe.Add(ref values, i));
 			}
 
 			leaf = leaf.Next;
@@ -1000,6 +1039,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 
 		while (leaf != null) {
+			// Indexed access measured faster than GetArrayDataReference refs for this
+			// simple scan shape (the JIT's addressing + layout win over byref chains).
 			var keys = leaf.Keys;
 			var values = leaf.Values;
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
@@ -1050,15 +1091,16 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 
 		while (leaf != null) {
-			var keys = leaf.Keys;
-			var values = leaf.Values;
+			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
+			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++) {
-				var cmp = keys[i].CompareTo(to);
+				ref var key = ref Unsafe.Add(ref keys, i);
+				var cmp = key.CompareTo(to);
 				if (includeTo ? cmp > 0 : cmp >= 0)
 					return;
-				agg.Add(keys[i], values[i]);
+				agg.Add(key, Unsafe.Add(ref values, i));
 			}
 
 			leaf = leaf.Next;
