@@ -103,6 +103,28 @@ public class ReaderGateTests {
 	}
 
 	[Test]
+	public void NestedEnter_AfterSeal_DoesNotCountAsGrace() {
+		// A batch sealed against the OUTER pin must not be reclaimed just because the
+		// same thread opened and closed a NESTED critical section: the outer pin still
+		// holds pre-seal references. Only a full unpin (depth reaching 0) is grace.
+		var item = new TrackedRetirable();
+		var outer = ReaderGate.Enter();
+		ReaderGate.Retire(item);
+		ReaderGate.TryDrain(); // seal against the outer pin
+		Assert.That(item.Reclaims, Is.EqualTo(0));
+
+		var inner = ReaderGate.Enter(); // nested cycle while outer is held
+		ReaderGate.Exit(inner);
+		ReaderGate.TryDrain();
+		Assert.That(item.Reclaims, Is.EqualTo(0),
+			"a nested enter/exit must not advance the grace sequence — the outer pin is still live");
+
+		ReaderGate.Exit(outer);
+		ReaderGate.TryDrain();
+		Assert.That(item.Reclaims, Is.EqualTo(1));
+	}
+
+	[Test]
 	public void SlotRecycling_DeadThreads_DoNotGrowRegistryUnboundedly() {
 		// warm-up: current thread's slot
 		ReaderGate.Exit(ReaderGate.Enter());
