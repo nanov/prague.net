@@ -431,7 +431,9 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	// NoInlining: keeps the chain walk out of the gated wrapper's EH region, which
+	// would otherwise pessimize the whole method's codegen.
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private bool ContainsCore(T item, int hashCode) {
 		var tables = Volatile.Read(ref _tables);
 		var bucket = GetBucket(tables, hashCode);

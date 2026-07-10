@@ -8,7 +8,7 @@ namespace Prague.Core.Collections;
 ///   Readers pin around each scoped scan with two plain stores plus one local full
 ///   fence on a thread-owned, cache-line-padded slot — no atomic RMW, no shared-line
 ///   contention. Writers retiring pooled memory call <see cref="Retire" />: items park
-///   in an open limbo batch that seals past a size/age threshold (or a forced drain);
+///   in an open limbo batch sealed on every drain (one sealed batch outstanding);
 ///   sealing issues the writer half of the store-buffer litmus (a full fence, then a
 ///   snapshot of pinned slots' sequence numbers) — either the snapshot sees a reader's
 ///   pin, or that reader has already observed the unlink and can never reach parked
@@ -57,15 +57,8 @@ internal static class ReaderGate {
 	private static Slot[] _slots = [];
 	private static Slot? _freeSlots;
 
-	// Seal (and pay the process-wide barrier) only when the open batch is big or old
-	// enough: per-message bucket churn retires constantly, and an unamortized barrier
-	// (~µs) per retire would dwarf the pool round-trip it protects.
-	private const int SealThreshold = 256;
-	private const long SealAgeMs = 4;
-
 	private static readonly Lock _limboLock = new();
 	private static List<IRetirable> _open = new();
-	private static long _openSince;
 	private static List<IRetirable>? _sealed;
 	private static Slot[]? _sealedSlots;
 	private static int[]? _sealedSeqs;
@@ -142,22 +135,19 @@ internal static class ReaderGate {
 
 	public static void Retire(IRetirable item) {
 		lock (_limboLock) {
-			if (_open.Count == 0)
-				_openSince = Environment.TickCount64;
 			_open.Add(item);
-			DrainLocked(force: false);
+			DrainLocked();
 		}
 	}
 
-	/// <summary>Forced drain: seals regardless of thresholds. Dispose paths and tests.</summary>
 	public static void TryDrain() {
 		lock (_limboLock) {
-			DrainLocked(force: true);
+			DrainLocked();
 		}
 	}
 
-	private static void DrainLocked(bool force) {
-		// 1. Reclaim the sealed batch once its grace period has passed. No barrier
+	private static void DrainLocked() {
+		// 1. Reclaim the sealed batch once its grace period has passed. No fence
 		//    needed here: a stale "still pinned" read just defers to the next drain.
 		if (_sealed != null && GracePassed(_sealedSlots!, _sealedSeqs!)) {
 			for (var i = 0; i < _sealed.Count; i++)
@@ -167,12 +157,11 @@ internal static class ReaderGate {
 			_sealedSeqs = null;
 		}
 
-		// 2. Seal the open batch. One outstanding sealed batch at a time, and only when
-		//    the batch is worth a barrier (size/age threshold, or a forced drain): the
-		//    process-wide barrier is amortized over everything parked since the last
-		//    seal. Unsealed items are merely reclaimed later — never unsafely.
-		if (_sealed == null && _open.Count > 0
-			&& (force || _open.Count >= SealThreshold || Environment.TickCount64 - _openSince >= SealAgeMs)) {
+		// 2. Seal the open batch (one outstanding sealed batch at a time). Sealing costs
+		//    a local fence plus a scan of the registered slots (~ns), so it runs on
+		//    every drain — the quiescent common case reclaims immediately, keeping the
+		//    pool round-trip tight for high-churn bucket create/dispose.
+		if (_sealed == null && _open.Count > 0) {
 			var pinned = SnapshotPins(out var seqs);
 			if (pinned.Length == 0) {
 				for (var i = 0; i < _open.Count; i++)

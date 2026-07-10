@@ -756,7 +756,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private bool ContainsCore(TIndex index, TValue value) {
 		var leaf = FindLeaf(index);
 		var pos = LeafLowerBound(leaf, index);
@@ -783,7 +783,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private bool TryGetMinCore(out TIndex index, out TValue value) {
 		var leaf = _firstLeaf;
 		if (Volatile.Read(ref leaf.Count) > 0) {
@@ -808,7 +808,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private bool TryGetMaxCore(out TIndex index, out TValue value) {
 		var leaf = _lastLeaf;
 		var count = Volatile.Read(ref leaf.Count);
@@ -844,7 +844,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private void RangeCore<TResultsAggregator>(TIndex from, TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(from);
@@ -881,7 +881,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private void RangeFromCore<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(start);
@@ -915,7 +915,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private void RangeToCore<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = _firstLeaf;
@@ -950,7 +950,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private void RangeToExclusiveCore<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = _firstLeaf;
@@ -985,7 +985,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private void RangeFromExclusiveCore<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(start);
@@ -1031,7 +1031,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
 	private void RangeCustomCore<TResultsAggregator>(TIndex from, TIndex to, bool includeFrom, bool includeTo,
 		ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
