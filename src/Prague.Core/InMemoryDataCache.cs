@@ -417,8 +417,10 @@ public class CacheUniqueIndex<TKey, TValue, TIndexKey> : CacheKeyValueIndex<TKey
 		if (r.Operation is AddOrUpdateOperation.Add)
 			sizeDelta = 1;
 
-		// Then remove from the old index (key may temporarily duplicate but won't disappear)
-		if (_cache.TryRemove(oldIndexKey, out _))
+		// Then remove from the old index — but only if the slot still belongs to THIS
+		// entity. A blind remove drops a live mapping when another entity has meanwhile
+		// taken the old index key (key-swap between two entities).
+		if (_cache.TryRemove(new KeyValuePair<TIndexKey, TKey>(oldIndexKey, key)))
 			sizeDelta--;
 
 		ApproximateCount += sizeDelta;
@@ -439,7 +441,9 @@ public class CacheUniqueIndex<TKey, TValue, TIndexKey> : CacheKeyValueIndex<TKey
 	public void Remove(TKey key, TValue orginialValue, long timestampMs) {
 		var indexKey = _keySelector(key, orginialValue);
 		_cacheReverse?.Remove(indexKey, key, timestampMs); //TryRemove(key, out _);
-		if (_cache.TryRemove(indexKey, out _))
+		// Value-conditional: if another entity has meanwhile taken this index key
+		// (forward slot clobbered by its Add/Update), its live mapping must survive.
+		if (_cache.TryRemove(new KeyValuePair<TIndexKey, TKey>(indexKey, key)))
 			ApproximateCount--;
 	}
 
