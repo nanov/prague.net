@@ -745,7 +745,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	// ───────────────────── Contains ─────────────────────
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool Contains(TIndex index, TValue value) {
 		var slot = ReaderGate.Enter();
 		try {
@@ -756,7 +755,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private bool ContainsCore(TIndex index, TValue value) {
 		var leaf = FindLeaf(index);
 		var pos = LeafLowerBound(leaf, index);
@@ -772,7 +771,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	// ───────────────────── TryGetMin / TryGetMax ─────────────────────
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool TryGetMin(out TIndex index, out TValue value) {
 		var slot = ReaderGate.Enter();
 		try {
@@ -783,7 +781,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private bool TryGetMinCore(out TIndex index, out TValue value) {
 		var leaf = _firstLeaf;
 		if (Volatile.Read(ref leaf.Count) > 0) {
@@ -797,7 +795,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return false;
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool TryGetMax(out TIndex index, out TValue value) {
 		var slot = ReaderGate.Enter();
 		try {
@@ -808,7 +805,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private bool TryGetMaxCore(out TIndex index, out TValue value) {
 		var leaf = _lastLeaf;
 		var count = Volatile.Read(ref leaf.Count);
@@ -832,7 +829,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query [from, to] — inclusive on both bounds.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void Range<TResultsAggregator>(TIndex from, TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var slot = ReaderGate.Enter();
@@ -844,7 +840,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private void RangeCore<TResultsAggregator>(TIndex from, TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(from);
@@ -869,7 +865,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query [start, ∞) — from start inclusive.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeFrom<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var slot = ReaderGate.Enter();
@@ -881,7 +876,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private void RangeFromCore<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(start);
@@ -903,7 +898,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query (-∞, to] — up to to inclusive.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeTo<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var slot = ReaderGate.Enter();
@@ -915,7 +909,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private void RangeToCore<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = _firstLeaf;
@@ -938,7 +932,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query (-∞, to) — up to to exclusive.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeToExclusive<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var slot = ReaderGate.Enter();
@@ -950,7 +943,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private void RangeToExclusiveCore<TResultsAggregator>(TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = _firstLeaf;
@@ -973,7 +966,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query (start, ∞) — from start exclusive.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeFromExclusive<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var slot = ReaderGate.Enter();
@@ -985,7 +977,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private void RangeFromExclusiveCore<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(start);
@@ -1018,7 +1010,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Range query with custom inclusive/exclusive bounds.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void RangeCustom<TResultsAggregator>(TIndex from, TIndex to, bool includeFrom, bool includeTo,
 		ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
@@ -1031,7 +1022,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private void RangeCustomCore<TResultsAggregator>(TIndex from, TIndex to, bool includeFrom, bool includeTo,
 		ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {

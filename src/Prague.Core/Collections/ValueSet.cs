@@ -1272,7 +1272,6 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 				_bitHelper.MarkBit(index);
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 		public void IntersectWith(PooledSet<TFrom, DefaultKeyComparer<TFrom>> other) {
 			if (IsCleared) return;
 			var gate = ReaderGate.Enter();
@@ -1286,7 +1285,7 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		// NoInlining: keeps the scan loop out of the gated wrapper's EH region, which
 		// would otherwise pessimize the whole method's codegen.
-		[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+		[MethodImpl(MethodImplOptions.NoInlining)]
 		private void IntersectWithCore(PooledSet<TFrom, DefaultKeyComparer<TFrom>> other) {
 			// Single consistent snapshot — reading through separate properties could
 			// straddle a concurrent Grow and go out of bounds. The caller's gate pin
@@ -1451,7 +1450,6 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 				_bitHelper.MarkBit(index);
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 		public void IntersectWith(PooledSet<T, DefaultKeyComparer<T>> other) {
 			if (IsCleared) return;
 			var gate = ReaderGate.Enter();
@@ -1465,7 +1463,7 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		// NoInlining: keeps the scan loop out of the gated wrapper's EH region, which
 		// would otherwise pessimize the whole method's codegen.
-		[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+		[MethodImpl(MethodImplOptions.NoInlining)]
 		private void IntersectWithCore(PooledSet<T, DefaultKeyComparer<T>> other) {
 			// Single consistent snapshot — see the TFrom overload for the rationale.
 			other.GetSnapshot(out var slots, out var versions, out var lastIndex);

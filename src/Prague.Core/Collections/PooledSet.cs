@@ -408,7 +408,6 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		return false;
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool Contains(T item) {
 		var hashCode = GetHashCode(item);
 		var slot = ReaderGate.Enter();
@@ -420,7 +419,6 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	internal bool ContainsWithHashCode(T item, int hashCode) {
 		var slot = ReaderGate.Enter();
 		try {
@@ -433,7 +431,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	// NoInlining: keeps the chain walk out of the gated wrapper's EH region, which
 	// would otherwise pessimize the whole method's codegen.
-	[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+	[MethodImpl(MethodImplOptions.NoInlining)]
 	private bool ContainsCore(T item, int hashCode) {
 		var tables = Volatile.Read(ref _tables);
 		var bucket = GetBucket(tables, hashCode);
