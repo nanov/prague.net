@@ -61,6 +61,11 @@ internal static class ReaderGate {
 		private readonly struct Padding { }
 	}
 
+	// The thread-death detector: .NET has no exit callback for arbitrary threads, so a
+	// finalizable anchor held ONLY by a thread-static root becomes collectible exactly
+	// when its thread dies, and its finalizer recycles the slot. The finalizer cannot
+	// live on Slot itself — slots are permanently rooted by the _slots registry (the
+	// writer sweep needs them), so a Slot is never collectible.
 	private sealed class SlotOwner {
 		public readonly Slot Slot;
 
@@ -71,8 +76,11 @@ internal static class ReaderGate {
 		~SlotOwner() => ReturnSlot(Slot);
 	}
 
-	// _slot is the fast-path cache (one TLS load on Enter); _owner exists only to run
-	// the recycling finalizer when the thread dies.
+	// _slot is the fast-path cache (one TLS load on Enter). _owner is WRITE-ONLY and
+	// LOAD-BEARING: it is the thread-static root that keeps the SlotOwner alive for
+	// the thread's lifetime. Delete it and the owner is collected on the next GC
+	// while the thread still runs — the finalizer recycles the slot early, another
+	// thread rents it, and two threads share one pin word (silent use-after-reclaim).
 	[ThreadStatic] private static Slot? _slot;
 	[ThreadStatic] private static SlotOwner? _owner;
 
