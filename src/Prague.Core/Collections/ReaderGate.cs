@@ -58,10 +58,17 @@ internal static class ReaderGate {
 	private static Slot? _freeSlots;
 
 	private static readonly Lock _limboLock = new();
-	private static List<IRetirable> _open = new();
-	private static List<IRetirable>? _sealed;
-	private static Slot[]? _sealedSlots;
-	private static int[]? _sealedSeqs;
+
+	// Double-buffered batches: sealing swaps the lists, reclaiming clears them — no
+	// List allocation per seal cycle. The snapshot capture arrays are reused and sized
+	// to the whole slot registry so a single fill pass can never overflow (a
+	// count-then-fill two-pass would race readers pinning between the passes).
+	private static List<IRetirable> _open = new(32);
+	private static List<IRetirable> _sealed = new(32);
+	private static bool _hasSealed;
+	private static Slot?[] _sealedSlots = [];
+	private static int[] _sealedSeqs = [];
+	private static int _sealedCount;
 
 	internal static int RegisteredSlotCount => Volatile.Read(ref _slots).Length;
 
@@ -149,35 +156,36 @@ internal static class ReaderGate {
 	private static void DrainLocked() {
 		// 1. Reclaim the sealed batch once its grace period has passed. No fence
 		//    needed here: a stale "still pinned" read just defers to the next drain.
-		if (_sealed != null && GracePassed(_sealedSlots!, _sealedSeqs!)) {
+		if (_hasSealed && GracePassed()) {
 			for (var i = 0; i < _sealed.Count; i++)
 				_sealed[i].ReclaimToPool();
-			_sealed = null;
-			_sealedSlots = null;
-			_sealedSeqs = null;
+			_sealed.Clear();
+			_hasSealed = false;
+			Array.Clear(_sealedSlots, 0, _sealedCount);
+			_sealedCount = 0;
 		}
 
 		// 2. Seal the open batch (one outstanding sealed batch at a time). Sealing costs
 		//    a local fence plus a scan of the registered slots (~ns), so it runs on
 		//    every drain — the quiescent common case reclaims immediately, keeping the
 		//    pool round-trip tight for high-churn bucket create/dispose.
-		if (_sealed == null && _open.Count > 0) {
-			var pinned = SnapshotPins(out var seqs);
-			if (pinned.Length == 0) {
+		if (!_hasSealed && _open.Count > 0) {
+			SnapshotPins();
+			if (_sealedCount == 0) {
 				for (var i = 0; i < _open.Count; i++)
 					_open[i].ReclaimToPool();
 				_open.Clear();
 				return;
 			}
 
-			_sealed = _open;
-			_sealedSlots = pinned;
-			_sealedSeqs = seqs;
-			_open = new List<IRetirable>();
+			// Swap the double buffers: _open becomes the sealed batch, the just-cleared
+			// _sealed becomes the new open target.
+			(_open, _sealed) = (_sealed, _open);
+			_hasSealed = true;
 		}
 	}
 
-	private static Slot[] SnapshotPins(out int[] seqs) {
+	private static void SnapshotPins() {
 		// Writer half of the store-buffer litmus: the unlink stores (before Retire)
 		// must be visible before the pin loads below. Any reader whose pin this
 		// snapshot misses has, by the paired reader fence, already observed the
@@ -185,30 +193,33 @@ internal static class ReaderGate {
 		Interlocked.MemoryBarrier();
 
 		var slots = Volatile.Read(ref _slots);
-		List<Slot>? pinned = null;
-		List<int>? pinnedSeqs = null;
+		// Registry-sized capture buffers: one pass, no overflow. A count-then-fill
+		// two-pass would race a reader pinning between the passes — overflowing the
+		// buffer, or (if it bailed early) dropping a pre-fence pin and silently
+		// breaking the grace period.
+		if (_sealedSlots.Length < slots.Length) {
+			_sealedSlots = new Slot?[slots.Length];
+			_sealedSeqs = new int[slots.Length];
+		}
+
+		var count = 0;
 		for (var i = 0; i < slots.Length; i++) {
 			var slot = slots[i];
 			if (Volatile.Read(ref slot.Depth) > 0) {
-				pinned ??= new List<Slot>();
-				pinnedSeqs ??= new List<int>();
-				pinned.Add(slot);
-				pinnedSeqs.Add(Volatile.Read(ref slot.Sequence));
+				_sealedSlots[count] = slot;
+				_sealedSeqs[count] = Volatile.Read(ref slot.Sequence);
+				count++;
 			}
 		}
 
-		if (pinned == null) {
-			seqs = [];
-			return [];
-		}
-
-		seqs = pinnedSeqs!.ToArray();
-		return pinned.ToArray();
+		_sealedCount = count;
 	}
 
-	private static bool GracePassed(Slot[] slots, int[] seqs) {
-		for (var i = 0; i < slots.Length; i++) {
-			var slot = slots[i];
+	private static bool GracePassed() {
+		var slots = _sealedSlots;
+		var seqs = _sealedSeqs;
+		for (var i = 0; i < _sealedCount; i++) {
+			var slot = slots[i]!;
 			if (Volatile.Read(ref slot.Depth) > 0 && Volatile.Read(ref slot.Sequence) == seqs[i])
 				return false;
 		}
