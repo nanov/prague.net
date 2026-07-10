@@ -367,7 +367,8 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 			lastUpdatedIndex.GetValuesGt(updatedAfter, ref va);
 			va.Dispose();
 		} else {
-			var va = new ValueIntersect<long>(ref Candidates, ref max);
+			Span<int> buffer = stackalloc int[ValueSet<TKey, DefaultKeyComparer<TKey>>.StackAllocThreshold];
+			var va = new ValueIntersect<long>(ref Candidates, buffer, ref max);
 			lastUpdatedIndex.GetValuesGt(updatedAfter, ref va);
 			va.Dispose();
 		}
@@ -439,8 +440,10 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 		if (_first) {
 			var va = IndexSkip<long>.Create(updatedAfter, new ValueAdd<long>(ref Candidates));
 			lastUpdatedIndex.GetValuesBetween(updatedAfter, updatedUntilInclusive, ref va);
+			va.Dispose();
 		} else {
-			var va = IndexSkip<long>.Create(updatedAfter, new ValueIntersect<long>(ref Candidates));
+			Span<int> buffer = stackalloc int[ValueSet<TKey, DefaultKeyComparer<TKey>>.StackAllocThreshold];
+			var va = IndexSkip<long>.Create(updatedAfter, new ValueIntersect<long>(ref Candidates, buffer));
 			lastUpdatedIndex.GetValuesBetween(updatedAfter, updatedUntilInclusive, ref va);
 			va.Dispose();
 		}
@@ -515,13 +518,16 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 		}
 
 		if (!Candidates.IsInitlized) Candidates = new ValueSet<TKey, DefaultKeyComparer<TKey>>();
+		// Stack buffer for the non-first (intersect) branches' IncrementalIntersecter — avoids an
+		// ArrayPool rent for candidate sets within the threshold. At most one branch runs per call.
+		Span<int> buffer = stackalloc int[ValueSet<TKey, DefaultKeyComparer<TKey>>.StackAllocThreshold];
 		switch (f) {
 			case ((RangeValueType.ThanOrEqual, var gte), (RangeValueType.None, _)):
 				if (_first) {
 					var va = new ValueAdd<TIndexKey>(ref Candidates);
 					index.GetValuesGte(gte, ref va);
 				} else {
-					var va = new ValueIntersect<TIndexKey>(ref Candidates);
+					var va = new ValueIntersect<TIndexKey>(ref Candidates, buffer);
 					index.GetValuesGte(gte, ref va);
 					va.Dispose();
 				}
@@ -532,7 +538,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					var va = IndexSkip<TIndexKey>.Create(lt, new ValueAdd<TIndexKey>(ref Candidates));
 					index.GetValuesBetween(gte, lt, ref va);
 				} else {
-					var va = IndexSkip<TIndexKey>.Create(lt, new ValueIntersect<TIndexKey>(ref Candidates));
+					var va = IndexSkip<TIndexKey>.Create(lt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
 					index.GetValuesBetween(gte, lt, ref va);
 					va.Dispose();
 				}
@@ -543,7 +549,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					var va = new ValueAdd<TIndexKey>(ref Candidates);
 					index.GetValuesBetween(gte, lte, ref va);
 				} else {
-					var va = new ValueIntersect<TIndexKey>(ref Candidates);
+					var va = new ValueIntersect<TIndexKey>(ref Candidates, buffer);
 					index.GetValuesBetween(gte, lte, ref va);
 					va.Dispose();
 				}
@@ -555,7 +561,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					index.GetValuesGte(gt, ref va);
 					va.Dispose();
 				} else {
-					var va = IndexSkip<TIndexKey>.Create(gt, new ValueIntersect<TIndexKey>(ref Candidates));
+					var va = IndexSkip<TIndexKey>.Create(gt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
 					index.GetValuesGte(gt, ref va);
 					va.Dispose();
 				}
@@ -566,7 +572,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					var va = IndexSkip<TIndexKey>.Create(gt, lt, new ValueAdd<TIndexKey>(ref Candidates));
 					index.GetValuesBetween(gt, lt, ref va);
 				} else {
-					var va = IndexSkip<TIndexKey>.Create(gt, lt, new ValueIntersect<TIndexKey>(ref Candidates));
+					var va = IndexSkip<TIndexKey>.Create(gt, lt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
 					index.GetValuesBetween(gt, lt, ref va);
 					va.Dispose();
 				}
@@ -577,7 +583,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					var va = IndexSkip<TIndexKey>.Create(gt, new ValueAdd<TIndexKey>(ref Candidates));
 					index.GetValuesBetween(gt, lte, ref va);
 				} else {
-					var va = IndexSkip<TIndexKey>.Create(gt, new ValueIntersect<TIndexKey>(ref Candidates));
+					var va = IndexSkip<TIndexKey>.Create(gt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
 					index.GetValuesBetween(gt, lte, ref va);
 					va.Dispose();
 				}
@@ -588,7 +594,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					var va = new ValueAdd<TIndexKey>(ref Candidates);
 					index.GetValuesLte(lte, ref va);
 				} else {
-					var va = new ValueIntersect<TIndexKey>(ref Candidates);
+					var va = new ValueIntersect<TIndexKey>(ref Candidates, buffer);
 					index.GetValuesLte(lte, ref va);
 					va.Dispose();
 				}
@@ -599,8 +605,9 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					var va = IndexSkip<TIndexKey>.Create(lt, new ValueAdd<TIndexKey>(ref Candidates));
 					index.GetValuesLte(lt, ref va);
 				} else {
-					var va = IndexSkip<TIndexKey>.Create(lt, new ValueIntersect<TIndexKey>(ref Candidates));
+					var va = IndexSkip<TIndexKey>.Create(lt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
 					index.GetValuesLte(lt, ref va);
+					va.Dispose();
 				}
 
 				break;
@@ -778,13 +785,13 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 		private ValueSet<TKey, DefaultKeyComparer<TKey>>.IncrementalIntersecter _intersecter;
 		private readonly ref TIndexKey _max;
 
-		public ValueIntersect(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) {
-			_intersecter = new ValueSet<TKey, DefaultKeyComparer<TKey>>.IncrementalIntersecter(ref candidates, Span<int>.Empty);
+		public ValueIntersect(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates, Span<int> buffer) {
+			_intersecter = new ValueSet<TKey, DefaultKeyComparer<TKey>>.IncrementalIntersecter(ref candidates, buffer);
 			_max = ref _dummyMax;
 		}
 
-		public ValueIntersect(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates, ref TIndexKey max) {
-			_intersecter = new ValueSet<TKey, DefaultKeyComparer<TKey>>.IncrementalIntersecter(ref candidates, Span<int>.Empty);
+		public ValueIntersect(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates, Span<int> buffer, ref TIndexKey max) {
+			_intersecter = new ValueSet<TKey, DefaultKeyComparer<TKey>>.IncrementalIntersecter(ref candidates, buffer);
 			_max = ref max;
 		}
 
