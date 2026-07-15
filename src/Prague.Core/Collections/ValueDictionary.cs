@@ -374,10 +374,17 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 			_metadata = null!;
 		}
 
-		if (withValues)
+		if (withValues && ValuesArray != null)
 			ValuesPool.Return(ValuesArray, RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
 		ValuesArray = null!;
 		Count = 0;
+	}
+
+	/// <summary>Forget the values array once its ownership moved elsewhere (e.g. into a
+	/// <see cref="QueryResults{T}"/>) — a later <see cref="Dispose(bool)"/> stays values-inert.</summary>
+	internal void UnsafeReleaseValues() {
+		ValuesArray = null!;
+		_values = default;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]

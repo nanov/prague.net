@@ -155,6 +155,14 @@ public interface ICandidatesExecutor<TLeftKey, TLeftValue> : IUnsafeCandidatesEx
 
 	[UnscopedRef]
 	internal ref ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> Candidates { get; }
+
+	/// <summary>
+	/// Idempotent release of the executor's rented candidate state. ExecuteBase/CountBase
+	/// dispose on their own; the joined executors call this from their finally so a stage
+	/// throwing BEFORE the base execute (candidate auto-populate, inner-join narrowing)
+	/// cannot leak the rented set.
+	/// </summary>
+	internal void Dispose();
 }
 
 

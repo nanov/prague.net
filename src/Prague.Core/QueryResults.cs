@@ -164,11 +164,13 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 	}
 
 	public void Dispose() {
-		_disposer.Dispose();
-
+		// The child-buffer disposer must ride the same one-shot gate as _array (nulled below) —
+		// otherwise a second Dispose (e.g. ToList() inside a using) double-returns every
+		// registered Many child buffer to the pool.
 		if (!_isPooled || _array is null || _array.Length is 0)
 			return;
 
+		_disposer.Dispose();
 		(_pool ?? ArrayPool<T>.Shared).Return(_array, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
 		Unsafe.AsRef<T[]?>(in _array) = null;
 	}

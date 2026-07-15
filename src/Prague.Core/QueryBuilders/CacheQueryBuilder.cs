@@ -32,6 +32,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 
 	void ICandidatesExecutor<TKey, TValue>.ExecuteBase<TContainer>(ref TContainer c) => Execute(ref c);
 	int ICandidatesExecutor<TKey, TValue>.CountBase() => Count();
+	void ICandidatesExecutor<TKey, TValue>.Dispose() => Dispose();
 
 	public CacheQueryBuilderCoreCombined(InMemoryDataCache<TKey, TValue> dataCache) {
 		_dataCache = dataCache;
@@ -891,6 +892,7 @@ public struct PairedCacheQueryBuilderCoreCombined<TLeft, TKey, TValue>
 
 void ICandidatesExecutor<TKey, TValue>.ExecuteBase<TContainer>(ref TContainer c) => Execute(ref c);
 	int ICandidatesExecutor<TKey, TValue>.CountBase() => 0; // stub — not needed in Phase α
+	void ICandidatesExecutor<TKey, TValue>.Dispose() => Dispose();
 
 	/// <summary>
 	/// Constructs with a pre-seeded candidate set.  The caller (typically <c>UseIndexAsPairs</c>)
@@ -1717,11 +1719,12 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 		var container = new JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, TJoinResult>(
 			ref _resolverChain, true, false, 0, int.MaxValue, _manyCount);
 		try {
-
 			container.PrepareIndexedInner(ref this);
+			container.ExecuteIndexedInner(ref this);
 			return _leftQuery.CountBase();
 		} finally {
 			container.HardDispose();
+			_leftQuery.Dispose(); // idempotent — no-op when CountBase already ran
 		}
 	}
 
@@ -1739,7 +1742,8 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 
 			return container.BuildResults();
 		} finally {
-			container.Dispose();
+			container.HardDispose();
+			_leftQuery.Dispose(); // idempotent — covers throws before ExecuteBase reached its own dispose
 		}
 	}
 
@@ -1759,11 +1763,18 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 		// cloned), so the extracted rows are independent of the source caches.
 		var container = new JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, TJoinResult>(
 			ref _resolverChain, pool, clone, 0, int.MaxValue, _manyCount);
-		container.PrepareIndexedInner(ref this);
-		container.ExecuteIndexedInner(ref this);
-		_leftQuery.ExecuteBase(ref container);
-		container.ExecuteJoins();
-		container.ExtractKeyedResults(out results, out disposer);
+		try {
+			container.PrepareIndexedInner(ref this);
+			container.ExecuteIndexedInner(ref this);
+			_leftQuery.ExecuteBase(ref container);
+			container.ExecuteJoins();
+			container.ExtractKeyedResults(out results, out disposer);
+		} finally {
+			// Both are no-ops on success (ExtractKeyedResults transferred ownership; ExecuteBase
+			// disposed the candidates); on a pre-ExecuteBase throw they return the rented state.
+			container.HardDispose();
+			_leftQuery.Dispose();
+		}
 	}
 
 	// Overwrite the candidate set the next Execute* walks. Used by the nested-join resolver
@@ -1775,12 +1786,12 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 	internal QueryResults<TLeftValue> ExecuteCoreSimple<TResolver>(ref TResolver resolver, bool pool, bool clone, int skip, int take)
 		where TResolver: struct, IJoinResolver {
 		var container = new SimpleResultContainer<TLeftKey, TLeftValue, TResolver>(resolver, pool, clone, skip, take);
-		// try {
+		try {
 			_leftQuery.ExecuteBase(ref container);
 			return container.BuildResults();
-		// } finally {
-		// 	container.Dispose();
-		// }
+		} finally {
+			container.Dispose();
+		}
 	}
 
 
@@ -1797,6 +1808,7 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 	}
 
 	int ICandidatesExecutor<TLeftKey, TLeftValue>.CountBase() => _leftQuery.CountBase();
+	void ICandidatesExecutor<TLeftKey, TLeftValue>.Dispose() => _leftQuery.Dispose();
 
 	[UnscopedRef]
 	ref ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> ICandidatesExecutor<TLeftKey, TLeftValue>.Candidates => ref _leftQuery.Candidates;
@@ -2300,6 +2312,8 @@ public static class CacheQueryBuilderCombinedSortExtensions {
 
 public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 
+	// Joined Count must walk the indexed-inner resolvers (CountCoreJoined) so inner joins
+	// narrow the candidate set — otherwise Count() disagrees with Execute().Count.
 	public static int Count<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TResult>(
 		this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TResult> builder)
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
@@ -2307,7 +2321,18 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TResolverChain : struct, IResolvers
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		=>  Unsafe.AsRef(in builder).CountCoreSimple();
+		where TResult : struct, IJoinResult<TValue>
+		=> Unsafe.AsRef(in builder).CountCoreJoined<TResult>();
+
+	//Count for non-join chains (TResult == TValue) — no resolver walk needed.
+	public static int Count<TDiscriminator, TExecutor, TKey, TValue, TResolverChain>(
+		this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TValue> builder)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IExecutableQuery
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		=> Unsafe.AsRef(in builder).CountCoreSimple();
 
 	public static QueryResults<TResult> Execute<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TResult>(
 		this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TResult> builder,
@@ -2361,7 +2386,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
-		=> Unsafe.AsRef(in builder).CountCoreSimple();
+		=> Unsafe.AsRef(in builder).CountCoreJoined<TResult>();
 
 	public static QueryResults<TResult> Execute<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TResult>(
 		this in CacheQueryBuilderCombined<SortedQuery<TDiscriminator>, TExecutor, TKey, TValue, TResolverChain, TResult> builder,

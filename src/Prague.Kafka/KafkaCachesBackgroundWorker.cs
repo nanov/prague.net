@@ -76,7 +76,7 @@ internal class KafkaCachesBackgroundWorker : IHostedService, IDisposable {
 	}
 
 	public Task StopAsync(CancellationToken cancellationToken) {
-		return _loader.StartAsync(cancellationToken);
+		return _loader.StopAsync(cancellationToken);
 	}
 
 	public void Dispose()

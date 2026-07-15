@@ -181,12 +181,18 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 			// Empty result carries no buffer slices — return any pooled child buffers rented by
 			// inner joins now, since the empty QueryResults won't own the disposer to do it.
 			_disposer.Dispose();
+			_disposer = default;
 			return QueryResults<TResult>.EmptyWithTotalCount(TotalCount);
 		}
 
 		var offset = _results.Offset;
 		var allResults = QueryResults<TResult>.FromArray(
 			_results.ValuesArray ?? [], offset, _results.Count, TotalCount, _shouldPool, in _disposer);
+
+		// Ownership of the values array and the child-buffer disposer moved into allResults —
+		// the executor's finally HardDispose must not return them a second time.
+		_results.UnsafeReleaseValues();
+		_disposer = default;
 
 		// Clone after slicing if needed
 		if (_clone)
@@ -209,10 +215,13 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		_disposer = default;
 	}
 
-	public void Dispose() => _results.Dispose();
+	// Cleanup for every non-hand-off exit (exception, Count, empty result): returns whatever
+	// BuildResults/ExtractKeyedResults did not transfer — registered child buffers plus the
+	// dict's metadata/keys/values. No-op after a successful hand-off (fields are defaulted).
 	public void HardDispose() {
 		_disposer.Dispose();
-		_results.Dispose();
+		_disposer = default;
+		_results.Dispose(withValues: _shouldPool);
 	}
 }
 
@@ -252,12 +261,16 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 	public int Add(TKey foreignKey, TValue result) => _results.UnsafeAdd(_cloneOnAdd ? result.Clone() : result);
 
 	public QueryResults<TValue> BuildResults() {
-		if (_totalCount == 0 || _skip > _totalCount)
+		var allResults = _results;
+		_results = default; // ownership moves to the caller (or is disposed just below)
+
+		if (_totalCount == 0 || _skip > _totalCount) {
+			// Init already rented (before the predicate walk) — return it, no rows survived.
+			allResults.Dispose();
 			return QueryResults<TValue>
 				.EmptyWithTotalCount(
 					_totalCount);
-
-		var allResults = _results;
+		}
 
 		if (TResolver.IsSorter)
 			_chain.UnsafeSortResults(ref allResults, _skip, _take);
@@ -266,6 +279,9 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 
 		return _clone ? allResults.CloneInPlace() : allResults;
 	}
+
+	/// <summary>Exception-path cleanup — no-op after BuildResults handed the results off.</summary>
+	public void Dispose() => _results.Dispose();
 }
 
 	// internal ref struct PrepareIndexedInnerProcessor<TLeftKey, TLeftValue, TExecutor>: IResolverExecutor
