@@ -220,7 +220,7 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -247,7 +247,7 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -277,7 +277,7 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -305,7 +305,7 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -332,7 +332,7 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -363,7 +363,7 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -396,9 +396,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS1 #>(
@@ -420,9 +420,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS2 #>(
@@ -444,9 +444,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS3 #>(
@@ -469,9 +469,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS4 #>(
@@ -494,9 +494,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS5 #>(
@@ -520,9 +520,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS6 #>(
@@ -543,9 +543,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS1 #>(
@@ -567,9 +567,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS2 #>(
@@ -591,9 +591,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS3 #>(
@@ -616,9 +616,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS4 #>(
@@ -641,9 +641,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS5 #>(
@@ -667,9 +667,9 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverPkSelS6 #>(
@@ -696,10 +696,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterRu #>(
 			(TRightCache)rightCache, rightIndex, default, default);
@@ -725,10 +725,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterRu #>(
 			(TRightCache)rightCache, rightIndex,
@@ -757,10 +757,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgRu #>(
 			(TRightCache)rightCache, rightIndex,
@@ -787,10 +787,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterRu #>(
 			(TRightCache)rightCache, rightIndex, default, default, isInner: true);
@@ -816,10 +816,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterRu #>(
 			(TRightCache)rightCache, rightIndex,
@@ -849,10 +849,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgRu #>(
 			(TRightCache)rightCache, rightIndex,
@@ -884,11 +884,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS1 #>(
 			(TRightCache)rightCache, rightIndex, default, new <#= keySelectorRuSel #>(keySelector));
@@ -910,11 +910,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS2 #>(
 			(TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgRuSel #>(keySelector, selectorArg));
@@ -936,11 +936,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS3 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterPkSel #>(filter), new <#= keySelectorRuSel #>(keySelector));
@@ -963,11 +963,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS4 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterPkSel #>(filter), new <#= keySelectorArgRuSel #>(keySelector, selectorArg));
@@ -990,11 +990,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS5 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgPkSel #>(filter, filterArg), new <#= keySelectorRuSel #>(keySelector));
@@ -1018,11 +1018,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS6 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgPkSel #>(filter, filterArg), new <#= keySelectorArgRuSel #>(keySelector, selectorArg));
@@ -1043,11 +1043,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS1 #>(
 			(TRightCache)rightCache, rightIndex, default, new <#= keySelectorRuSel #>(keySelector), isInner: true);
@@ -1069,11 +1069,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS2 #>(
 			(TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgRuSel #>(keySelector, selectorArg), isInner: true);
@@ -1095,11 +1095,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS3 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterPkSel #>(filter), new <#= keySelectorRuSel #>(keySelector), isInner: true);
@@ -1122,11 +1122,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS4 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterPkSel #>(filter), new <#= keySelectorArgRuSel #>(keySelector, selectorArg), isInner: true);
@@ -1149,11 +1149,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS5 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgPkSel #>(filter, filterArg), new <#= keySelectorRuSel #>(keySelector), isInner: true);
@@ -1177,11 +1177,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRuSelS6 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgPkSel #>(filter, filterArg), new <#= keySelectorArgRuSel #>(keySelector, selectorArg), isInner: true);
@@ -1209,10 +1209,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterLu #>(
 			leftIndex, (TRightCache)rightCache, default, default);
@@ -1238,10 +1238,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterLu #>(
 			leftIndex, (TRightCache)rightCache,
@@ -1270,10 +1270,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgLu #>(
 			leftIndex, (TRightCache)rightCache,
@@ -1300,10 +1300,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterLu #>(
 			leftIndex, (TRightCache)rightCache, default, default, isInner: true);
@@ -1329,10 +1329,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterLu #>(
 			leftIndex, (TRightCache)rightCache,
@@ -1362,10 +1362,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgLu #>(
 			leftIndex, (TRightCache)rightCache,
@@ -1397,11 +1397,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS1 #>(
 			leftIndex, (TRightCache)rightCache, default, new <#= keySelectorLuSel #>(keySelector));
@@ -1423,11 +1423,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS2 #>(
 			leftIndex, (TRightCache)rightCache, default, new <#= keySelectorArgLuSel #>(keySelector, selectorArg));
@@ -1449,11 +1449,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS3 #>(
 			leftIndex, (TRightCache)rightCache, new <#= joinFilterPkSel #>(filter), new <#= keySelectorLuSel #>(keySelector));
@@ -1476,11 +1476,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS4 #>(
 			leftIndex, (TRightCache)rightCache, new <#= joinFilterPkSel #>(filter), new <#= keySelectorArgLuSel #>(keySelector, selectorArg));
@@ -1503,11 +1503,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS5 #>(
 			leftIndex, (TRightCache)rightCache, new <#= joinFilterArgPkSel #>(filter, filterArg), new <#= keySelectorLuSel #>(keySelector));
@@ -1531,11 +1531,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS6 #>(
 			leftIndex, (TRightCache)rightCache, new <#= joinFilterArgPkSel #>(filter, filterArg), new <#= keySelectorArgLuSel #>(keySelector, selectorArg));
@@ -1556,11 +1556,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS1 #>(
 			leftIndex, (TRightCache)rightCache, default, new <#= keySelectorLuSel #>(keySelector), isInner: true);
@@ -1582,11 +1582,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS2 #>(
 			leftIndex, (TRightCache)rightCache, default, new <#= keySelectorArgLuSel #>(keySelector, selectorArg), isInner: true);
@@ -1608,11 +1608,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS3 #>(
 			leftIndex, (TRightCache)rightCache, new <#= joinFilterPkSel #>(filter), new <#= keySelectorLuSel #>(keySelector), isInner: true);
@@ -1635,11 +1635,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS4 #>(
 			leftIndex, (TRightCache)rightCache, new <#= joinFilterPkSel #>(filter), new <#= keySelectorArgLuSel #>(keySelector, selectorArg), isInner: true);
@@ -1662,11 +1662,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS5 #>(
 			leftIndex, (TRightCache)rightCache, new <#= joinFilterArgPkSel #>(filter, filterArg), new <#= keySelectorLuSel #>(keySelector), isInner: true);
@@ -1690,11 +1690,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLuSelS6 #>(
 			leftIndex, (TRightCache)rightCache, new <#= joinFilterArgPkSel #>(filter, filterArg), new <#= keySelectorArgLuSel #>(keySelector, selectorArg), isInner: true);
@@ -1723,10 +1723,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterLsA #>(
 			leftIndex, (TRightCache)rightCache, null, default, default);
@@ -1752,10 +1752,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterLsA #>(
 			leftIndex, (TRightCache)rightCache, null,
@@ -1784,10 +1784,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgLsA #>(
 			leftIndex, (TRightCache)rightCache, null,
@@ -1814,10 +1814,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterLsA #>(
 			leftIndex, (TRightCache)rightCache, null, default, default, isInner: true);
@@ -1843,10 +1843,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterLsA #>(
 			leftIndex, (TRightCache)rightCache, null,
@@ -1876,10 +1876,10 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgLsA #>(
 			leftIndex, (TRightCache)rightCache, null,
@@ -1908,11 +1908,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterLsB #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, default, default);
@@ -1939,11 +1939,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterLsB #>(
 			leftIndex, (TRightCache)rightCache, rightIndex,
@@ -1973,11 +1973,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgLsB #>(
 			leftIndex, (TRightCache)rightCache, rightIndex,
@@ -2005,11 +2005,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterLsB #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, default, default, isInner: true);
@@ -2036,11 +2036,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterLsB #>(
 			leftIndex, (TRightCache)rightCache, rightIndex,
@@ -2071,11 +2071,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgLsB #>(
 			leftIndex, (TRightCache)rightCache, rightIndex,
@@ -2111,11 +2111,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS1 #>(
 			leftIndex, (TRightCache)rightCache, null, default, new <#= keySelectorLsASel #>(keySelector));
@@ -2137,11 +2137,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS2 #>(
 			leftIndex, (TRightCache)rightCache, null, default, new <#= keySelectorArgLsASel #>(keySelector, selectorArg));
@@ -2163,11 +2163,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS3 #>(
 			leftIndex, (TRightCache)rightCache, null, new <#= joinFilterLs #>(filter), new <#= keySelectorLsASel #>(keySelector));
@@ -2190,11 +2190,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS4 #>(
 			leftIndex, (TRightCache)rightCache, null, new <#= joinFilterLs #>(filter), new <#= keySelectorArgLsASel #>(keySelector, selectorArg));
@@ -2217,11 +2217,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS5 #>(
 			leftIndex, (TRightCache)rightCache, null, new <#= joinFilterArgLsF #>(filter, filterArg), new <#= keySelectorLsASel #>(keySelector));
@@ -2245,11 +2245,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS6 #>(
 			leftIndex, (TRightCache)rightCache, null, new <#= joinFilterArgLsF #>(filter, filterArg), new <#= keySelectorArgLsASel #>(keySelector, selectorArg));
@@ -2270,11 +2270,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS1 #>(
 			leftIndex, (TRightCache)rightCache, null, default, new <#= keySelectorLsASel #>(keySelector), isInner: true);
@@ -2296,11 +2296,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS2 #>(
 			leftIndex, (TRightCache)rightCache, null, default, new <#= keySelectorArgLsASel #>(keySelector, selectorArg), isInner: true);
@@ -2322,11 +2322,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS3 #>(
 			leftIndex, (TRightCache)rightCache, null, new <#= joinFilterLs #>(filter), new <#= keySelectorLsASel #>(keySelector), isInner: true);
@@ -2349,11 +2349,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS4 #>(
 			leftIndex, (TRightCache)rightCache, null, new <#= joinFilterLs #>(filter), new <#= keySelectorArgLsASel #>(keySelector, selectorArg), isInner: true);
@@ -2376,11 +2376,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS5 #>(
 			leftIndex, (TRightCache)rightCache, null, new <#= joinFilterArgLsF #>(filter, filterArg), new <#= keySelectorLsASel #>(keySelector), isInner: true);
@@ -2404,11 +2404,11 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsASelS6 #>(
 			leftIndex, (TRightCache)rightCache, null, new <#= joinFilterArgLsF #>(filter, filterArg), new <#= keySelectorArgLsASel #>(keySelector, selectorArg), isInner: true);
@@ -2437,12 +2437,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS1 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorLsBSel #>(keySelector));
@@ -2465,12 +2465,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS2 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgLsBSel #>(keySelector, selectorArg));
@@ -2493,12 +2493,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS3 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLs #>(filter), new <#= keySelectorLsBSel #>(keySelector));
@@ -2522,12 +2522,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS4 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLs #>(filter), new <#= keySelectorArgLsBSel #>(keySelector, selectorArg));
@@ -2551,12 +2551,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS5 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsF #>(filter, filterArg), new <#= keySelectorLsBSel #>(keySelector));
@@ -2581,12 +2581,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS6 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsF #>(filter, filterArg), new <#= keySelectorArgLsBSel #>(keySelector, selectorArg));
@@ -2608,12 +2608,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS1 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorLsBSel #>(keySelector), isInner: true);
@@ -2636,12 +2636,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS2 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgLsBSel #>(keySelector, selectorArg), isInner: true);
@@ -2664,12 +2664,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS3 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLs #>(filter), new <#= keySelectorLsBSel #>(keySelector), isInner: true);
@@ -2693,12 +2693,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS4 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLs #>(filter), new <#= keySelectorArgLsBSel #>(keySelector, selectorArg), isInner: true);
@@ -2722,12 +2722,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS5 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsF #>(filter, filterArg), new <#= keySelectorLsBSel #>(keySelector), isInner: true);
@@ -2752,12 +2752,12 @@ public static class CacheQueryBuilderCombinedJoinNewLevel<#= level #>Extensions 
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsBSelS6 #>(
 			leftIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsF #>(filter, filterArg), new <#= keySelectorArgLsBSel #>(keySelector, selectorArg), isInner: true);
@@ -2857,10 +2857,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterM #>(
 			(TRightCache)rightCache, rightIndex, default, default);
@@ -2881,10 +2881,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterM #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterM #>(filter), default);
@@ -2906,10 +2906,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgM #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgM #>(filter, arg), default);
@@ -2929,10 +2929,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterM #>(
 			(TRightCache)rightCache, rightIndex, default, default, isInner: true);
@@ -2953,10 +2953,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterM #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterM #>(filter), default, isInner: true);
@@ -2978,10 +2978,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgM #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgM #>(filter, arg), default, isInner: true);
@@ -3009,10 +3009,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
 		where TInnerDisc : struct
 		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
@@ -3038,10 +3038,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
 		where TInnerDisc : struct
 		where TInnerExec : struct, ICandidatesExecutor<TRightKey, TRightValue>
@@ -3071,11 +3071,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, default);
@@ -3097,11 +3097,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), default);
@@ -3124,11 +3124,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsM #>(filter, arg), default);
@@ -3149,11 +3149,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverNoFilterLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, default, isInner: true);
@@ -3175,11 +3175,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), default, isInner: true);
@@ -3202,11 +3202,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverFilterArgLsM #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsM #>(filter, arg), default, isInner: true);
@@ -3232,11 +3232,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRListSelS1 #>(
 			(TRightCache)rightCache, rightIndex, default, new <#= keySelectorRListSel #>(keySelector));
@@ -3258,11 +3258,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRListSelS3 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterM #>(filter), new <#= keySelectorRListSel #>(keySelector));
@@ -3285,11 +3285,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRListSelS5 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgMF #>(filter, filterArg), new <#= keySelectorRListSel #>(keySelector));
@@ -3311,11 +3311,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRListSelS2 #>(
 			(TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgRListSel #>(keySelector, selectorArg));
@@ -3338,11 +3338,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRListSelS4 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterM #>(filter), new <#= keySelectorArgRListSel #>(keySelector, selectorArg));
@@ -3366,11 +3366,11 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverRListSelS6 #>(
 			(TRightCache)rightCache, rightIndex, new <#= joinFilterArgMF #>(filter, filterArg), new <#= keySelectorArgRListSel #>(keySelector, selectorArg));
@@ -3396,12 +3396,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS1 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorLsMSel #>(keySelector));
@@ -3424,12 +3424,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS3 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), new <#= keySelectorLsMSel #>(keySelector));
@@ -3453,12 +3453,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS5 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsMF #>(filter, arg), new <#= keySelectorLsMSel #>(keySelector));
@@ -3480,12 +3480,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS1 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorLsMSel #>(keySelector), isInner: true);
@@ -3508,12 +3508,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS3 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), new <#= keySelectorLsMSel #>(keySelector), isInner: true);
@@ -3537,12 +3537,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS5 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsMF #>(filter, arg), new <#= keySelectorLsMSel #>(keySelector), isInner: true);
@@ -3565,12 +3565,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS2 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgLsMSel #>(keySelector, selectorArg));
@@ -3594,12 +3594,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS4 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), new <#= keySelectorArgLsMSel #>(keySelector, selectorArg));
@@ -3624,12 +3624,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS6 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsMF #>(filter, arg), new <#= keySelectorArgLsMSel #>(keySelector, selectorArg));
@@ -3652,12 +3652,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS2 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, default, new <#= keySelectorArgLsMSel #>(keySelector, selectorArg), isInner: true);
@@ -3681,12 +3681,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS4 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterLsM #>(filter), new <#= keySelectorArgLsMSel #>(keySelector, selectorArg), isInner: true);
@@ -3711,12 +3711,12 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverLsMSelS6 #>(
 			leftSymIndex, (TRightCache)rightCache, rightIndex, new <#= joinFilterArgLsMF #>(filter, arg), new <#= keySelectorArgLsMSel #>(keySelector, selectorArg), isInner: true);
@@ -3760,10 +3760,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollRevNoFilter #>(
 			index.Forward, index.Reverse, (TRightCache)rightCache, default);
@@ -3784,10 +3784,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollRevFilter #>(
 			index.Forward, index.Reverse, (TRightCache)rightCache, new <#= joinFilterLsM #>(filter));
@@ -3809,10 +3809,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollRevFilterArg #>(
 			index.Forward, index.Reverse, (TRightCache)rightCache, new <#= joinFilterArgLsM #>(filter, arg));
@@ -3832,10 +3832,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollRevNoFilter #>(
 			index.Forward, index.Reverse, (TRightCache)rightCache, default, isInner: true);
@@ -3856,10 +3856,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollRevFilter #>(
 			index.Forward, index.Reverse, (TRightCache)rightCache, new <#= joinFilterLsM #>(filter), isInner: true);
@@ -3881,10 +3881,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollRevFilterArg #>(
 			index.Forward, index.Reverse, (TRightCache)rightCache, new <#= joinFilterArgLsM #>(filter, arg), isInner: true);
@@ -3908,10 +3908,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollFwdNoFilter #>(
 			index.Reverse, index.Forward, (TRightCache)rightCache, default);
@@ -3932,10 +3932,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollFwdFilter #>(
 			index.Reverse, index.Forward, (TRightCache)rightCache, new <#= joinFilterLsM #>(filter));
@@ -3957,10 +3957,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollFwdFilterArg #>(
 			index.Reverse, index.Forward, (TRightCache)rightCache, new <#= joinFilterArgLsM #>(filter, arg));
@@ -3980,10 +3980,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollFwdNoFilter #>(
 			index.Reverse, index.Forward, (TRightCache)rightCache, default, isInner: true);
@@ -4004,10 +4004,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollFwdFilter #>(
 			index.Reverse, index.Forward, (TRightCache)rightCache, new <#= joinFilterLsM #>(filter), isInner: true);
@@ -4029,10 +4029,10 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new <#= resolverCollFwdFilterArg #>(
 			index.Reverse, index.Forward, (TRightCache)rightCache, new <#= joinFilterArgLsM #>(filter, arg), isInner: true);
@@ -4055,7 +4055,7 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 		var prevTypeParams = string.Join(", ", Enumerable.Range(1, level - 1).Select(i => $"T{i}"));
 #>
 public interface IResolverChain<TLeftKey, TLeftValue, <#= typeParams #>> : IResolverChain<TLeftKey, TLeftValue, <#= prevTypeParams #>>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 
 
@@ -4068,7 +4068,7 @@ public interface IResolverChain<TLeftKey, TLeftValue, <#= typeParams #>> : IReso
 }
 
 public interface ISortableResolverChain<TLeftKey, TLeftValue, <#= typeParams #>>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	int SortLevel => ISortableResolverChain.NoSort;
 	internal void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
@@ -4087,7 +4087,7 @@ public struct
 	ResolverChain<TLeftKey, TLeftValue, TPrev, TResolver, <#= typeParams #>> : IResolverChain<TLeftKey, TLeftValue, <#= typeParams #>>,
 	ISortableResolverChain<TLeftKey, TLeftValue, <#= typeParams #>>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TPrev : IResolverChain<TLeftKey, TLeftValue, <#= prevTypeParams #>>, ISortableResolverChain<TLeftKey, TLeftValue, <#= prevTypeParams #>>
 	where TResolver : IJoinResolver<TLeftKey, TLeftValue, T<#= level #>> {
 	private TPrev _prev;
@@ -4185,7 +4185,7 @@ public struct SortComparerWrapper<TFullResult, TLeftValue, <#= typeParams #>, TC
 public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, <#= typeParams #>>
 	: <#= chainInterface #>,
 	  <#= sortableChainInterface #>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TPrev : <#= chainInterface #>, <#= sortableChainInterface #>
 	where TComparer : IComparer<<#= resultType #>>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
@@ -4250,7 +4250,7 @@ public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 	where TLeftCloner : struct, ICloner<TLeftValue>
 	where TResultChain : <#= chainInterface #>
-	where TLeftKey : IEquatable<TLeftKey> {
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey> {
 	private TLeftCloner _leftCloner;
 
 	public ResolveChainCloner(TLeftCloner leftCloner) {

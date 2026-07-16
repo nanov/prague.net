@@ -143,8 +143,8 @@ public readonly struct KeySelectorWithArg<TIn, TArg, TOut> : IKeySelector<TIn, T
 /// </summary>
 public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TFilter, TSelector>
 	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
-	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 	where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 	where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>
@@ -393,8 +393,8 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 /// </summary>
 public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue, TFilter, TSelector>
 	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
-	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 	where TLookupKey : notnull, IEquatable<TLookupKey>
 	where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
@@ -721,8 +721,8 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 /// </summary>
 public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue, TFilter, TSelector>
 	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
-	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 	where TIndexKey : notnull, IEquatable<TIndexKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 	where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
@@ -980,8 +980,8 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 /// </summary>
 public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue, TFilter, TSelector>
 	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
-	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 	where TIndexKey : notnull, IEquatable<TIndexKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 	where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>

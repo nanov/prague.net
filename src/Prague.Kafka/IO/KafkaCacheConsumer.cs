@@ -100,7 +100,7 @@ internal abstract class KafkaCacheHandler {
 }
 
 internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TVlaue : class, IDataCacheItem<TKey, TVlaue>, IEnrichable<TVlaue>, ICacheEquatable<TVlaue>, IPragueMetadataSettable,
 	ICacheClonable<TVlaue>
 	where TCacheEntity : IDataCache<TKey, TVlaue> {

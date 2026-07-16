@@ -38,8 +38,8 @@ using Prague.Core.Utils;
 /// <typeparam name="TFilter">Filter strategy struct over the paired non-executable builder.</typeparam>
 public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TOwnerValue, TFilter>
 	: IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
-	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 	where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 	where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>

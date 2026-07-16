@@ -102,7 +102,7 @@ internal struct ResolveChainCloner<TResolvers, TLeftValue, TResult> : ICloner<TR
 internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, TResult>
 	: IResultContainerInitializer<TLeftKey, TLeftValue>
 	where TLeftValue : ICacheClonable<TLeftValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TResult : struct, IJoinResult<TLeftValue>
 	where TResolverChain : struct, IResolvers {
 	private readonly bool _shouldPool;
@@ -219,7 +219,7 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 	: IResultContainerInitializer<TKey, TValue>
 	where TResolver : struct, IJoinResolver
-	where TKey : notnull, IEquatable<TKey>
+	where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly bool _shouldPool;
 	private readonly bool _clone;
@@ -293,7 +293,7 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 	// }
 	//
 	// internal ref struct ExecuteIndexedInnerProcessor<TLeftKey, TResult>: IResolverExecutor
-	// 	where TLeftKey : notnull, IEquatable<TLeftKey>
+	// 	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 	// 	where TResult : IJoinResult {
 	// 	private readonly bool _cloneOnAdd;
 	// 	private readonly bool _shouldPool;
@@ -341,7 +341,7 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 	// 	}
 	// }
 	// internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverExecutor
-	// 	where TLeftKey : notnull, IEquatable<TLeftKey> where TResult : struct, IJoinResult {
+	// 	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey> where TResult : struct, IJoinResult {
 	// 	private readonly bool _cloneOnAdd;
 	// 	private readonly bool _shouldPool;
 	// 	private readonly int _skip;

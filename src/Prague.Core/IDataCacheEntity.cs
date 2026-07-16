@@ -42,7 +42,7 @@ public interface ICacheEquatable<in T> {
 
 public interface ICacheMapper<T> {
 	static abstract T CacheMap<TCache, TKey, TValue>(T endpoints) where TCache : class, IDataCache<TKey, TValue>
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>;
 }
 
@@ -70,7 +70,7 @@ public interface IDataCache {
 	string TopicTemplate { get; }
 }
 
-public interface IDataCache<TKey, TValue> : IDataCache where TKey : IEquatable<TKey>
+public interface IDataCache<TKey, TValue> : IDataCache where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	IQueryParser<TValue> QueryParser { get; }
 
@@ -92,13 +92,13 @@ public interface IDataCache<TKey, TValue> : IDataCache where TKey : IEquatable<T
 
 public interface IDataCache<TCache, TKey, TValue>
 	where TCache : IDataCache<TCache, TKey, TValue>
-	where TKey : notnull, IEquatable<TKey>
+	where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	InMemoryDataCache<TKey, TValue> Cache { get; }
 	CacheQueryBuilderCombined<TypeSystem.ExecutableQuery<TCache>, CacheQueryBuilderCoreCombined<TKey, TValue>, TKey, TValue, Resolvers<BaseResolver<TKey, TValue>>, TValue> Query();
 }
 
-public interface IDataCacheGlobalLastUpdateIndex<TKey> where TKey : IEquatable<TKey> {
+public interface IDataCacheGlobalLastUpdateIndex<TKey> where TKey : IEquatable<TKey>, IComparable<TKey> {
 	LastUpdatedIndex<TKey> Index { get; }
 
 	bool TryGetMin(out long timestampMs, out TKey key);
@@ -114,7 +114,7 @@ public interface IDataCacheGlobalLastUpdateIndex<TKey> where TKey : IEquatable<T
 	bool TryGetMax(ReadOnlySpan<TKey> keys, out long timestampMs);
 }
 
-public interface IDataCacheItem<TKey, TValue> : IPragueMetadataSettable where TKey : IEquatable<TKey>
+public interface IDataCacheItem<TKey, TValue> : IPragueMetadataSettable where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TValue : IDataCacheItem<TKey, TValue> {
 }
 
@@ -214,7 +214,7 @@ public sealed class DataCacheRegistryBuildContext {
 
 	public void AddCache<TCache, TKey, TValue>(TCache cache, CacheInfo cacheInfo)
 		where TCache : class, IDataCache<TKey, TValue>
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		if (!_caches.ContainsKey(typeof(TCache))) {
 			_caches[typeof(TCache)] = cache;
@@ -472,7 +472,7 @@ public enum QueryOperations {
 // From CacheMapperInvoker.cs
 public sealed class CacheMapperInvoker<TCache, TKey, TValue> : ICacheMapperInvoker
 	where TCache : class, IDataCache<TKey, TValue>
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	public T Map<TMapper, T>(T value) where TMapper : ICacheMapper<T> {
 		return TMapper.CacheMap<TCache, TKey, TValue>(value);

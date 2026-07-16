@@ -7710,7 +7710,7 @@ public class CacheGenerator : IIncrementalGenerator {
 			sb.AppendLine($"                    InMemoryDataCache<TRightKey, TRightValue> rightCache,");
 			sb.AppendLine($"                    Func<{documentTypeName}, TRightKey> fieldSelector,");
 			sb.AppendLine($"                    Func<{documentTypeName}, TRightValue, bool> predicate)");
-			sb.AppendLine($"                where TRightKey : notnull, IEquatable<TRightKey>");
+			sb.AppendLine($"                where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>");
 			sb.AppendLine($"                where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>");
 			sb.AppendLine("            {");
 			sb.AppendLine($"                var next = _executor.InnerJoinOne(rightCache, fieldSelector, predicate);");
@@ -7727,7 +7727,7 @@ public class CacheGenerator : IIncrementalGenerator {
 			sb.AppendLine($"                    Func<{documentTypeName}, TArgs, TRightKey> fieldSelector,");
 			sb.AppendLine($"                    Func<{documentTypeName}, TRightValue, TArgs, bool> predicate,");
 			sb.AppendLine($"                    TArgs args)");
-			sb.AppendLine($"                where TRightKey : notnull, IEquatable<TRightKey>");
+			sb.AppendLine($"                where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>");
 			sb.AppendLine($"                where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>");
 			sb.AppendLine("            {");
 			sb.AppendLine($"                var next = _executor.InnerJoinOne(rightCache, item => fieldSelector(item, args), (left, right) => predicate(left, right, args));");

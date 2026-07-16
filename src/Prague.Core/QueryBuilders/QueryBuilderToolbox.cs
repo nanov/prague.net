@@ -37,7 +37,7 @@ public interface IJoinResolver {
 
 	internal void UnsafeSortResults<TKey, TFullResult>(ref ValueDictionary<TKey, TFullResult, DefaultKeyComparer<TKey>> results, int skip, int take)
 		where TFullResult: struct, IJoinResult
-		where TKey : notnull, IEquatable<TKey> => throw new InvalidOperationException("Join resolver is not sortable");
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey> => throw new InvalidOperationException("Join resolver is not sortable");
 
 	void UnsafeExecuteIndexedInner<TAccessor, TExecutor>(
 		ref TAccessor accessor,
@@ -57,7 +57,7 @@ public interface IJoinResolver {
 	static abstract void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult;
 }
 public interface IJoinResolver<TLeftKey, TLeftValue> : IJoinResolver
-	where TLeftKey : notnull, IEquatable<TLeftKey> {
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey> {
 
 
 
@@ -67,7 +67,7 @@ public interface IJoinResolver<TLeftKey, TLeftValue> : IJoinResolver
 /// Interface for unified join resolvers that can handle both One and Many joins.
 /// </summary>
 public interface IJoinResolver<TLeftKey, TLeftValue, TRightValue> : IJoinResolver<TLeftKey, TLeftValue>, ICloner<TRightValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey> where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey> where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	static abstract void CloneValue(ref TRightValue value);
 }
 
@@ -76,7 +76,7 @@ public interface IJoinResolver<TLeftKey, TLeftValue, TRightValue> : IJoinResolve
 /// </summary>
 internal interface IJoinManyResolver<TLeftKey, TLeftValue, TInnerValue>
 	: IJoinResolver<TLeftKey, TLeftValue, QueryResults<TInnerValue>>
-	where TLeftKey : notnull, IEquatable<TLeftKey> where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey> where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	internal void ExecuteReverseMany<TContainer>(ref TContainer container, ReadOnlySpan<TLeftKey> keys)
 		where TContainer : struct, IJoinedKeyedResultContainer<TLeftKey, TInnerValue>, allows ref struct;
 }
@@ -86,10 +86,10 @@ public interface ILeftValueAccessor<TLeftValue> {
 }
 
 public interface IUnsafeValueAccessor {
-	ref TRightValue GetValueRef<TKey, TRightValue>(TKey key) where TKey : IEquatable<TKey>;
-	ref TRightValue GetValueRefOrAddDefault<TKey, TRightValue>(TKey key, out bool exists) where  TKey : IEquatable<TKey>;
+	ref TRightValue GetValueRef<TKey, TRightValue>(TKey key) where TKey : IEquatable<TKey>, IComparable<TKey>;
+	ref TRightValue GetValueRefOrAddDefault<TKey, TRightValue>(TKey key, out bool exists) where TKey : IEquatable<TKey>, IComparable<TKey>;
 
-	ReadOnlySpan<TKey> GetKeys<TKey>() where TKey : IEquatable<TKey>;
+	ReadOnlySpan<TKey> GetKeys<TKey>() where TKey : IEquatable<TKey>, IComparable<TKey>;
 
 	/// <summary>
 	/// Inner-join post-walk cleanup: drops result-map entries where THIS accessor's
@@ -98,7 +98,7 @@ public interface IUnsafeValueAccessor {
 	/// resolver), then narrows <paramref name="candidates"/> to the surviving keys.
 	/// Single struct-dispatched pass; zero heap allocation.
 	/// </summary>
-	internal void RetainNonNullSlots<TKey, TRightValue>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) where TKey : IEquatable<TKey>;
+	internal void RetainNonNullSlots<TKey, TRightValue>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) where TKey : IEquatable<TKey>, IComparable<TKey>;
 
 	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
@@ -106,10 +106,10 @@ public interface IUnsafeValueAccessor {
 	/// (Count == 0 — no rights matched OR filter rejected them all), then narrows
 	/// <paramref name="candidates"/> to surviving keys. Used by InnerJoinMany.
 	/// </summary>
-	internal void RetainNonEmptyManySlots<TKey, TInnerValue>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) where TKey : IEquatable<TKey>;
+	internal void RetainNonEmptyManySlots<TKey, TInnerValue>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) where TKey : IEquatable<TKey>, IComparable<TKey>;
 }
 public interface IUnsafeValueAccessor<TLeftKey> : IUnsafeValueAccessor
-	where TLeftKey : IEquatable<TLeftKey> {
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey> {
 	ReadOnlySpan<TLeftKey> Keys { get; }
 
 	ref TRightValue GetValueRef<TRightValue>(TLeftKey key);
@@ -119,7 +119,7 @@ public interface IUnsafeValueAccessor<TLeftKey> : IUnsafeValueAccessor
 /// Accessor interface for getting references to value slots by key.
 /// </summary>
 public interface IValueAccessor<TLeftKey, TRightValue>
-	where TLeftKey : IEquatable<TLeftKey> {
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey> {
 	ReadOnlySpan<TLeftKey> Keys { get; }
 
 	ref TRightValue GetValueRef(TLeftKey key);

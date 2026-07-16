@@ -9,7 +9,7 @@ namespace Prague.Core.Collections;
 
 [SkipLocalsInit]
 internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
-	where TKey : notnull, IEquatable<TKey>
+	where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 	where TKeyComparer : struct, IKeyComparer<TKey> {
 	private static readonly ArrayPool<int> MetadataPool = ArrayPool<int>.Shared;
 	private static readonly ArrayPool<TKey> KeysPool = ArrayPool<TKey>.Shared;

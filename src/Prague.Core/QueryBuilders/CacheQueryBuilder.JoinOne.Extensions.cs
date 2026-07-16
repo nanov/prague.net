@@ -40,10 +40,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -82,10 +82,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -128,10 +128,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
@@ -171,11 +171,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TLookupKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -215,11 +215,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TLookupKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -264,11 +264,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TLookupKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
@@ -310,10 +310,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -349,10 +349,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -393,10 +393,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
@@ -433,11 +433,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TLookupKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -474,11 +474,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TLookupKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -520,11 +520,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TLookupKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
@@ -566,7 +566,7 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -600,7 +600,7 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -633,7 +633,7 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -671,7 +671,7 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -707,7 +707,7 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -745,7 +745,7 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TKey, TRightValue> {
@@ -787,9 +787,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -824,9 +824,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -863,9 +863,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -905,9 +905,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -948,9 +948,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -992,9 +992,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -1043,9 +1043,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -1085,9 +1085,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -1128,9 +1128,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -1176,9 +1176,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -1225,9 +1225,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -1275,9 +1275,9 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneResolver<TKey, TValue, TRightCache, TRightKey, TRightValue,
@@ -1334,10 +1334,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TLeftKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1376,10 +1376,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TLeftKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1422,10 +1422,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TLeftKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
@@ -1466,10 +1466,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TLeftKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1503,10 +1503,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TLeftKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1545,10 +1545,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TLeftKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
@@ -1598,10 +1598,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1640,10 +1640,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1686,10 +1686,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
@@ -1730,10 +1730,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1767,10 +1767,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1809,10 +1809,10 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>,
@@ -1854,11 +1854,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1891,11 +1891,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1930,11 +1930,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -1972,11 +1972,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2015,11 +2015,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -2059,11 +2059,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -2108,11 +2108,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2145,11 +2145,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2184,11 +2184,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2226,11 +2226,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2269,11 +2269,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -2313,11 +2313,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -2359,12 +2359,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2398,12 +2398,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2440,12 +2440,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2484,12 +2484,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2529,12 +2529,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -2575,12 +2575,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -2625,12 +2625,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2666,12 +2666,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2711,12 +2711,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2758,12 +2758,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2806,12 +2806,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -2855,12 +2855,12 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TLookupKey : notnull, IEquatable<TLookupKey>
 		where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -2902,11 +2902,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2939,11 +2939,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -2979,11 +2979,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3021,11 +3021,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3064,11 +3064,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -3108,11 +3108,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -3154,11 +3154,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3191,11 +3191,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3232,11 +3232,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3275,11 +3275,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3319,11 +3319,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -3364,11 +3364,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -3410,11 +3410,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3447,11 +3447,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3487,11 +3487,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3529,11 +3529,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3572,11 +3572,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -3616,11 +3616,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -3664,11 +3664,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3702,11 +3702,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3744,11 +3744,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3788,11 +3788,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>,
@@ -3833,11 +3833,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,
@@ -3879,11 +3879,11 @@ public static class CacheQueryBuilder_JoinOne_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TIndexKey : notnull, IEquatable<TIndexKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TFilterArg>,

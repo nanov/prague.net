@@ -4,7 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Collections;
 
-public interface ICandidatesFilterer<TKey, TValue> where TKey : notnull, IEquatable<TKey> {
+public interface ICandidatesFilterer<TKey, TValue> where TKey : notnull, IEquatable<TKey>, IComparable<TKey> {
 	#region UseIndex methods (internal — exposed via extension methods constrained on IBaseFilterable)
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -13,7 +13,7 @@ using Kafka.Options;
 public class DataCachesEndpointsMapper: ICacheMapper<IEndpointRouteBuilder> {
 	public static IEndpointRouteBuilder CacheMap<TCache, TKey, TValue>(IEndpointRouteBuilder endpoints)
 		where TCache : class, IDataCache<TKey, TValue>
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		// Map GET by ID endpoint if the key is parsable
 		if (TCache.IsKeyParsable)

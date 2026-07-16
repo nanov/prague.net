@@ -230,7 +230,7 @@ public readonly struct JoinResult<<#= typeParamsStr #>> : <#= interfaceStr #> {
 #>
 internal ref struct <#= accessorName #><TKey, TJoinResult>
 	: IUnsafeValueAccessor<TKey>
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TJoinResult : IJoinResult {
 
 	private ref ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>> _results;
@@ -257,14 +257,14 @@ internal ref struct <#= accessorName #><TKey, TJoinResult>
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public ref TRightValue GetValueRef<TKey1, TRightValue>(TKey1 key) where TKey1 : IEquatable<TKey1>
+	public ref TRightValue GetValueRef<TKey1, TRightValue>(TKey1 key) where TKey1 : IEquatable<TKey1>, IComparable<TKey1>
 		=> ref GetValueRef<TRightValue>(Unsafe.As<TKey1, TKey>(ref key));
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public ref TRightValue GetValueRefOrAddDefault<TKey1, TRightValue>(TKey1 key, out bool exists) where TKey1 : IEquatable<TKey1>
+	public ref TRightValue GetValueRefOrAddDefault<TKey1, TRightValue>(TKey1 key, out bool exists) where TKey1 : IEquatable<TKey1>, IComparable<TKey1>
 		=> ref GetValueRefOrAddDefault<TRightValue>(Unsafe.As<TKey1, TKey>(ref key), out exists);
 
-	public ReadOnlySpan<TKey1> GetKeys<TKey1>() where TKey1 : IEquatable<TKey1> {
+	public ReadOnlySpan<TKey1> GetKeys<TKey1>() where TKey1 : IEquatable<TKey1>, IComparable<TKey1> {
 		var keys = _results.Keys;
 		return Unsafe.As<ReadOnlySpan<TKey>, ReadOnlySpan<TKey1>>(ref keys);
 	}
@@ -277,7 +277,7 @@ internal ref struct <#= accessorName #><TKey, TJoinResult>
 	/// Struct-dispatched filter — JIT inlines the Keep check; zero heap allocation.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void RetainNonNullSlots<TKey1, TRightValue>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+	public void RetainNonNullSlots<TKey1, TRightValue>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1>, IComparable<TKey1> {
 		_results.Filter(new <#= propName #>NonNullFilter<TKey, TJoinResult, TRightValue>());
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
@@ -291,7 +291,7 @@ internal ref struct <#= accessorName #><TKey, TJoinResult>
 	/// Struct-dispatched filter — zero allocation.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void RetainNonEmptyManySlots<TKey1, TInnerValue>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+	public void RetainNonEmptyManySlots<TKey1, TInnerValue>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1>, IComparable<TKey1> {
 		_results.Filter(new <#= propName #>NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
@@ -300,7 +300,7 @@ internal ref struct <#= accessorName #><TKey, TJoinResult>
 
 internal readonly struct <#= propName #>NonNullFilter<TKey, TJoinResult, TRightValue>
 	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TJoinResult : IJoinResult {
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
@@ -309,7 +309,7 @@ internal readonly struct <#= propName #>NonNullFilter<TKey, TJoinResult, TRightV
 
 internal readonly struct <#= propName #>NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>
 	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TJoinResult : IJoinResult {
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
@@ -325,7 +325,7 @@ internal readonly struct <#= propName #>NonEmptyManyFilter<TKey, TJoinResult, TI
 
 internal ref struct PrepareIndexedInnerProcessor<TLeftKey, TLeftValue, TExecutor> : IResolverExecutor
 	where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey> {
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey> {
 	private ref TExecutor _leftQuery;
 	private readonly bool _cloneOnAdd;
 	private readonly bool _shouldPool;
@@ -349,7 +349,7 @@ internal ref struct PrepareIndexedInnerProcessor<TLeftKey, TLeftValue, TExecutor
 
 internal ref struct ExecuteIndexedInnerProcessor<TLeftKey, TLeftValue, TResult, TExecutor> : IResolverExecutor
 	where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TResult : IJoinResult {
 	private ref TExecutor _leftQuery;
 	private readonly bool _cloneOnAdd;
@@ -388,7 +388,7 @@ internal ref struct ExecuteIndexedInnerProcessor<TLeftKey, TLeftValue, TResult, 
 }
 
 internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverExecutor
-	where TLeftKey : notnull, IEquatable<TLeftKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TResult : struct, IJoinResult {
 	private readonly bool _cloneOnAdd;
 	private readonly bool _shouldPool;

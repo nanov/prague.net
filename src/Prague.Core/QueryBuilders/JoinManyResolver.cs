@@ -29,8 +29,8 @@ using Prague.Core.Utils;
 /// <typeparam name="TSelector">Key-selector strategy: TLeftKey → TIndexKey.</typeparam>
 public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue, TFilter, TSelector>
 	: IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
-	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 	where TIndexKey : notnull, IEquatable<TIndexKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 	where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
@@ -340,8 +340,8 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 /// </summary>
 public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue, TFilter, TSelector>
 	: IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
-	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 	where TLookupKey : notnull, IEquatable<TLookupKey>
 	where TRightIndexKey : notnull, IEquatable<TRightIndexKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
@@ -723,8 +723,8 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 /// <typeparam name="TInnerResult">Inner result row, e.g. <c>JoinResult&lt;Desk, Occupier?&gt;</c>.</typeparam>
 public struct JoinManyNestedResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TInnerDisc, TInnerExec, TInnerChain, TInnerResult>
 	: IJoinManyResolver<TLeftKey, TLeftValue, TInnerResult>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
-	where TRightKey : notnull, IEquatable<TRightKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
+	where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 	where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 	where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue>

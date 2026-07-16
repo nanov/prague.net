@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 
 [SkipLocalsInit]
 internal class IndexMap<TKey>
-	where TKey : IEquatable<TKey> {
+	where TKey : IEquatable<TKey>, IComparable<TKey> {
 
 	private const int Empty = -1;
 	private const int Tombstone = -2;

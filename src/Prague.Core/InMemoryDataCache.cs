@@ -487,7 +487,7 @@ public class CacheUniqueIndex<TKey, TValue, TIndexKey> : CacheKeyValueIndex<TKey
 }
 
 public sealed class CachePrimaryKeyIndex<TKey, TValue> : CacheKeyValueIndex<TKey, TValue, TKey>
-	where TKey : notnull, IEquatable<TKey>
+	where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 
@@ -512,7 +512,7 @@ public sealed class CachePrimaryKeyIndex<TKey, TValue> : CacheKeyValueIndex<TKey
 
 public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey, TValue>, ICountableCacheIndex
 	where TIndexKey : IComparable<TIndexKey>
-	where TKey : IEquatable<TKey> {
+	where TKey : IEquatable<TKey>, IComparable<TKey> {
 	private readonly PooledBTree<TIndexKey, TKey> _index;
 	private readonly Func<TKey, TValue, TIndexKey> _keySelector;
 
@@ -533,12 +533,15 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldIndexKey = _keySelector(key, originalValue);
 		var newIndexKey = _keySelector(key, newValue);
-		if (oldIndexKey.Equals(newIndexKey))
+		// CompareTo instead of Equals: on a constrained type parameter Equals binds to
+		// object.Equals and boxes the argument on every cache update; the constrained
+		// CompareTo call devirtualizes and is allocation-free.
+		if (oldIndexKey.CompareTo(newIndexKey) == 0)
 			return;
 
-		_index.Add(newIndexKey, key);
-		_index.Remove(oldIndexKey, key);
-		// Size doesn't change on update (removing one, adding one)
+		// Single locked move (insert-before-remove inside): one write-lock round-trip
+		// instead of two. Size doesn't change on update (removing one, adding one).
+		_index.Update(oldIndexKey, newIndexKey, key);
 	}
 
 	public ulong GetCounters(out ulong vlaues) {
@@ -647,7 +650,7 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 ///   Only keys where the predicate returns true are stored in the index.
 /// </summary>
 public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, ICountableCacheIndex
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>, IComparable<TKey> {
 	private readonly PooledSet<TKey, DefaultKeyComparer<TKey>> _keys = new();
 	private readonly Func<TKey, TValue, bool> _predicate;
 	private readonly object _lock = new();
@@ -756,7 +759,7 @@ public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, 
 	}
 }
 
-public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey> {
+public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey>, IComparable<TKey> {
 	private readonly ConcurrentCacheStore<TKey, (long Value, int Count)> _cache = new();
 	private readonly CacheRangeIndex<TKey, (long Value, int Count), long> _rangeIndex;
 
@@ -1008,7 +1011,7 @@ public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey> {
 }
 
 public sealed class LastUpdatedCustomTimeStampIndexAdapter<TKey, TValue, TGroupKey> : ICacheIndex<TKey, TValue>
-	where TGroupKey : IEquatable<TGroupKey> {
+	where TGroupKey : IEquatable<TGroupKey>, IComparable<TGroupKey> {
 	private readonly Func<TKey, TValue, TGroupKey> _groupKeySelector;
 
 	private readonly LastUpdatedIndex<TGroupKey> _index;
@@ -1052,7 +1055,7 @@ public sealed class LastUpdatedCustomTimeStampIndexAdapter<TKey, TValue, TGroupK
 }
 
 public sealed class LastUpdatedIndexAdapter<TKey, TValue, TGroupKey> : ICacheIndex<TKey, TValue>
-	where TGroupKey : IEquatable<TGroupKey> {
+	where TGroupKey : IEquatable<TGroupKey>, IComparable<TGroupKey> {
 	private readonly Func<TKey, TValue, TGroupKey> _groupKeySelector;
 
 	private readonly LastUpdatedIndex<TGroupKey> _index;
@@ -1098,7 +1101,7 @@ public sealed class LastUpdatedIndexAdapter<TKey, TValue, TGroupKey> : ICacheInd
 ///   devirtualizes per closed generic.
 /// </summary>
 public sealed class LastUpdatedFilteredIndexAdapter<TKey, TValue, TGroupKey, TFilter> : ICacheIndex<TKey, TValue>
-	where TGroupKey : IEquatable<TGroupKey>
+	where TGroupKey : IEquatable<TGroupKey>, IComparable<TGroupKey>
 	where TFilter : struct, IDataCacheGlobalLastUpdateFilter<TValue> {
 	private readonly Func<TKey, TValue, TGroupKey> _groupKeySelector;
 
@@ -1167,7 +1170,7 @@ public sealed class LastUpdatedFilteredIndexAdapter<TKey, TValue, TGroupKey, TFi
 /// </summary>
 public sealed class LastUpdatedFilteredCustomTimeStampIndexAdapter<TKey, TValue, TGroupKey, TFilter>
 	: ICacheIndex<TKey, TValue>
-	where TGroupKey : IEquatable<TGroupKey>
+	where TGroupKey : IEquatable<TGroupKey>, IComparable<TGroupKey>
 	where TFilter : struct, IDataCacheGlobalLastUpdateFilter<TValue> {
 	private readonly Func<TKey, TValue, TGroupKey> _groupKeySelector;
 
@@ -1241,7 +1244,7 @@ internal static class InMemoryDataCache {
 
 public sealed class InMemoryDataCache<TKey, TValue>
 	: IDataCache<InMemoryDataCache<TKey, TValue>, TKey, TValue>
-	where TKey : notnull, IEquatable<TKey>
+	where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly ConcurrentCacheStore<TKey, TValue> _cache = new();
 	private ICacheIndex<TKey, TValue>[] _indeces = Array.Empty<ICacheIndex<TKey, TValue>>();
@@ -1556,7 +1559,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public LastUpdatedIndexAdapter<TKey, TValue, TGroupKey> CacheLastUpdatedIndex<TGroupKey>(
 		LastUpdatedIndex<TGroupKey> index,
 		Func<TKey, TValue, TGroupKey> groupKeySelector)
-		where TGroupKey : IEquatable<TGroupKey> {
+		where TGroupKey : IEquatable<TGroupKey>, IComparable<TGroupKey> {
 		var adapter = new LastUpdatedIndexAdapter<TKey, TValue, TGroupKey>(
 			index,
 			groupKeySelector);
@@ -1570,7 +1573,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 		LastUpdatedIndex<TGroupKey> index,
 		Func<TKey, TValue, TGroupKey> groupKeySelector,
 		Func<TKey, TValue, long> timestampSelector)
-		where TGroupKey : IEquatable<TGroupKey> {
+		where TGroupKey : IEquatable<TGroupKey>, IComparable<TGroupKey> {
 		var adapter = new LastUpdatedCustomTimeStampIndexAdapter<TKey, TValue, TGroupKey>(
 			index,
 			groupKeySelector, timestampSelector);
@@ -1583,7 +1586,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public LastUpdatedFilteredIndexAdapter<TKey, TValue, TGroupKey, TFilter> CacheLastUpdatedIndex<TGroupKey, TFilter>(
 		LastUpdatedIndex<TGroupKey> index,
 		Func<TKey, TValue, TGroupKey> groupKeySelector)
-		where TGroupKey : IEquatable<TGroupKey>
+		where TGroupKey : IEquatable<TGroupKey>, IComparable<TGroupKey>
 		where TFilter : struct, IDataCacheGlobalLastUpdateFilter<TValue> {
 		var adapter = new LastUpdatedFilteredIndexAdapter<TKey, TValue, TGroupKey, TFilter>(
 			index,
@@ -1599,7 +1602,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 			LastUpdatedIndex<TGroupKey> index,
 			Func<TKey, TValue, TGroupKey> groupKeySelector,
 			Func<TKey, TValue, long> timestampSelector)
-		where TGroupKey : IEquatable<TGroupKey>
+		where TGroupKey : IEquatable<TGroupKey>, IComparable<TGroupKey>
 		where TFilter : struct, IDataCacheGlobalLastUpdateFilter<TValue> {
 		var adapter = new LastUpdatedFilteredCustomTimeStampIndexAdapter<TKey, TValue, TGroupKey, TFilter>(
 			index,

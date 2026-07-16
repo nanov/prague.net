@@ -75,7 +75,7 @@ public static class CacheQueryBuilderCombinedOrExtensions {
 				CacheQueryBuilderCombined<NarrowOnlyQuery<TCache>, TExecutor, TKey, TValue, TResolverChain, TResult>> b2)
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TExecutor>
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 
 		ref var outer = ref Unsafe.AsRef(in source);
@@ -119,7 +119,7 @@ public static class CacheQueryBuilderCombinedOrExtensions {
 				CacheQueryBuilderCombined<NarrowOnlyQuery<TCache>, TExecutor, TKey, TValue, TResolverChain, TResult>> b2)
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TExecutor>
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 
 		ref var outer = ref Unsafe.AsRef(in source);
@@ -161,7 +161,7 @@ public static class CacheQueryBuilderCombinedOrExtensions {
 				CacheQueryBuilderCombined<NarrowOnlyQuery<TCache>, TExecutor, TKey, TValue, TResolverChain, TResult>> b2)
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TExecutor>
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 
 		ref var outer = ref Unsafe.AsRef(in source);
@@ -198,7 +198,7 @@ public static class CacheQueryBuilderCombinedOrExtensions {
 			TArg arg)
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TExecutor>
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 
 		ref var outer = ref Unsafe.AsRef(in source);
@@ -235,7 +235,7 @@ public static class CacheQueryBuilderCombinedOrExtensions {
 			TArg arg)
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TExecutor>
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 
 		ref var outer = ref Unsafe.AsRef(in source);
@@ -271,7 +271,7 @@ public static class CacheQueryBuilderCombinedOrExtensions {
 			TArg arg)
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TExecutor>
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 
 		ref var outer = ref Unsafe.AsRef(in source);

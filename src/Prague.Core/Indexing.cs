@@ -71,7 +71,7 @@ public sealed class
 		CacheKeyValueIndex<TRightKey, TRightValue, TIndexKey> rightIndex,
 		ref ValueSet<JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>>> target,
 		bool add)
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 		if (add) {
 			foreach (var lk in candidates) {
@@ -92,7 +92,7 @@ public sealed class
 		CacheKeyValueIndex<TRightKey, TRightValue, TIndexKey> rightIndex,
 		ref ValueSet<JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>>> target,
 		bool add)
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 		if (add) {
 			foreach (var lk in candidates) {
@@ -162,7 +162,7 @@ public sealed class
 		ref ValueSet<JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>>> target,
 		bool add)
 		where TIntermediateKey : notnull, IEquatable<TIntermediateKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TSelector : struct, IKeySelector<TIndexKey, TIntermediateKey> {
 		if (add) {
@@ -187,7 +187,7 @@ public sealed class
 		ref ValueSet<JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>>> target,
 		bool add)
 		where TIntermediateKey : notnull, IEquatable<TIntermediateKey>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 		where TSelector : struct, IKeySelector<TIndexKey, TIntermediateKey> {
 		if (add) {

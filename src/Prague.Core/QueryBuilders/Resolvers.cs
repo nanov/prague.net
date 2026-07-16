@@ -7,7 +7,7 @@ using Utils;
 
 
 public struct SortResolver<TLeftKey, TLeftValue, TResult, TComparer> : IJoinResolver<TLeftKey, TLeftValue>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TComparer : IComparer<TResult> {
 	public static bool IsSorter { get; } = true;
 	public bool Inner { get; } = false;
@@ -85,7 +85,7 @@ public struct SortResolver<TLeftKey, TLeftValue, TResult, TComparer> : IJoinReso
 public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue, T1> : ICloner<JoinResult<TLeftValue, T1>>
 	where TLeftCloner : struct, ICloner<TLeftValue>
 	where TResultChain : IResolverChain<TLeftKey, TLeftValue, T1>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	private TLeftCloner _leftCloner;
 
@@ -100,7 +100,7 @@ public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue
 public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue, T1, T2> : ICloner<JoinResult<TLeftValue, T1, T2>>
 	where TLeftCloner : struct, ICloner<TLeftValue>
 	where TResultChain : IResolverChain<TLeftKey, TLeftValue, T1, T2>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	private TLeftCloner _leftCloner;
 
@@ -117,7 +117,7 @@ public interface ISortableResolverChain {
 }
 
 public interface ISortableResolverChain<TLeftKey, TLeftValue>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	int SortLevel => ISortableResolverChain.NoSort;
 	void SortResults(ref QueryResults<TLeftValue> results, int skip, int take);
@@ -128,7 +128,7 @@ public interface ISortableResolverChain<TLeftKey, TLeftValue>
 
 
 public interface IResolverChain<TLeftKey, TLeftValue, T1>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 
 	void PrepareIndexedInner1<TExecutor>(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
@@ -140,7 +140,7 @@ public interface IResolverChain<TLeftKey, TLeftValue, T1>
 }
 
 public interface ISortableResolverChain<TLeftKey, TLeftValue, T1>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	int SortLevel { get; }
 	internal void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
@@ -148,7 +148,7 @@ public interface ISortableResolverChain<TLeftKey, TLeftValue, T1>
 }
 
 public interface ISortableResolverChain<TLeftKey, TLeftValue, T1, T2>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	int SortLevel { get; }
 	internal void SortResults<TFullResult>(ref ValueDictionary<TLeftKey, TFullResult, DefaultKeyComparer<TLeftKey>> results, int skip, int take)
@@ -157,7 +157,7 @@ public interface ISortableResolverChain<TLeftKey, TLeftValue, T1, T2>
 
 public interface IResolverChain<TLeftKey, TLeftValue, T1, T2>
 	: IResolverChain<TLeftKey, TLeftValue, T1>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 
 	void PrepareIndexedInner2<TExecutor>(ref TExecutor leftQuery, bool cloneOnAdd, bool shouldPool,
@@ -171,7 +171,7 @@ public interface IResolverChain<TLeftKey, TLeftValue, T1, T2>
 public struct ResolverChain<TLeftKey, TLeftValue, TResolver, T1>
 	: IResolverChain<TLeftKey, TLeftValue, T1>,
 	  ISortableResolverChain<TLeftKey, TLeftValue, T1>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TResolver : IJoinResolver<TLeftKey, TLeftValue, T1>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
 	private TResolver _resolver;
@@ -198,7 +198,7 @@ public struct ResolverChain<TLeftKey, TLeftValue, TResolver, T1>
 public struct ResolverChain<TLeftKey, TLeftValue, TZeroResolver, TResolver, T1>
 	: IResolverChain<TLeftKey, TLeftValue, T1>,
 	  ISortableResolverChain<TLeftKey, TLeftValue, T1>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TZeroResolver : ISortableResolverChain<TLeftKey, TLeftValue>
 	where TResolver : IJoinResolver<TLeftKey, TLeftValue, T1>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
@@ -229,7 +229,7 @@ public struct ResolverChain<TLeftKey, TLeftValue, TZeroResolver, TResolver, T1>
 
 public struct ResolverChain<TLeftKey, TLeftValue, TPrev, TResolver, T1, T2> : IResolverChain<TLeftKey, TLeftValue, T1, T2>,
 	ISortableResolverChain<TLeftKey, TLeftValue, T1, T2>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TPrev : IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
 	where TResolver : IJoinResolver<TLeftKey, TLeftValue, T2>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
@@ -291,7 +291,7 @@ public struct SortComparerWrapper<TFullResult, TLeftValue, T1, TComparer> : ICom
 public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, T1>
 	: IResolverChain<TLeftKey, TLeftValue, T1>,
 	  ISortableResolverChain<TLeftKey, TLeftValue, T1>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TPrev : IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
 	where TComparer : IComparer<JoinResult<TLeftValue, T1>>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
@@ -332,7 +332,7 @@ public struct SortComparerWrapper<TFullResult, TLeftValue, T1, T2, TComparer> : 
 public struct SortedResolverChain<TLeftKey, TLeftValue, TPrev, TComparer, T1, T2>
 	: IResolverChain<TLeftKey, TLeftValue, T1, T2>,
 	  ISortableResolverChain<TLeftKey, TLeftValue, T1, T2>
-	where TLeftKey : IEquatable<TLeftKey>
+	where TLeftKey : IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TPrev : IResolverChain<TLeftKey, TLeftValue, T1, T2>, ISortableResolverChain<TLeftKey, TLeftValue, T1, T2>
 	where TComparer : IComparer<JoinResult<TLeftValue, T1, T2>>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue> {
@@ -391,7 +391,7 @@ public struct BaseResolver<TKey, TValue> : IJoinResolver {
 /// Zero-join resolver chain. Used by CacheQueryBuilderNew for non-join queries.
 /// </summary>
 public struct NoResolver<TKey, TValue> : ISortableResolverChain<TKey, TValue>
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	public int SortLevel => ISortableResolverChain.NoSort;
 	public void SortResults(ref QueryResults<TValue> results, int skip, int take) { }
@@ -402,7 +402,7 @@ public struct NoResolver<TKey, TValue> : ISortableResolverChain<TKey, TValue>
 /// Sorted zero-join resolver chain. Wraps a comparer for sorting non-join query results.
 /// </summary>
 public struct SortedNoResolver<TKey, TValue, TComparer> : ISortableResolverChain<TKey, TValue>
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TComparer : IComparer<TValue> {
 	private TComparer _comparer;

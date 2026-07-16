@@ -13,7 +13,7 @@ using TypeSystem;
 /// </summary>
 public interface IOrCapable<TKey, TValue, TSelf>
 	where TSelf : struct, IOrCapable<TKey, TValue, TSelf>, ICandidatesExecutor<TKey, TValue>
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 
 	void OrWith<TCache, TResolverChain, TResult, TBranch>(in NarrowOnlyQuery<TCache> narrowOnly,

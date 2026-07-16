@@ -14,7 +14,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 	: IDisposable, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>,
 	  IOrCapable<TKey, TValue, CacheQueryBuilderCoreCombined<TKey, TValue>>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TKey : IEquatable<TKey> {
+	where TKey : IEquatable<TKey>, IComparable<TKey> {
 
 	internal readonly InMemoryDataCache<TKey, TValue> _dataCache;
 	private Predicate<TValue>? _filter;
@@ -871,7 +871,7 @@ public struct PairedCacheQueryBuilderCoreCombined<TLeft, TKey, TValue>
 	  IOrCapable<TKey, TValue, PairedCacheQueryBuilderCoreCombined<TLeft, TKey, TValue>>
 	where TLeft : notnull
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>, IComparable<TKey> {
 
 	internal readonly InMemoryDataCache<TKey, TValue> _dataCache;
 	private Predicate<TValue>? _filter;
@@ -1667,7 +1667,7 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 	: ICandidatesExecutor<TLeftKey, TLeftValue>
 	where TDiscriminator : struct
 	where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
-	where TLeftKey : notnull, IEquatable<TLeftKey>
+	where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 	where TResolverChain : struct, IResolvers
 {
@@ -1822,7 +1822,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(index, value);
@@ -1838,7 +1838,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(index, values);
@@ -1853,7 +1853,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(index, values);
@@ -1870,7 +1870,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(index, value);
@@ -1886,7 +1886,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(index, values);
@@ -1902,7 +1902,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(index, values, keySelector);
@@ -1917,7 +1917,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TIndexKey : notnull {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(index, values);
@@ -1935,7 +1935,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter);
 		return builder;
@@ -1950,7 +1950,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter);
 		return builder;
@@ -1965,7 +1965,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter);
 		return builder;
@@ -1981,7 +1981,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, out max);
 		return builder;
@@ -1998,7 +1998,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter);
 		return builder;
@@ -2013,7 +2013,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter);
 		return builder;
@@ -2028,7 +2028,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter);
 		return builder;
@@ -2043,7 +2043,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, out max);
 		return builder;
@@ -2058,7 +2058,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, out max);
 		return builder;
@@ -2073,7 +2073,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, out max);
 		return builder;
@@ -2090,7 +2090,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, updatedUntilInclusive);
 		return builder;
@@ -2105,7 +2105,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, updatedUntilInclusive);
 		return builder;
@@ -2120,7 +2120,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, updatedUntilInclusive);
 		return builder;
@@ -2137,7 +2137,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, updatedUntilInclusive);
 		return builder;
@@ -2152,7 +2152,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, updatedUntilInclusive);
 		return builder;
@@ -2167,7 +2167,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(lastUpdatedIndex, updatedAfter, updatedUntilInclusive);
 		return builder;
@@ -2183,7 +2183,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey>
 		where TIndexKey : IComparable<TIndexKey> {
@@ -2200,7 +2200,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey>
 		where TIndexKey : IComparable<TIndexKey> {
@@ -2217,7 +2217,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder._leftQuery).UseIndexInternal(index);
 		return builder;
@@ -2233,7 +2233,7 @@ public static class CacheQueryBuilderCombinedFilterExtenisons {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>
 		where TDiscriminator : struct, IBaseFilterable
 		where TResolverChain : struct, IResolvers
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		Unsafe.AsRef(in builder)._leftQuery.WhereInternal(predicate);
 		return builder;
@@ -2253,7 +2253,7 @@ internal static class CacheQueryBuilderCombinedDiscriminatorExtensions {
 			this in CacheQueryBuilderCombined<ExecutableQuery<TCache>, TExecutor, TKey, TValue, TResolverChain, TResult> builder)
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> =>
 		new(
 			new NonExecutableQuery<TCache>(builder._discriminator.Cache),
@@ -2272,7 +2272,7 @@ public static class CacheQueryBuilderCombinedSortExtensions {
 		where TDiscriminator : struct, IBaseFilterable
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TComparer : IComparer<TResult>
-		where TKey : IEquatable<TKey> {
+		where TKey : IEquatable<TKey>, IComparable<TKey> {
 		var resolver = new SortResolver<TKey, TValue, TResult, TComparer>(comparer);
 		return Unsafe.AsRef(in builder).AddResolver(
 			new SortedQuery<TDiscriminator>(builder._discriminator),
@@ -2290,7 +2290,7 @@ public static class CacheQueryBuilderCombinedSortExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		where TComparer : IComparer<TResult>
-		where TKey : IEquatable<TKey> {
+		where TKey : IEquatable<TKey>, IComparable<TKey> {
 		var resolver = new SortResolver<TKey, TValue, TResult, TComparer>(comparer);
 		return Unsafe.AsRef(in builder).AddResolver(
 			new SortedQuery<TDiscriminator>(builder._discriminator),
@@ -2305,7 +2305,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=>  Unsafe.AsRef(in builder).CountCoreSimple();
 
@@ -2315,7 +2315,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(false, false, skip, take);
@@ -2326,7 +2326,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(false, true, skip, take);
@@ -2337,7 +2337,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(true, false, skip, take);
@@ -2348,7 +2348,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(true, true, skip, take);
@@ -2358,7 +2358,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).CountCoreSimple();
@@ -2369,7 +2369,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(false, false, skip, take);
@@ -2380,7 +2380,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(false, true, skip, take);
@@ -2391,7 +2391,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(true, false, skip, take);
@@ -2402,7 +2402,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolverChain : struct, IResolvers
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(true, true, skip, take);
@@ -2414,7 +2414,7 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolver : struct, IJoinResolver
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreSimple(ref builder._resolverChain.Resolver, false, false, skip, take);
 
@@ -2424,7 +2424,7 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolver : struct, IJoinResolver
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreSimple(ref builder._resolverChain.Resolver,false, true, skip, take);
 
@@ -2434,7 +2434,7 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolver : struct, IJoinResolver
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreSimple(ref builder._resolverChain.Resolver,true, false, skip, take);
 
@@ -2444,7 +2444,7 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolver : struct, IJoinResolver
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreSimple(ref builder._resolverChain.Resolver,true, true, skip, take);
 
@@ -2454,7 +2454,7 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolver : struct, IJoinResolver
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreSimple(ref builder._resolverChain.Resolver, false, false, skip, take);
 
@@ -2464,7 +2464,7 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolver : struct, IJoinResolver
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreSimple(ref builder._resolverChain.Resolver,false, true, skip, take);
 
@@ -2474,7 +2474,7 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolver : struct, IJoinResolver
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreSimple(ref builder._resolverChain.Resolver,true, false, skip, take);
 
@@ -2484,7 +2484,7 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 		where TDiscriminator : struct, IExecutableQuery
 		where TResolver : struct, IJoinResolver
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		=> Unsafe.AsRef(in builder).ExecuteCoreSimple(ref builder._resolverChain.Resolver,true, true, skip, take);
 }
@@ -2504,9 +2504,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, TRightValue?>>(
@@ -2525,9 +2525,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, TRightValue?>>(
@@ -2546,9 +2546,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new ManyResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, ManyResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, QueryResults<TRightValue>>>(
@@ -2567,9 +2567,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, TRightValue?>>(
@@ -2588,9 +2588,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, TRightValue?>>(
@@ -2610,10 +2610,10 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 // 		where TIndexKey : notnull
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>(rightCache, leftIndex, foreignKeySelector, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>>, JoinResult<TValue, T1, TRightValue?>>(
@@ -2633,10 +2633,10 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 // 		where TIndexKey : notnull
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>(rightCache, leftIndex, foreignKeySelector, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>>, JoinResult<TValue, T1, TRightValue?>>(
@@ -2657,9 +2657,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, TRightValue?>>(
@@ -2678,9 +2678,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, TRightValue?>>(
@@ -2699,9 +2699,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new ManyResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, ManyResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, QueryResults<TRightValue>>>(
@@ -2720,9 +2720,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, TRightValue?>>(
@@ -2741,9 +2741,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, TRightValue?>>(
@@ -2763,10 +2763,10 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 // 		where TIndexKey : notnull
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>(rightCache, leftIndex, foreignKeySelector, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, TRightValue?>>(
@@ -2786,10 +2786,10 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 // 		where TIndexKey : notnull
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>(rightCache, leftIndex, foreignKeySelector, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, TRightValue?>>(
@@ -2810,9 +2810,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, TRightValue?>>(
@@ -2831,9 +2831,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, TRightValue?>>(
@@ -2852,9 +2852,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new ManyResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, ManyResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, QueryResults<TRightValue>>>(
@@ -2873,9 +2873,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, TRightValue?>>(
@@ -2894,9 +2894,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, TRightValue?>>(
@@ -2916,10 +2916,10 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 // 		where TIndexKey : notnull
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>(rightCache, leftIndex, foreignKeySelector, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, TRightValue?>>(
@@ -2939,10 +2939,10 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 // 		where TIndexKey : notnull
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>(rightCache, leftIndex, foreignKeySelector, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, TRightValue?>>(
@@ -2963,9 +2963,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, T4, TRightValue?>>(
@@ -2984,9 +2984,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, T4, TRightValue?>>(
@@ -3005,9 +3005,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new ManyResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, ManyResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, T4, QueryResults<TRightValue>>>(
@@ -3026,9 +3026,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, T4, TRightValue?>>(
@@ -3047,9 +3047,9 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, T4, TRightValue?>>(
@@ -3069,10 +3069,10 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IBaseJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 // 		where TIndexKey : notnull
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>(rightCache, leftIndex, foreignKeySelector, rightQueryFilter);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, T4, TRightValue?>>(
@@ -3092,10 +3092,10 @@ public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
 // 		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
 // 		where TDiscriminator : struct, IInnerJoinable
 // 		where TResolverChain : struct, IResolvers
-// 		where TKey : notnull, IEquatable<TKey>
+// 		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 // 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 // 		where TIndexKey : notnull
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue> {
 // 		var resolver = new JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>(rightCache, leftIndex, foreignKeySelector, rightQueryFilter, inner: true);
 // 		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, JoinOneResolver<TKey, TValue, TIndexKey, TRightKey, TRightValue>>, JoinResult<TValue, T1, T2, T3, T4, TRightValue?>>(
@@ -3130,7 +3130,7 @@ public static class CacheQueryBuilderCombinedUseIndexAsPairsExtensions {
 		where TDiscriminator : struct, IIndexNarrower
 		where TResolverChain : struct, IResolvers
 		where TLeft : notnull, IEquatable<TLeft>
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 
 		// Seed the paired candidate set from the symmetric index.

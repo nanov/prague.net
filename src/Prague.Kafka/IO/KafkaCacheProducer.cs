@@ -60,7 +60,7 @@ public class KafkaCacheProducer : IDisposable {
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void Produce<TKey, TCacheValue>(string topic, TKey key, TCacheValue value)
-		where TKey : notnull, IEquatable<TKey>
+		where TKey : notnull, IEquatable<TKey>, IComparable<TKey>
 		where TCacheValue : IEnrichable<TCacheValue> {
 		if (_cts.IsCancellationRequested)
 			return;

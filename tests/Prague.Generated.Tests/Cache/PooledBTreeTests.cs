@@ -9,7 +9,7 @@ public class PooledBTreeTests {
 
 	private struct ListAggregator<TI, TV> : PooledBTree<TI, TV>.IResultAggregator
 		where TI : IComparable<TI>
-		where TV : IEquatable<TV> {
+		where TV : IEquatable<TV>, IComparable<TV> {
 		public readonly List<(TI Index, TV Value)> Items;
 
 		public ListAggregator() {
@@ -1111,6 +1111,194 @@ public class PooledBTreeTests {
 				current[i] = newKey;
 			}
 		}
+
+		Assert.That(tree.Length, Is.EqualTo(items));
+		tree.Dispose();
+	}
+
+	// ───────────────────── Composite (key, value) ordering — comparable TValue ─────────────────────
+	// When TValue is IComparable, equal-key runs are value-sorted and point operations
+	// binary-search the exact pair instead of scanning the run. These tests pin the
+	// composite path at scales where runs span many leaves and internal splits promote
+	// separators from inside runs.
+
+	[Test]
+	public void Remove_BatchStampedKeys_LargeScale_RemovesScatteredPairs() {
+		// The production incident pattern: keys quantized into large batches (feed
+		// producers stamp whole batches with one timestamp), removes target arbitrary
+		// values inside runs of thousands of equal keys.
+		var tree = new PooledBTree<long, long>();
+		const int items = 20_000;
+		const int batch = 1024;
+		for (long i = 0; i < items; i++)
+			tree.Add(i / batch, i);
+
+		Assert.That(tree.Length, Is.EqualTo(items));
+
+		// Remove every third pair, scattered across all runs
+		var removed = 0;
+		for (long i = 0; i < items; i += 3) {
+			Assert.That(tree.Remove(i / batch, i), Is.True, $"pair ({i / batch}, {i}) not found");
+			removed++;
+		}
+
+		Assert.That(tree.Length, Is.EqualTo(items - removed));
+
+		// Survivors are all present, removed are all gone
+		for (long i = 0; i < items; i++)
+			Assert.That(tree.Contains(i / batch, i), Is.EqualTo(i % 3 != 0), $"pair ({i / batch}, {i})");
+
+		tree.Dispose();
+	}
+
+	[Test]
+	public void UpdateChurn_BatchStampedKeys_LengthStaysBounded() {
+		// CacheRangeIndex.Update against batch-stamped keys: every update removes a
+		// pair from the middle of a long run and appends into the newest run.
+		var tree = new PooledBTree<long, long>();
+		const int items = 5_000;
+		var current = new long[items];
+		for (long i = 0; i < items; i++) {
+			current[i] = 0;
+			tree.Add(0, i);
+		}
+
+		var rng = new Random(42);
+		for (var round = 1; round <= 5; round++)
+			for (var op = 0; op < items; op++) {
+				var id = rng.Next(items);
+				var newKey = (long)round;
+				if (tree.Add(newKey, id)) {
+					Assert.That(tree.Remove(current[id], id), Is.True, $"round {round}, item {id} leaked");
+					current[id] = newKey;
+				}
+			}
+
+		Assert.That(tree.Length, Is.EqualTo(items));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Remove_EntireRunInsideNeighbors_CollapsesLeavesAndKeepsNeighbors() {
+		// Deleting a whole multi-leaf run empties leaves in the middle of the tree,
+		// exercising RemoveEmptyLeaf/RemoveFromParent separator maintenance (including
+		// the separator-value halves) with runs on both sides.
+		var tree = new PooledBTree<int, long>();
+		for (long i = 0; i < 300; i++) tree.Add(10, i);
+		for (long i = 0; i < 300; i++) tree.Add(42, i);
+		for (long i = 0; i < 300; i++) tree.Add(90, i);
+
+		for (long i = 0; i < 300; i++)
+			Assert.That(tree.Remove(42, i), Is.True, $"mid pair {i} not found");
+
+		Assert.That(tree.Length, Is.EqualTo(600));
+		for (long i = 0; i < 300; i++) {
+			Assert.That(tree.Contains(10, i), Is.True, $"low pair {i} lost");
+			Assert.That(tree.Contains(90, i), Is.True, $"high pair {i} lost");
+			Assert.That(tree.Contains(42, i), Is.False, $"mid pair {i} survived");
+		}
+
+		// Reinsert into the collapsed region and verify placement
+		for (long i = 0; i < 100; i++)
+			Assert.That(tree.Add(42, i), Is.True);
+		var agg = new ListAggregator<int, long>();
+		tree.Range(42, 42, ref agg);
+		Assert.That(agg.Items.Count, Is.EqualTo(100));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Add_DuplicatePair_DeepInsideSpanningRun_ReturnsFalse() {
+		// Duplicate probes must find pairs anywhere inside a run spanning many leaves,
+		// not just in the first or last leaf of the run.
+		var tree = new PooledBTree<int, long>();
+		for (long i = 0; i < 1000; i += 2)
+			tree.Add(42, i);
+
+		for (long i = 0; i < 1000; i += 2)
+			Assert.That(tree.Add(42, i), Is.False, $"duplicate ({i}) accepted");
+		for (long i = 1; i < 1000; i += 2)
+			Assert.That(tree.Add(42, i), Is.True, $"new pair ({i}) rejected");
+
+		Assert.That(tree.Length, Is.EqualTo(1000));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void TryGetMinMax_WithMultiLeafRuns_ReturnsBoundaryPairs() {
+		var tree = new PooledBTree<int, long>();
+		// Descending insertion order: only value-sorted runs put 199 at the run's end,
+		// an insertion-ordered run would end with 0.
+		for (long i = 199; i >= 0; i--) tree.Add(5, i);
+		for (long i = 199; i >= 0; i--) tree.Add(7, i);
+
+		Assert.That(tree.TryGetMin(out var minKey, out var minVal), Is.True);
+		Assert.That(minKey, Is.EqualTo(5));
+		Assert.That(minVal, Is.EqualTo(0), "values inside an equal-key run are value-sorted");
+		Assert.That(tree.TryGetMax(out var maxKey, out var maxVal), Is.True);
+		Assert.That(maxKey, Is.EqualTo(7));
+		Assert.That(maxVal, Is.EqualTo(199), "values inside an equal-key run are value-sorted");
+		tree.Dispose();
+	}
+
+	// ───────────────────── Update (single-lock move) ─────────────────────
+
+	[Test]
+	public void Update_MovesValueToNewKey() {
+		var tree = new PooledBTree<long, long>();
+		tree.Add(10, 7);
+		Assert.That(tree.Update(10, 20, 7), Is.True);
+		Assert.That(tree.Contains(10, 7), Is.False);
+		Assert.That(tree.Contains(20, 7), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Update_SameIndexKey_KeepsEntry() {
+		var tree = new PooledBTree<long, long>();
+		tree.Add(10, 7);
+		Assert.That(tree.Update(10, 10, 7), Is.True);
+		Assert.That(tree.Contains(10, 7), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		Assert.That(tree.Update(10, 10, 999), Is.False, "absent pair under equal keys");
+		// The equal-key miss must be a pure no-op: nothing inserted, nothing removed.
+		Assert.That(tree.Contains(10, 999), Is.False);
+		Assert.That(tree.Contains(10, 7), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Update_MissingOldPair_StillAddsNew_ReturnsFalse() {
+		// Same semantics as the Add+Remove sequence it replaces: the add happens,
+		// the remove misses.
+		var tree = new PooledBTree<long, long>();
+		Assert.That(tree.Update(10, 20, 7), Is.False);
+		Assert.That(tree.Contains(20, 7), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void UpdateChurn_BatchStamped_CombinedUpdate_LengthStaysBounded() {
+		var tree = new PooledBTree<long, long>();
+		const int items = 5_000;
+		var current = new long[items];
+		for (long i = 0; i < items; i++) {
+			current[i] = 0;
+			tree.Add(0, i);
+		}
+
+		var rng = new Random(42);
+		for (var round = 1; round <= 5; round++)
+			for (var op = 0; op < items; op++) {
+				var id = rng.Next(items);
+				var newKey = (long)round;
+				Assert.That(tree.Update(current[id], newKey, id), Is.True,
+					$"round {round}, item {id} leaked");
+				current[id] = newKey;
+			}
 
 		Assert.That(tree.Length, Is.EqualTo(items));
 		tree.Dispose();

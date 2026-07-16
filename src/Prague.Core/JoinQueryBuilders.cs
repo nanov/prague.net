@@ -44,7 +44,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			this in JoinQueryBuilder<TDiscriminator, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 			TComparer comparer)
 // 		where TDiscriminator : struct, ISortable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
@@ -68,11 +68,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			CacheKeyValueIndex<TRightKey, TRightValue, TLeftKey> rightIndex,
 // 			Func<JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>, JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>>? rightQueryFilter = null)
 // 		where TDiscriminator : struct, IBaseJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 	{
 // 		var resolver = new JoinOneResolver<TLeftKey, TLeftValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
@@ -91,11 +91,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			Func<TLeftValue, TRightKey> foreignKeySelector,
 // 			Func<JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>, JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>>? rightQueryFilter = null)
 // 		where TDiscriminator : struct, IBaseJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 	{
 // 		var resolver = new JoinOneResolver<TLeftKey, TLeftValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter);
@@ -114,11 +114,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			CacheKeyValueListIndex<TRightKey, TRightValue, TLeftKey> rightIndex,
 // 			Func<JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>, JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>>? rightQueryFilter = null)
 // 		where TDiscriminator : struct, IBaseJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 	{
 // 		var resolver = new ManyResolver<TLeftKey, TLeftValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter);
@@ -140,11 +140,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			CacheKeyValueIndex<TRightKey, TRightValue, TLeftKey> rightIndex,
 // 			Func<JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>, JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>>? rightQueryFilter = null)
 // 		where TDiscriminator : struct, IInnerJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 	{
 // 		var resolver = new JoinOneResolver<TLeftKey, TLeftValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter, inner: true);
@@ -163,11 +163,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			Func<TLeftValue, TRightKey> foreignKeySelector,
 // 			Func<JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>, JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>>? rightQueryFilter = null)
 // 		where TDiscriminator : struct, IInnerJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 	{
 // 		var resolver = new JoinOneResolver<TLeftKey, TLeftValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, rightQueryFilter, inner: true);
@@ -186,11 +186,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			Func<TLeftValue, TRightKey> foreignKeySelector,
 // 			Func<TLeftValue, TRightValue, bool> predicate)
 // 		where TDiscriminator : struct, IInnerJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 	{
 // 		var resolver = new JoinOneResolver<TLeftKey, TLeftValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, predicate);
@@ -210,11 +210,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			Func<TLeftValue, TRightValue, TArg, bool> predicate,
 // 			TArg arg)
 // 		where TDiscriminator : struct, IInnerJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 	{
 // 		var resolver = new JoinOneResolver<TLeftKey, TLeftValue, TRightKey, TRightValue>(rightCache, foreignKeySelector, (TLeftValue left, TRightValue right) => predicate(left, right, arg));
@@ -234,11 +234,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			Func<TIndexKey, TRightKey> foreignKeySelector,
 // 			Func<JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>, JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>>? rightQueryFilter = null)
 // 		where TDiscriminator : struct, IInnerJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 		where TIndexKey : notnull
 // 	{
@@ -259,11 +259,11 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 			CacheKeyValueListIndex<TRightKey, TRightValue, TLeftKey> rightIndex,
 // 			Func<JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>, JoinedCacheQueryBuilder<TLeftKey, TRightKey, TRightValue>>? rightQueryFilter = null)
 // 		where TDiscriminator : struct, IInnerJoinable
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
-// 		where TRightKey : notnull, IEquatable<TRightKey>
+// 		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 // 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
 // 	{
 // 		var resolver = new ManyResolver<TLeftKey, TLeftValue, TRightKey, TRightValue>(rightCache, rightIndex, rightQueryFilter, inner: true);
@@ -279,7 +279,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 		this in JoinQueryBuilder<TDiscriminator, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 		int skip = 0, int take = int.MaxValue)
 // 		where TDiscriminator : struct, IExecutableQuery
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
@@ -290,7 +290,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 		this in JoinQueryBuilder<TDiscriminator, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 		int skip = 0, int take = int.MaxValue)
 // 		where TDiscriminator : struct, IExecutableQuery
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
@@ -301,7 +301,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 		this in JoinQueryBuilder<TDiscriminator, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 		int skip = 0, int take = int.MaxValue)
 // 		where TDiscriminator : struct, IExecutableQuery
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
@@ -312,7 +312,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 		this in JoinQueryBuilder<TDiscriminator, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 		int skip = 0, int take = int.MaxValue)
 // 		where TDiscriminator : struct, IExecutableQuery
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
@@ -326,7 +326,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 		this in JoinQueryBuilder<SortedQuery<TDiscriminator>, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 		int skip = 0, int take = int.MaxValue)
 // 		where TDiscriminator : struct, IExecutableQuery
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
@@ -337,7 +337,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 		this in JoinQueryBuilder<SortedQuery<TDiscriminator>, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 		int skip = 0, int take = int.MaxValue)
 // 		where TDiscriminator : struct, IExecutableQuery
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
@@ -348,7 +348,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 		this in JoinQueryBuilder<SortedQuery<TDiscriminator>, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 		int skip = 0, int take = int.MaxValue)
 // 		where TDiscriminator : struct, IExecutableQuery
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>
@@ -359,7 +359,7 @@ public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinR
 // 		this in JoinQueryBuilder<SortedQuery<TDiscriminator>, TLeftQuery, TLeftKey, TLeftValue, TResolverChain, T1> builder,
 // 		int skip = 0, int take = int.MaxValue)
 // 		where TDiscriminator : struct, IExecutableQuery
-// 		where TLeftKey : notnull, IEquatable<TLeftKey>
+// 		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 // 		where TLeftQuery : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 // 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 // 		where TResolverChain : struct, IResolverChain<TLeftKey, TLeftValue, T1>, ISortableResolverChain<TLeftKey, TLeftValue, T1>

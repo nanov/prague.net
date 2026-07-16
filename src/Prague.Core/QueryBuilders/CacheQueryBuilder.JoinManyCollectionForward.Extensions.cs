@@ -37,10 +37,10 @@ public static class CacheQueryBuilder_JoinManyCollectionForward_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TLeftValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>>(
@@ -75,10 +75,10 @@ public static class CacheQueryBuilder_JoinManyCollectionForward_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TLeftValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>>(
@@ -116,10 +116,10 @@ public static class CacheQueryBuilder_JoinManyCollectionForward_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TLeftValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>>(
@@ -157,10 +157,10 @@ public static class CacheQueryBuilder_JoinManyCollectionForward_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TLeftValue,
 			NoFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>>(
@@ -192,10 +192,10 @@ public static class CacheQueryBuilder_JoinManyCollectionForward_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TLeftValue,
 			JoinFilter<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>>>(
@@ -231,10 +231,10 @@ public static class CacheQueryBuilder_JoinManyCollectionForward_Extensions {
 		where TExecutor : struct, ICandidatesExecutor<TLeftKey, TLeftValue>
 		where TDiscriminator : struct, IBaseJoinable
 		where TResolverChain : struct, IResolvers
-		where TLeftKey : notnull, IEquatable<TLeftKey>
+		where TLeftKey : notnull, IEquatable<TLeftKey>, IComparable<TLeftKey>
 		where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
 		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
-		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightKey : notnull, IEquatable<TRightKey>, IComparable<TRightKey>
 		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue> {
 		var resolver = new JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TLeftValue,
 			JoinFilterWithArg<CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>, TArg>>(

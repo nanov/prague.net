@@ -89,7 +89,7 @@ public sealed class DataCacheStatistics {
 	}
 
 	public static DataCacheStatistics Create<TKey, TValue>(InMemoryDataCache<TKey, TValue> cache)
-		where TKey : IEquatable<TKey> where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+		where TKey : IEquatable<TKey>, IComparable<TKey> where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 		return new DataCacheStatistics(cache.StatisticsCollector);
 	}
 

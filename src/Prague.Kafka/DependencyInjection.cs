@@ -23,7 +23,7 @@ public abstract class KafkaCacheHandlerBuilder : KafkaCacheHandlersBuilder {
 }
 
 public class KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> : KafkaCacheHandlerBuilder
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TValue : class, IDataCacheItem<TKey, TValue>, IEnrichable<TValue>, ICacheEquatable<TValue>,
 	ICacheClonable<TValue>
 	where TCacheEntity : class, IDataCache<TKey, TValue>, IKafkaProducerConfigurable<TCacheEntity>,
@@ -322,7 +322,7 @@ public class KafkaCacheHandlersBuilder {
 		where TCacheEntity : class, ICacheRegisterable<TCacheEntity>, IDataCache<TKey, TValue>,
 		IKafkaProducerConfigurable<TCacheEntity>,
 		IKafkaConfigurable<TCacheEntity>
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : class, IDataCacheItem<TKey, TValue>, IEnrichable<TValue>, ICacheEquatable<TValue>,
 		ICacheClonable<TValue> {
 		return AddCache<TCacheEntity, TKey, TValue>((Func<IServiceProvider, string>?)null, isInternal: false);
@@ -332,7 +332,7 @@ public class KafkaCacheHandlersBuilder {
 		where TCacheEntity : class, ICacheRegisterable<TCacheEntity>, IDataCache<TKey, TValue>,
 		IKafkaProducerConfigurable<TCacheEntity>,
 		IKafkaConfigurable<TCacheEntity>
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : class, IDataCacheItem<TKey, TValue>, IEnrichable<TValue>, ICacheEquatable<TValue>,
 		ICacheClonable<TValue> {
 		return AddCache<TCacheEntity, TKey, TValue>(_ => topicName, isInternal: false);
@@ -345,7 +345,7 @@ public class KafkaCacheHandlersBuilder {
 		where TCacheEntity : class, ICacheRegisterable<TCacheEntity>, IDataCache<TKey, TValue>,
 		IKafkaProducerConfigurable<TCacheEntity>,
 		IKafkaConfigurable<TCacheEntity>
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : class, IDataCacheItem<TKey, TValue>, IEnrichable<TValue>, ICacheEquatable<TValue>,
 		ICacheClonable<TValue> {
 		return AddCache<TCacheEntity, TKey, TValue>((Func<IServiceProvider, string>?)null, isInternal: true);
@@ -359,7 +359,7 @@ public class KafkaCacheHandlersBuilder {
 		where TCacheEntity : class, ICacheRegisterable<TCacheEntity>, IDataCache<TKey, TValue>,
 		IKafkaProducerConfigurable<TCacheEntity>,
 		IKafkaConfigurable<TCacheEntity>
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : class, IDataCacheItem<TKey, TValue>, IEnrichable<TValue>, ICacheEquatable<TValue>,
 		ICacheClonable<TValue> {
 		return AddCache<TCacheEntity, TKey, TValue>(_ => topicName, isInternal: true);
@@ -371,7 +371,7 @@ public class KafkaCacheHandlersBuilder {
 		where TCacheEntity : class, ICacheRegisterable<TCacheEntity>, IDataCache<TKey, TValue>,
 		IKafkaProducerConfigurable<TCacheEntity>,
 		IKafkaConfigurable<TCacheEntity>
-		where TKey : IEquatable<TKey>
+		where TKey : IEquatable<TKey>, IComparable<TKey>
 		where TValue : class, IDataCacheItem<TKey, TValue>, IEnrichable<TValue>, ICacheEquatable<TValue>,
 		ICacheClonable<TValue> {
 		Services.Configure<DataCacheRegistryBuilder>(c => c.Register<TCacheEntity>((sp, ca) => {

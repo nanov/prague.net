@@ -11,7 +11,7 @@ using System.Runtime.CompilerServices;
 ///   superseded records, which is flushed once per surviving key at partition EOF.
 /// </summary>
 internal sealed class ValueCompactingBuffer<TKey, TValue>
-	where TKey : IEquatable<TKey>
+	where TKey : IEquatable<TKey>, IComparable<TKey>
 	where TValue : class {
 
 	private readonly IndexMap<TKey> _index;

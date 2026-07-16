@@ -33,10 +33,19 @@ using System.Runtime.InteropServices;
 ///   - Adds of strictly-ascending keys (timestamps — the dominant range-index write
 ///     pattern) take an O(1) append fast path into the last leaf: no descent, no
 ///     duplicate scan, no path bookkeeping.
+///   - Duplicate-key runs: the tree's true sort key is the composite (key, value)
+///     pair — entries with equal keys are sorted by value and internal separators
+///     carry the value half too, so Add/Remove/Contains binary-search the exact
+///     pair even when a run of equal keys spans many leaves: O(log n) instead of
+///     O(run length). This is why TValue must be IComparable, and its CompareTo
+///     must be consistent with Equals (CompareTo == 0 iff Equals — the standard
+///     IComparable contract; holds for longs, tuples, Guids and ordinal strings):
+///     point lookups probe exactly one composite position and treat a mismatch
+///     there as a definitive miss.
 /// </summary>
 internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	where TIndex : IComparable<TIndex>
-	where TValue : IEquatable<TValue> {
+	where TValue : IEquatable<TValue>, IComparable<TValue> {
 	private const int LeafCapacity = 64;
 	private const int InternalCapacity = 64; // max children per internal node
 	private const int MaxDepth = 8; // 64^8 > 10^14, more than enough
@@ -44,6 +53,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	[ThreadStatic] private static InternalNode?[]? _ancestorsBuf;
 	[ThreadStatic] private static int[]? _childIdxBuf;
 	[ThreadStatic] private static TIndex[]? _splitKeysBuf;
+	[ThreadStatic] private static TValue[]? _splitSepValuesBuf;
 	[ThreadStatic] private static Node[]? _splitChildrenBuf;
 
 	private readonly Lock _writeLock = new();
@@ -106,11 +116,13 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	private sealed class InternalNode : Node {
 		public TIndex[] Keys; // separator keys
+		public TValue[] SepValues; // separator values: SepValues[i] pairs with Keys[i] (first pair of Children[i + 1])
 		public Node[] Children;
 		public int KeyCount; // number of separator keys; child count = KeyCount + 1
 
 		public InternalNode() {
 			Keys = ArrayPool<TIndex>.Shared.Rent(InternalCapacity - 1);
+			SepValues = ArrayPool<TValue>.Shared.Rent(InternalCapacity - 1);
 			Children = ArrayPool<Node>.Shared.Rent(InternalCapacity);
 		}
 
@@ -118,11 +130,18 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 		public void ReturnToPool() {
 			var keys = Keys;
+			var sepValues = SepValues;
 			var children = Children;
 			Keys = null!;
+			SepValues = null!;
 			Children = null!;
 			try {
 				ArrayPool<TIndex>.Shared.Return(keys, RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>());
+			}
+			catch (ArgumentException) { }
+
+			try {
+				ArrayPool<TValue>.Shared.Return(sepValues, RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
 			}
 			catch (ArgumentException) { }
 
@@ -167,6 +186,17 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static TValue[] GetSplitSepValuesBuf() {
+		var buf = _splitSepValuesBuf;
+		if (buf == null) {
+			buf = new TValue[InternalCapacity]; // mirrors GetSplitKeysBuf
+			_splitSepValuesBuf = buf;
+		}
+
+		return buf;
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static Node[] GetSplitChildrenBuf() {
 		var buf = _splitChildrenBuf;
 		if (buf == null) {
@@ -178,75 +208,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	}
 
 	// ───────────────────── Tree traversal ─────────────────────
-
-	/// <summary>
-	///   Finds the leaf node that should contain the given index.
-	///   Also populates the ancestors array (path from root to leaf's parent)
-	///   and childIndices array (which child index was taken at each level).
-	///   Returns the depth (number of internal nodes traversed).
-	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private LeafNode FindLeaf(TIndex index) {
-		var node = _root;
-		while (node is InternalNode intern) {
-			var childIdx = FindChildIndex(intern, index);
-			var child = intern.Children[childIdx];
-			if (child == null) {
-				// Lock-free descent raced an in-place structural shift (stale KeyCount
-				// vs cleared child slot) — restart from the root; the writer's change
-				// is transient and the retry lands on a consistent view.
-				node = _root;
-				continue;
-			}
-
-			node = child;
-		}
-
-		return Unsafe.As<LeafNode>(node);
-	}
-
-	/// <summary>
-	///   Finds the leaf and records the path for potential splits.
-	///   ancestors[i] = internal node at level i, childIndices[i] = child index taken.
-	///   Returns depth (0 if root is a leaf).
-	/// </summary>
-	private LeafNode FindLeafWithPath(TIndex index, InternalNode?[] ancestors, int[] childIndices,
-		out int depth) {
-		var node = _root;
-		depth = 0;
-		while (node is InternalNode intern) {
-			var childIdx = FindChildIndex(intern, index);
-			ancestors[depth] = intern;
-			childIndices[depth] = childIdx;
-			depth++;
-			node = intern.Children[childIdx];
-		}
-
-		return Unsafe.As<LeafNode>(node);
-	}
-
-	/// <summary>
-	///   Binary search within an internal node to find the child index.
-	///   Keys equal to a separator route RIGHT (separator = first key of right child).
-	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private static int FindChildIndex(InternalNode node, TIndex index) {
-		// Bounds checks elided: mid <= KeyCount - 1 <= InternalCapacity - 2 and the
-		// rented separator array is always >= InternalCapacity - 1 long.
-		ref var keys = ref MemoryMarshal.GetArrayDataReference(node.Keys);
-		var lo = 0;
-		var hi = node.KeyCount - 1;
-		while (lo <= hi) {
-			var mid = (lo + hi) >>> 1;
-			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
-			if (cmp >= 0) // equal goes right
-				lo = mid + 1;
-			else
-				hi = mid - 1;
-		}
-
-		return lo;
-	}
 
 	/// <summary>
 	///   Binary search within an internal node for the LEFTMOST child that can contain
@@ -270,6 +231,115 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return lo;
 	}
 
+	// ───────────────────── Composite (key, value) search ─────────────────────
+
+	/// <summary>
+	///   Compares the value halves of composite entries — a struct-constrained
+	///   generic call that devirtualizes and inlines per closed type, exactly like
+	///   TIndex.CompareTo on the key half.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int CompareValues(TValue a, TValue b) => a.CompareTo(b);
+
+	/// <summary>
+	///   Composite FindChildIndex: separators are (key, value) pairs, entries equal to
+	///   a separator route RIGHT (separator = first pair of the right child).
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int FindChildIndexComposite(InternalNode node, TIndex index, TValue value) {
+		ref var keys = ref MemoryMarshal.GetArrayDataReference(node.Keys);
+		var lo = 0;
+		var hi = node.KeyCount - 1;
+		while (lo <= hi) {
+			var mid = (lo + hi) >>> 1;
+			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
+			if (cmp == 0) {
+				// The separator-values array is only touched on a key tie: unique-key
+				// descents never pay its load (a second array header is a likely cache
+				// miss on every visited node).
+				cmp = CompareValues(value,
+					Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(node.SepValues), mid));
+			}
+
+			if (cmp >= 0) // equal goes right
+				lo = mid + 1;
+			else
+				hi = mid - 1;
+		}
+
+		return lo;
+	}
+
+	/// <summary>
+	///   Composite descent for point lookups (writer-exact under the lock; lock-free
+	///   readers get the same documented staleness as the key-only descent).
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private LeafNode FindLeafComposite(TIndex index, TValue value) {
+		var node = _root;
+		while (node is InternalNode intern) {
+			var child = intern.Children[FindChildIndexComposite(intern, index, value)];
+			if (child == null) {
+				// Lock-free descent raced an in-place structural shift (stale KeyCount
+				// vs cleared child slot) — restart from the root; the writer's change
+				// is transient and the retry lands on a consistent view.
+				node = _root;
+				continue;
+			}
+
+			node = child;
+		}
+
+		return Unsafe.As<LeafNode>(node);
+	}
+
+	/// <summary>Composite twin of FindLeafWithPath.</summary>
+	private LeafNode FindLeafWithPathComposite(TIndex index, TValue value,
+		InternalNode?[] ancestors, int[] childIndices, out int depth) {
+		var node = _root;
+		depth = 0;
+		while (node is InternalNode intern) {
+			var childIdx = FindChildIndexComposite(intern, index, value);
+			ancestors[depth] = intern;
+			childIndices[depth] = childIdx;
+			depth++;
+			node = intern.Children[childIdx];
+		}
+
+		return Unsafe.As<LeafNode>(node);
+	}
+
+	/// <summary>
+	///   Composite LeafLowerBound: first position where (Keys[pos], Values[pos]) >=
+	///   (index, value) in composite order. The caller-supplied pair is always the
+	///   CompareTo receiver (same orientation as FindChildIndexComposite): a lock-free
+	///   reader racing a shrink may observe a stale Count and probe a vacated slot,
+	///   which for ref-typed slots reads as null — safe as an argument, an NRE as a
+	///   receiver.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int LeafLowerBoundComposite(LeafNode leaf, TIndex index, TValue value) {
+		ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
+		var lo = 0;
+		var hi = Volatile.Read(ref leaf.Count) - 1; // acquire: pairs with InsertIntoLeaf's release
+		while (lo <= hi) {
+			var mid = (lo + hi) >>> 1;
+			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
+			if (cmp == 0) {
+				// Values are only touched on a key tie — see FindChildIndexComposite.
+				cmp = CompareValues(value,
+					Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(leaf.Values), mid));
+			}
+
+			if (cmp > 0)
+				lo = mid + 1;
+			else
+				hi = mid - 1;
+		}
+
+		return lo;
+	}
+
 	/// <summary>
 	///   Finds the leftmost leaf that could contain keys >= index.
 	///   Routes equal keys LEFT so range scans start from the first matching leaf.
@@ -280,7 +350,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (node is InternalNode intern) {
 			var child = intern.Children[FindChildIndexLeft(intern, index)];
 			if (child == null) {
-				// See FindLeaf: transient race with an in-place structural shift.
+				// See FindLeafComposite: transient race with an in-place structural shift.
 				node = _root;
 				continue;
 			}
@@ -336,51 +406,6 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return lo;
 	}
 
-	/// <summary>
-	///   Searches for an exact (index, value) pair in a leaf starting from pos.
-	///   Returns the position if found, -1 otherwise.
-	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private static int FindExact(LeafNode leaf, TIndex index, TValue value, int startPos) {
-		ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
-		ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
-		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
-		for (var i = startPos; i < count; i++) {
-			var cmp = Unsafe.Add(ref keys, i).CompareTo(index);
-			if (cmp > 0) break;
-			if (cmp == 0 && value.Equals(Unsafe.Add(ref values, i)))
-				return i;
-		}
-
-		return -1;
-	}
-
-	/// <summary>
-	///   Cold path for runs of equal keys spanning leaves: the fast-path leaf's run
-	///   portion missed, and pos == 0 means the run may extend into earlier leaves.
-	///   Walks backwards while the previous leaf's last key still equals the index.
-	/// </summary>
-	[MethodImpl(MethodImplOptions.NoInlining)]
-	private static bool ContainsInPrevLeaves(LeafNode leaf, TIndex index, TValue value) {
-		var prev = leaf.Prev;
-		while (prev != null) {
-			var count = Volatile.Read(ref prev.Count); // acquire: pairs with InsertIntoLeaf's release
-			if (count == 0 || prev.Keys[count - 1].CompareTo(index) != 0)
-				break;
-
-			for (var i = count - 1; i >= 0; i--) {
-				if (prev.Keys[i].CompareTo(index) != 0)
-					break;
-				if (value.Equals(prev.Values[i]))
-					return true;
-			}
-
-			prev = prev.Prev;
-		}
-
-		return false;
-	}
-
 	// ───────────────────── Add ─────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -392,40 +417,38 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	private bool AddCore(TIndex index, TValue value) {
 		// Monotonic-append fast path: range-index keys are typically timestamps, so new
-		// entries usually sort past the current maximum. A strictly-greater key cannot
-		// be a duplicate and appends into the (non-full) last leaf with no descent, no
-		// duplicate scan and no path bookkeeping — O(1) instead of O(log n).
+		// entries usually sort past the current maximum. An entry strictly greater than
+		// the current maximum cannot be a duplicate and appends into the (non-full) last
+		// leaf with no descent, no duplicate scan and no path bookkeeping — O(1) instead
+		// of O(log n). The comparison is composite, so batch-stamped keys (equal key,
+		// ascending value) keep hitting this path.
 		var last = _lastLeaf;
 		var lastCount = last.Count; // writer-owned under the lock: plain read is exact
-		if (lastCount > 0 && lastCount < LeafCapacity
-			&& index.CompareTo(last.Keys[lastCount - 1]) > 0) {
-			last.Keys[lastCount] = index;
-			last.Values[lastCount] = value;
-			// Release-publish the grown count AFTER the slot stores (see InsertIntoLeaf).
-			Volatile.Write(ref last.Count, lastCount + 1);
-			_length++;
-			return true;
+		if (lastCount > 0 && lastCount < LeafCapacity) {
+			var cmpLast = index.CompareTo(last.Keys[lastCount - 1]);
+			if (cmpLast == 0)
+				cmpLast = CompareValues(value, last.Values[lastCount - 1]);
+			if (cmpLast > 0) {
+				last.Keys[lastCount] = index;
+				last.Values[lastCount] = value;
+				// Release-publish the grown count AFTER the slot stores (see InsertIntoLeaf).
+				Volatile.Write(ref last.Count, lastCount + 1);
+				_length++;
+				return true;
+			}
 		}
 
 		var ancestors = GetAncestorsBuf();
 		var childIndices = GetChildIdxBuf();
 
-		var leaf = FindLeafWithPath(index, ancestors, childIndices, out var depth);
-
-		// Check for duplicate — including earlier leaves when the equal-key run may
-		// span a leaf boundary (pos == 0; see ContainsInPrevLeaves)
-		var pos = LeafLowerBound(leaf, index);
-		if (FindExact(leaf, index, value, pos) >= 0)
+		// Composite descent lands on the exact leaf for the (index, value) pair;
+		// the composite lower bound is both the duplicate probe and the sorted
+		// insertion point — no run scans regardless of duplicate-key run length.
+		var leaf = FindLeafWithPathComposite(index, value, ancestors, childIndices, out var depth);
+		var insertPos = LeafLowerBoundComposite(leaf, index, value);
+		if (insertPos < leaf.Count && leaf.Keys[insertPos].CompareTo(index) == 0
+			&& value.Equals(leaf.Values[insertPos]))
 			return false;
-		if (pos == 0 && ContainsInPrevLeaves(leaf, index, value))
-			return false;
-
-		// Find insertion point considering value ordering for stable placement
-		// For entries with the same index, we insert at the upper bound to append at end of group
-		var insertPos = pos;
-		// Advance past same-index entries to insert at end of group
-		while (insertPos < leaf.Count && leaf.Keys[insertPos].CompareTo(index) == 0)
-			insertPos++;
 
 		// Insert into leaf
 		if (leaf.Count < LeafCapacity) {
@@ -524,19 +547,22 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		if (_lastLeaf == leaf && newLeaf.Next == null)
 			Volatile.Write(ref _lastLeaf, newLeaf);
 
-		// Promote separator key to parent
+		// Promote separator (key, value) to parent — the composite descent needs the
+		// value half to discriminate children inside duplicate-key runs.
 		var promotedKey = newLeaf.Keys[0];
-		InsertIntoParent(leaf, promotedKey, newLeaf, ancestors, childIndices, depth);
+		var promotedValue = newLeaf.Values[0];
+		InsertIntoParent(leaf, promotedKey, promotedValue, newLeaf, ancestors, childIndices, depth);
 	}
 
 	[MethodImpl(MethodImplOptions.NoInlining)]
-	private void InsertIntoParent(Node leftChild, TIndex key, Node rightChild,
+	private void InsertIntoParent(Node leftChild, TIndex key, TValue sepValue, Node rightChild,
 		InternalNode?[] ancestors, int[] childIndices, int depth) {
 		if (depth == 0) {
 			// Root was a leaf, create new root. Release-publish: the new root's
 			// freshly-rented arrays must be visible before the root pointer is.
 			var newRoot = new InternalNode();
 			newRoot.Keys[0] = key;
+			newRoot.SepValues[0] = sepValue;
 			newRoot.Children[0] = leftChild;
 			newRoot.Children[1] = rightChild;
 			newRoot.KeyCount = 1;
@@ -553,11 +579,13 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			// Shift keys right
 			if (insertAt < parent.KeyCount) {
 				Array.Copy(parent.Keys, insertAt, parent.Keys, insertAt + 1, parent.KeyCount - insertAt);
+				Array.Copy(parent.SepValues, insertAt, parent.SepValues, insertAt + 1, parent.KeyCount - insertAt);
 				Array.Copy(parent.Children, insertAt + 1, parent.Children, insertAt + 2,
 					parent.KeyCount - insertAt);
 			}
 
 			parent.Keys[insertAt] = key;
+			parent.SepValues[insertAt] = sepValue;
 			// Release-publish the new node: its rented arrays were filled with plain
 			// stores and must be visible before any pointer to it.
 			Volatile.Write(ref parent.Children[insertAt + 1], rightChild);
@@ -566,11 +594,11 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		}
 
 		// Parent is full — split internal node
-		SplitInternalAndInsert(parent, key, rightChild, childIndices[level], ancestors, childIndices, level);
+		SplitInternalAndInsert(parent, key, sepValue, rightChild, childIndices[level], ancestors, childIndices, level);
 	}
 
 	[MethodImpl(MethodImplOptions.NoInlining)]
-	private void SplitInternalAndInsert(InternalNode node, TIndex key, Node rightChild, int insertAt,
+	private void SplitInternalAndInsert(InternalNode node, TIndex key, TValue sepValue, Node rightChild, int insertAt,
 		InternalNode?[] ancestors, int[] childIndices, int level) {
 		// We have InternalCapacity-1 keys + 1 new key = InternalCapacity keys total
 		// Split into left (mid keys) and right (rest), promote middle key to parent
@@ -579,18 +607,21 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 		// Build temporary arrays with the new key/child inserted (thread-static, zero alloc)
 		var tempKeys = GetSplitKeysBuf();
+		var tempSepValues = GetSplitSepValuesBuf();
 		var tempChildren = GetSplitChildrenBuf();
 
 		// Copy existing keys/children with insertion
 		for (int i = 0, j = 0; j < totalKeys; i++, j++) {
 			if (j == insertAt) {
 				tempKeys[j] = key;
+				tempSepValues[j] = sepValue;
 				tempChildren[j] = node.Children[i];
 				tempChildren[j + 1] = rightChild;
 				i--; // don't advance source
 			}
 			else {
 				tempKeys[j] = node.Keys[i];
+				tempSepValues[j] = node.SepValues[i];
 				// j == insertAt + 1 is already set to rightChild — don't overwrite it
 				if (j != insertAt + 1)
 					tempChildren[j] = node.Children[i];
@@ -599,17 +630,21 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			}
 		}
 
-		// The promoted key is tempKeys[midIdx]
+		// The promoted pair is (tempKeys[midIdx], tempSepValues[midIdx])
 		var promotedKey = tempKeys[midIdx];
+		var promotedValue = tempSepValues[midIdx];
 
 		// Left node keeps keys 0..midIdx-1, children 0..midIdx
 		node.KeyCount = midIdx;
 		Array.Copy(tempKeys, 0, node.Keys, 0, midIdx);
+		Array.Copy(tempSepValues, 0, node.SepValues, 0, midIdx);
 		for (var i = 0; i <= midIdx; i++)
 			node.Children[i] = tempChildren[i];
 		// Clear excess slots
 		if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>())
 			Array.Clear(node.Keys, midIdx, (InternalCapacity - 1) - midIdx);
+		if (RuntimeHelpers.IsReferenceOrContainsReferences<TValue>())
+			Array.Clear(node.SepValues, midIdx, (InternalCapacity - 1) - midIdx);
 		for (var i = midIdx + 1; i < InternalCapacity; i++)
 			node.Children[i] = null!;
 
@@ -618,11 +653,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var rightKeyCount = totalKeys - midIdx - 1;
 		newNode.KeyCount = rightKeyCount;
 		Array.Copy(tempKeys, midIdx + 1, newNode.Keys, 0, rightKeyCount);
+		Array.Copy(tempSepValues, midIdx + 1, newNode.SepValues, 0, rightKeyCount);
 		for (var i = 0; i <= rightKeyCount; i++)
 			newNode.Children[i] = tempChildren[midIdx + 1 + i];
 
 		// Promote to parent
-		InsertIntoParent(node, promotedKey, newNode, ancestors, childIndices, level);
+		InsertIntoParent(node, promotedKey, promotedValue, newNode, ancestors, childIndices, level);
 	}
 
 	// ───────────────────── Remove ─────────────────────
@@ -638,56 +674,18 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var ancestors = GetAncestorsBuf();
 		var childIndices = GetChildIdxBuf();
 
-		var leaf = FindLeafWithPath(index, ancestors, childIndices, out var depth);
-
-		var pos = LeafLowerBound(leaf, index);
-		var exactPos = FindExact(leaf, index, value, pos);
-		if (exactPos >= 0) {
-			RemoveFromLeaf(leaf, exactPos, ancestors, childIndices, depth);
-			return true;
-		}
-
-		// Fast-path miss. If the run of equal keys begins inside this leaf (pos > 0 —
-		// a smaller key precedes it), no earlier leaf can hold the pair: the miss is
-		// definitive. Only when the run may have started in earlier leaves (pos == 0
-		// and the previous leaf ends with an equal key) can the pair hide elsewhere.
-		if (pos > 0 || leaf.Prev == null
-			|| leaf.Prev.Keys[leaf.Prev.Count - 1].CompareTo(index) != 0)
+		// Composite descent + composite lower bound pinpoint the pair in O(log n) no
+		// matter how long the equal-key run is: the pair, if present, sits exactly at
+		// the lower-bound position (CompareTo consistent with Equals — see class doc),
+		// so a mismatch there is a definitive miss.
+		var leaf = FindLeafWithPathComposite(index, value, ancestors, childIndices, out var depth);
+		var pos = LeafLowerBoundComposite(leaf, index, value);
+		if (pos >= leaf.Count || leaf.Keys[pos].CompareTo(index) != 0
+			|| !value.Equals(leaf.Values[pos]))
 			return false;
 
-		return RemoveFromSubtree(_root, index, value, ancestors, childIndices, 0);
-	}
-
-	/// <summary>
-	///   Cold path for runs of equal keys spanning leaves: descends into every child
-	///   whose key range can contain (index, value) and removes the first exact match.
-	///   The recursion keeps ancestors/childIndices valid for the leaf where the pair
-	///   is actually found so structural cleanup works. Depth is bounded by MaxDepth.
-	/// </summary>
-	[MethodImpl(MethodImplOptions.NoInlining)]
-	private bool RemoveFromSubtree(Node node, TIndex index, TValue value,
-		InternalNode?[] ancestors, int[] childIndices, int depth) {
-		if (node is LeafNode leaf) {
-			var pos = LeafLowerBound(leaf, index);
-			var exactPos = FindExact(leaf, index, value, pos);
-			if (exactPos < 0)
-				return false;
-
-			RemoveFromLeaf(leaf, exactPos, ancestors, childIndices, depth);
-			return true;
-		}
-
-		var intern = Unsafe.As<InternalNode>(node);
-		var first = FindChildIndexLeft(intern, index);
-		var last = FindChildIndex(intern, index);
-		for (var childIdx = first; childIdx <= last; childIdx++) {
-			ancestors[depth] = intern;
-			childIndices[depth] = childIdx;
-			if (RemoveFromSubtree(intern.Children[childIdx], index, value, ancestors, childIndices, depth + 1))
-				return true;
-		}
-
-		return false;
+		RemoveFromLeaf(leaf, pos, ancestors, childIndices, depth);
+		return true;
 	}
 
 	private void RemoveFromLeaf(LeafNode leaf, int exactPos,
@@ -753,8 +751,10 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		var keyIdx = childIdx > 0 ? childIdx - 1 : 0;
 
 		// Shift keys left
-		if (keyIdx < parent.KeyCount - 1)
+		if (keyIdx < parent.KeyCount - 1) {
 			Array.Copy(parent.Keys, keyIdx + 1, parent.Keys, keyIdx, parent.KeyCount - keyIdx - 1);
+			Array.Copy(parent.SepValues, keyIdx + 1, parent.SepValues, keyIdx, parent.KeyCount - keyIdx - 1);
+		}
 
 		// Shift children left
 		if (childIdx < parent.KeyCount)
@@ -766,6 +766,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		// Clear last slots
 		if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>())
 			parent.Keys[parent.KeyCount] = default!;
+		if (RuntimeHelpers.IsReferenceOrContainsReferences<TValue>())
+			parent.SepValues[parent.KeyCount] = default!;
 		parent.Children[parent.KeyCount + 1] = null!;
 
 		// If parent is now empty and is root, make the remaining child the new root
@@ -779,6 +781,30 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			// drop that child entirely, orphaning its subtree.
 			ancestors[level - 1]!.Children[childIndices[level - 1]] = parent.Children[0];
 			ReaderGate.Retire(parent);
+		}
+	}
+
+	// ───────────────────── Update ─────────────────────
+
+	/// <summary>
+	///   Moves a value from one index key to another — the range-index update pattern
+	///   (every cache update re-stamps the entry's timestamp) — under a single write
+	///   lock. Semantics: when the keys differ, this is Add(newIndex, value) followed
+	///   by Remove(oldIndex, value) (so if the old pair is absent, the new pair is
+	///   still inserted); when the keys compare equal, nothing is mutated — the pair
+	///   simply stays, unlike the literal two-call sequence, which would net-delete
+	///   it. Insert-before-remove keeps the value visible to lock-free readers
+	///   throughout (it may transiently be seen under both keys). Returns true if the
+	///   value was present under oldIndex.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	public bool Update(TIndex oldIndex, TIndex newIndex, TValue value) {
+		lock (_writeLock) {
+			if (oldIndex.CompareTo(newIndex) == 0)
+				return ContainsCore(oldIndex, value);
+
+			AddCore(newIndex, value);
+			return RemoveCore(oldIndex, value);
 		}
 	}
 
@@ -796,16 +822,13 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private bool ContainsCore(TIndex index, TValue value) {
-		var leaf = FindLeaf(index);
-		var pos = LeafLowerBound(leaf, index);
-		if (FindExact(leaf, index, value, pos) >= 0)
-			return true;
-
-		// pos > 0 ⇒ a smaller key precedes the run in this leaf ⇒ miss is definitive.
-		if (pos > 0)
-			return false;
-
-		return ContainsInPrevLeaves(leaf, index, value);
+		var leaf = FindLeafComposite(index, value);
+		var pos = LeafLowerBoundComposite(leaf, index, value);
+		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
+		// Caller-supplied index/value stay the receivers: this is a lock-free reader
+		// and the probed slot may be a vacated (nulled) one under a racing shrink.
+		return pos < count && index.CompareTo(leaf.Keys[pos]) == 0
+			&& value.Equals(leaf.Values[pos]);
 	}
 
 	// ───────────────────── TryGetMin / TryGetMax ─────────────────────
