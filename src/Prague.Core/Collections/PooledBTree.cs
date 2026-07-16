@@ -366,18 +366,24 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// <summary>
 	///   Binary search within a leaf for the first position where Keys[pos] >= index.
 	///   Returns the insertion point (may be equal to count if all keys are less).
+	///   The caller supplies the acquire-read count and MUST bound its subsequent
+	///   emission by the same value: a fresher count could expose slots shifted after
+	///   this search ran, emitting entries outside the requested range. The search
+	///   index is the CompareTo receiver — a lock-free reader racing a shrink may
+	///   probe a vacated slot, which for ref-typed keys reads as null (safe as an
+	///   argument, an NRE as a receiver).
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private static int LeafLowerBound(LeafNode leaf, TIndex index) {
-		// Bounds checks elided: mid <= Count - 1 <= LeafCapacity - 1 and the rented
+	private static int LeafLowerBound(LeafNode leaf, TIndex index, int count) {
+		// Bounds checks elided: mid <= count - 1 <= LeafCapacity - 1 and the rented
 		// key array is always >= LeafCapacity long.
 		ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 		var lo = 0;
-		var hi = Volatile.Read(ref leaf.Count) - 1; // acquire: pairs with InsertIntoLeaf's release
+		var hi = count - 1;
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
-			var cmp = Unsafe.Add(ref keys, mid).CompareTo(index);
-			if (cmp < 0)
+			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
+			if (cmp > 0)
 				lo = mid + 1;
 			else
 				hi = mid - 1;
@@ -388,16 +394,17 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	/// <summary>
 	///   Binary search within a leaf for the first position where Keys[pos] > index.
+	///   Same count and receiver discipline as <see cref="LeafLowerBound" />.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private static int LeafUpperBound(LeafNode leaf, TIndex index) {
+	private static int LeafUpperBound(LeafNode leaf, TIndex index, int count) {
 		ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 		var lo = 0;
-		var hi = Volatile.Read(ref leaf.Count) - 1; // acquire: pairs with InsertIntoLeaf's release
+		var hi = count - 1;
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
-			var cmp = Unsafe.Add(ref keys, mid).CompareTo(index);
-			if (cmp <= 0)
+			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
+			if (cmp >= 0)
 				lo = mid + 1;
 			else
 				hi = mid - 1;
@@ -830,7 +837,9 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 		// Caller-supplied index/value stay the receivers: this is a lock-free reader
 		// and the probed slot may be a vacated (nulled) one under a racing shrink.
-		// Ref access elides the bounds and covariance checks of indexed reads.
+		// Ref access elides the bounds checks of indexed reads (pos < count <=
+		// LeafCapacity <= rented length) and skips the array-header Length load —
+		// one fewer cold cache line on this random-leaf probe.
 		if (index.CompareTo(Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(leaf.Keys), pos)) != 0)
 			return false;
 
@@ -912,22 +921,28 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	private void RangeCore<TResultsAggregator>(TIndex from, TIndex to, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(from);
-		var pos = LeafLowerBound(leaf, from);
+		// One acquire-read of Count serves both the bound search and the first leaf's
+		// emission: a fresher count could expose slots shifted after pos was computed
+		// and emit entries below the requested lower bound.
+		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
+		var pos = LeafLowerBound(leaf, from, count);
 
 		while (leaf != null) {
 			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
-			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++) {
 				ref var key = ref Unsafe.Add(ref keys, i);
-				if (key.CompareTo(to) > 0)
+				// `to` is the receiver: the slot may be a vacated (null) one under a
+				// racing shrink — safe as an argument, an NRE as a receiver.
+				if (to.CompareTo(key) < 0)
 					return;
 				agg.Add(key, Unsafe.Add(ref values, i));
 			}
 
 			leaf = leaf.Next;
 			pos = 0;
+			count = leaf != null ? Volatile.Read(ref leaf.Count) : 0;
 		}
 	}
 
@@ -949,7 +964,10 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	private void RangeFromCore<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(start);
-		var pos = LeafLowerBound(leaf, start);
+		// One acquire-read of Count serves both the bound search and the first leaf's
+		// emission — see RangeCore.
+		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
+		var pos = LeafLowerBound(leaf, start, count);
 
 		while (leaf != null) {
 			// Ref-based access elides bounds checks (count <= capacity is a writer
@@ -957,13 +975,13 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			// ~3x on windowed scans vs indexed access, whose bounds checks block SIMD.
 			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
-			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++)
 				agg.Add(Unsafe.Add(ref keys, i), Unsafe.Add(ref values, i));
 
 			leaf = leaf.Next;
 			pos = 0;
+			count = leaf != null ? Volatile.Read(ref leaf.Count) : 0;
 		}
 	}
 
@@ -993,7 +1011,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 			for (var i = 0; i < count; i++) {
 				ref var key = ref Unsafe.Add(ref keys, i);
-				if (key.CompareTo(to) > 0)
+				// `to` is the receiver — see RangeCore.
+				if (to.CompareTo(key) < 0)
 					return;
 				agg.Add(key, Unsafe.Add(ref values, i));
 			}
@@ -1028,7 +1047,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 			for (var i = 0; i < count; i++) {
 				ref var key = ref Unsafe.Add(ref keys, i);
-				if (key.CompareTo(to) >= 0)
+				// `to` is the receiver — see RangeCore.
+				if (to.CompareTo(key) <= 0)
 					return;
 				agg.Add(key, Unsafe.Add(ref values, i));
 			}
@@ -1055,17 +1075,21 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	private void RangeFromExclusiveCore<TResultsAggregator>(TIndex start, ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(start);
-		var pos = LeafUpperBound(leaf, start);
+		// One acquire-read of Count per leaf serves the bound search, the hop check
+		// AND the emission — see RangeCore.
+		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
+		var pos = LeafUpperBound(leaf, start, count);
 
-		// A run of keys equal to the exclusive bound can span leaves: pos == Count means
+		// A run of keys equal to the exclusive bound can span leaves: pos == count means
 		// every key in this leaf is <= start, so re-apply the upper bound on the next
-		// leaf. Once a leaf has pos < Count, every later key in the chain is > start.
-		while (pos == leaf.Count) {
+		// leaf. Once a leaf has pos < count, every later key in the chain is > start.
+		while (pos == count) {
 			var next = leaf.Next;
 			if (next == null)
 				return;
 			leaf = next;
-			pos = LeafUpperBound(leaf, start);
+			count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
+			pos = LeafUpperBound(leaf, start, count);
 		}
 
 		while (leaf != null) {
@@ -1074,13 +1098,13 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			// ~3x on windowed scans vs indexed access, whose bounds checks block SIMD.
 			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
-			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++)
 				agg.Add(Unsafe.Add(ref keys, i), Unsafe.Add(ref values, i));
 
 			leaf = leaf.Next;
 			pos = 0;
+			count = leaf != null ? Volatile.Read(ref leaf.Count) : 0;
 		}
 	}
 
@@ -1104,38 +1128,43 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		ref TResultsAggregator agg)
 		where TResultsAggregator : struct, IResultAggregator, allows ref struct {
 		var leaf = FindLeafForRange(from);
+		// One acquire-read of Count per leaf serves the bound search, the hop check
+		// AND the emission — see RangeCore.
+		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 		int pos;
 		if (includeFrom) {
-			pos = LeafLowerBound(leaf, from);
+			pos = LeafLowerBound(leaf, from, count);
 		}
 		else {
 			// Exclusive lower bound: skip the run of keys equal to `from` across leaves
 			// (see RangeFromExclusive).
-			pos = LeafUpperBound(leaf, from);
-			while (pos == leaf.Count) {
+			pos = LeafUpperBound(leaf, from, count);
+			while (pos == count) {
 				var next = leaf.Next;
 				if (next == null)
 					return;
 				leaf = next;
-				pos = LeafUpperBound(leaf, from);
+				count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
+				pos = LeafUpperBound(leaf, from, count);
 			}
 		}
 
 		while (leaf != null) {
 			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
-			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
 			for (var i = pos; i < count; i++) {
 				ref var key = ref Unsafe.Add(ref keys, i);
-				var cmp = key.CompareTo(to);
-				if (includeTo ? cmp > 0 : cmp >= 0)
+				// `to` is the receiver — see RangeCore.
+				var cmp = to.CompareTo(key);
+				if (includeTo ? cmp < 0 : cmp <= 0)
 					return;
 				agg.Add(key, Unsafe.Add(ref values, i));
 			}
 
 			leaf = leaf.Next;
 			pos = 0;
+			count = leaf != null ? Volatile.Read(ref leaf.Count) : 0;
 		}
 	}
 

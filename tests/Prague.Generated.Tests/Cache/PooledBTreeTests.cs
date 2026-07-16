@@ -1303,4 +1303,139 @@ public class PooledBTreeTests {
 		Assert.That(tree.Length, Is.EqualTo(items));
 		tree.Dispose();
 	}
+
+	// ───────────────────── Lock-free readers vs writer races ─────────────────────
+
+	[Test]
+	public void Range_RefTypedKeys_ConcurrentRemovals_NoExceptions() {
+		// Regression test for the key-side receiver orientation: removals clear
+		// vacated KEY slots to null (ref-typed TIndex), and a racing range reader
+		// binary-searches / bound-checks those slots. With the slot as the CompareTo
+		// receiver this NREs within milliseconds; with the caller's bound as the
+		// receiver a stale probe is just documented staleness.
+		var tree = new PooledBTree<string, long>();
+		const int ids = 500;
+		for (var i = 0; i < ids; i++)
+			tree.Add($"k{i:D6}", i);
+
+		var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+		var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+
+		var writer = Task.Run(() => {
+			var rnd = new Random(42);
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					var i = rnd.Next(ids);
+					tree.Remove($"k{i:D6}", i);
+					tree.Add($"k{i:D6}", i);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token);
+
+		var readers = Enumerable.Range(0, 3).Select(t => Task.Run(() => {
+			var rnd = new Random(100 + t);
+			var agg = default(CountingAggregator<string, long>);
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					var lo = $"k{rnd.Next(ids):D6}";
+					var hi = $"k{rnd.Next(ids):D6}";
+					tree.Range(lo, hi, ref agg);
+					tree.RangeFrom(lo, ref agg);
+					tree.RangeFromExclusive(lo, ref agg);
+					tree.RangeTo(hi, ref agg);
+					tree.RangeToExclusive(hi, ref agg);
+					tree.RangeCustom(lo, hi, rnd.Next(2) == 0, rnd.Next(2) == 0, ref agg);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token)).ToArray();
+
+		try {
+			Task.WaitAll([writer, .. readers]);
+		}
+		catch (AggregateException) { }
+
+		Assert.That(exceptions, Is.Empty,
+			() => $"{exceptions.FirstOrDefault()?.GetType().Name}: {exceptions.FirstOrDefault()?.Message}\n{exceptions.FirstOrDefault()?.StackTrace}");
+
+		tree.Dispose();
+	}
+
+	[Test]
+	public void RangeFrom_BeyondAllKeys_ConcurrentInserts_NeverEmitsBelowBound() {
+		// Regression test for the stale-pos-vs-fresh-count race: the reader's lower
+		// bound lands at pos == count (nothing >= the bound exists), then a racing
+		// insert shifts entries and grows Count. If the emission loop re-reads a
+		// FRESHER count than the bound search used, it emits slots the search never
+		// vetted — fabricating entries strictly below the requested bound.
+		var tree = new PooledBTree<long, long>();
+		tree.Add(10, 10);
+		tree.Add(20, 20);
+		tree.Add(30, 30);
+
+		var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+		var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+		long violations = 0;
+
+		// Single-leaf tree: inserts of low keys shift the tail on every Add.
+		var writer = Task.Run(() => {
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					for (long k = 1; k <= 8 && !cts.Token.IsCancellationRequested; k++)
+						tree.Add(k, k);
+					for (long k = 1; k <= 8 && !cts.Token.IsCancellationRequested; k++)
+						tree.Remove(k, k);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token);
+
+		var reader = Task.Run(() => {
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					var agg = default(CountingAggregator<long, long>);
+					tree.RangeFrom(1_000, ref agg); // beyond every key ever inserted
+					if (agg.Count > 0)
+						Interlocked.Add(ref violations, agg.Count);
+
+					agg = default;
+					tree.RangeFromExclusive(1_000, ref agg);
+					if (agg.Count > 0)
+						Interlocked.Add(ref violations, agg.Count);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token);
+
+		try {
+			Task.WaitAll(writer, reader);
+		}
+		catch (AggregateException) { }
+
+		Assert.That(exceptions, Is.Empty,
+			() => $"{exceptions.FirstOrDefault()?.GetType().Name}: {exceptions.FirstOrDefault()?.Message}");
+		Assert.That(Interlocked.Read(ref violations), Is.Zero,
+			"RangeFrom(bound beyond all keys) emitted entries — the emission loop used a fresher count than the bound search");
+
+		tree.Dispose();
+	}
+
+	private struct CountingAggregator<TI, TV> : PooledBTree<TI, TV>.IResultAggregator
+		where TI : IComparable<TI>
+		where TV : IEquatable<TV>, IComparable<TV> {
+		public long Count;
+
+		public void Add(TI index, TV value) => Count++;
+
+		public void Dispose() { }
+	}
 }
