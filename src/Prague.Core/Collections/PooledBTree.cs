@@ -234,12 +234,21 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	// ───────────────────── Composite (key, value) search ─────────────────────
 
 	/// <summary>
-	///   Compares the value halves of composite entries — a struct-constrained
-	///   generic call that devirtualizes and inlines per closed type, exactly like
-	///   TIndex.CompareTo on the key half.
+	///   Compares the value halves of composite entries — a constrained generic call
+	///   that devirtualizes and inlines per closed type, exactly like TIndex.CompareTo
+	///   on the key half. Strings are pinned to ORDINAL comparison: string.CompareTo
+	///   is culture-sensitive, so two non-Equals strings can compare equal (ignorable
+	///   characters) and per-thread cultures would produce inconsistent orders — both
+	///   break the CompareTo==0-iff-Equals precondition the composite point probes
+	///   rely on. The typeof check is JIT-folded per closed type and costs nothing.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private static int CompareValues(TValue a, TValue b) => a.CompareTo(b);
+	private static int CompareValues(TValue a, TValue b) {
+		if (typeof(TValue) == typeof(string))
+			return string.CompareOrdinal(Unsafe.As<string>(a), Unsafe.As<string>(b));
+
+		return a.CompareTo(b);
+	}
 
 	/// <summary>
 	///   Composite FindChildIndex: separators are (key, value) pairs, entries equal to
@@ -293,7 +302,11 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return Unsafe.As<LeafNode>(node);
 	}
 
-	/// <summary>Composite twin of FindLeafWithPath.</summary>
+	/// <summary>
+	///   Composite descent that records the path for structural maintenance:
+	///   ancestors[i] = internal node at level i, childIndices[i] = child index taken.
+	///   Writer-only (exact under the lock).
+	/// </summary>
 	private LeafNode FindLeafWithPathComposite(TIndex index, TValue value,
 		InternalNode?[] ancestors, int[] childIndices, out int depth) {
 		var node = _root;

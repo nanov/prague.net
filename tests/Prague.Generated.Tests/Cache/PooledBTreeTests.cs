@@ -1438,4 +1438,48 @@ public class PooledBTreeTests {
 
 		public void Dispose() { }
 	}
+
+	// ───────────────────── Comparer-vs-equality contract edges ─────────────────────
+
+	[Test]
+	public void Remove_CultureEqualStringValues_BothStoredAndBothRemovable() {
+		// string.CompareTo is culture-sensitive: "abc" and "ab­c" (soft hyphen,
+		// a linguistically ignorable character) compare EQUAL without being Equals.
+		// Value comparison must be ordinal, or the single composite probe treats the
+		// tied neighbor as a definitive miss and the entry becomes unremovable — the
+		// exact leaked-index-entry class this rework eliminates.
+		var plain = "abc";
+		var withSoftHyphen = "ab­c";
+		Assume.That(plain.Equals(withSoftHyphen), Is.False);
+
+		var tree = new PooledBTree<long, string>();
+		Assert.That(tree.Add(1, plain), Is.True);
+		Assert.That(tree.Add(1, withSoftHyphen), Is.True, "culture-equal value rejected as duplicate");
+
+		Assert.That(tree.Contains(1, plain), Is.True);
+		Assert.That(tree.Contains(1, withSoftHyphen), Is.True);
+
+		Assert.That(tree.Remove(1, withSoftHyphen), Is.True, "culture-equal neighbor made the pair unfindable");
+		Assert.That(tree.Remove(1, plain), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(0));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void CompoundIndex_SeekAndTake_RefTypedComponents_SeeksFromPrefixStart() {
+		// Seek keys are built with default! sort/key halves; with the caller-supplied
+		// key as the CompareTo receiver those halves are null for reference-typed
+		// components and must sort as negative infinity instead of throwing.
+		var index = new CompoundIndex<string, string, string>();
+		index.Add("a", "s1", "k1");
+		index.Add("a", "s2", "k2");
+		index.Add("b", "s0", "k3");
+
+		var buffer = new string[4];
+		var found = index.SeekAndTake("a", 0, 4, buffer);
+
+		Assert.That(found, Is.EqualTo(2));
+		Assert.That(buffer.Take(2), Is.EqualTo(new[] { "k1", "k2" }));
+		index.Dispose();
+	}
 }

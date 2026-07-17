@@ -252,7 +252,7 @@ public long CreatedAt { get; set; }
 ```
 - **Use case**: Timestamps, prices, scores, ratings
 - **Lookup**: O(log n) binary search + range scan
-- **Storage**: `ConcurrentSortedList<TIndexKey, TKey>`
+- **Storage**: `PooledBTree<TIndexKey, TKey>` — a pooled B+ tree ordered by the composite (index key, entity key) pair; entries under equal index keys come out sorted by entity key
 - **Operations**: `Gte`, `Lte`, `Gt`, `Lt`, `Between`
 - **Generated**: Type-safe fluent range builder
 

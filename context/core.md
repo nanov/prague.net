@@ -6,7 +6,7 @@ Hot-path runtime. Apply `high-performance-net` skill rules to everything here (S
 
 ## InMemoryDataCache & IDataCache (the spine)
 
-- `InMemoryDataCache<TKey, TValue>` is the storage + query engine. `TKey : notnull, IEquatable<TKey>`.
+- `InMemoryDataCache<TKey, TValue>` is the storage + query engine. `TKey : notnull, IEquatable<TKey>, IComparable<TKey>` (comparability is required since the range index keeps equal-key runs sorted by the entity key; `CompareTo == 0` must imply `Equals`).
 - It implements `IDataCache<InMemoryDataCache<TKey,TValue>, TKey, TValue>` **directly** — a raw cache participates in joins with no codegen wrapper (`Cache => this`; `Query()` uses the cache type itself as discriminator carrier via `ExecutableQuery<InMemoryDataCache<...>>`).
 - `IDataCache<TCache, TKey, TValue>` (`IDataCacheEntity.cs`) exposes `Cache { get; }` (an `InMemoryDataCache<TKey,TValue>` **property**, not a field) and `Query()`. Resolver code reaches the inner cache via `rightCache.Cache` — never through `rightCache.Query()._leftQuery._dataCache`.
 

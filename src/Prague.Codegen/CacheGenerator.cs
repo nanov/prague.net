@@ -5124,7 +5124,7 @@ public class CacheGenerator : IIncrementalGenerator {
 			sb.AppendLine("        /// </summary>");
 			sb.AppendLine("        public static Enricher<TValue> GetEnricher<TCache, TKey, TValue>(TCache cache)");
 			sb.AppendLine("            where TCache : Prague.Core.IDataCache<TKey, TValue>");
-			sb.AppendLine("            where TKey : System.IEquatable<TKey>");
+			sb.AppendLine("            where TKey : System.IEquatable<TKey>, System.IComparable<TKey>");
 			sb.AppendLine($"            where TValue : {fullTypeName}");
 			sb.AppendLine("        {");
 			sb.AppendLine($"            return (Enricher<TValue>)(object){enricherInstance};");
