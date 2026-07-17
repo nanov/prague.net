@@ -91,6 +91,7 @@ internal sealed class CompoundIndex<TPrefix, TSort, TKey> : IDisposable
 		private readonly TKey[] _buffer;
 		private readonly int _take;
 		private int _skip;
+		private bool _done;
 		public int Found;
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -104,14 +105,16 @@ internal sealed class CompoundIndex<TPrefix, TSort, TKey> : IDisposable
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void Add(CompoundKey<TPrefix, TSort, TKey> index, byte value) {
-			// Stop if we've left the prefix
-			if (index.Prefix.CompareTo(_prefix) != 0) {
-				// Signal stop by setting Found to take (RangeFrom will keep calling, but we'll no-op)
-				Found = _take;
+			// A dedicated stop flag keeps Found truthful: the old "Found = _take" stop
+			// signal over-reported the hit count whenever the prefix run was shorter
+			// than take and another prefix followed, leaving garbage buffer tails.
+			if (_done)
+				return;
+
+			if (index.Prefix.CompareTo(_prefix) != 0 || Found >= _take) {
+				_done = true;
 				return;
 			}
-
-			if (Found >= _take) return;
 
 			if (_skip > 0) {
 				_skip--;
@@ -135,6 +138,7 @@ internal sealed class CompoundIndex<TPrefix, TSort, TKey> : IDisposable
 		private readonly int _take;
 		private ref ValueSet<TKey, DefaultKeyComparer<TKey>> _candidates;
 		private int _skip;
+		private bool _done;
 		public int Found;
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -150,12 +154,14 @@ internal sealed class CompoundIndex<TPrefix, TSort, TKey> : IDisposable
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void Add(CompoundKey<TPrefix, TSort, TKey> index, byte value) {
-			if (index.Prefix.CompareTo(_prefix) != 0) {
-				Found = _take;
+			// See SeekAggregator: a dedicated stop flag keeps Found truthful.
+			if (_done)
+				return;
+
+			if (index.Prefix.CompareTo(_prefix) != 0 || Found >= _take) {
+				_done = true;
 				return;
 			}
-
-			if (Found >= _take) return;
 
 			// Only collect if this key is in the candidate set
 			if (!_candidates.Contains(index.Key)) return;

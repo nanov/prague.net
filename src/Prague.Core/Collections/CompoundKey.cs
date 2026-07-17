@@ -28,15 +28,29 @@ public readonly struct CompoundKey<TPrefix, TSort, TKey>
 	public int CompareTo(CompoundKey<TPrefix, TSort, TKey> other) {
 		var cmp = Prefix.CompareTo(other.Prefix);
 		if (cmp != 0) return cmp;
-		cmp = Sort.CompareTo(other.Sort);
+		cmp = CompareComponent(Sort, other.Sort);
 		if (cmp != 0) return cmp;
-		return Key.CompareTo(other.Key);
+		return CompareComponent(Key, other.Key);
+	}
+
+	/// <summary>
+	///   Null-tolerant component comparison: seek keys are built with default! halves
+	///   meaning "from the very start of this prefix", so a null component sorts as
+	///   negative infinity. Stored keys never carry nulls; either side of the compare
+	///   may be the receiver in the tree's searches. The null checks fold away for
+	///   value-typed components.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int CompareComponent<T>(T a, T b) where T : IComparable<T> {
+		if (a is null) return b is null ? 0 : -1;
+		if (b is null) return 1;
+		return a.CompareTo(b);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Equals(CompoundKey<TPrefix, TSort, TKey> other) =>
 		Prefix.CompareTo(other.Prefix) == 0 &&
-		Sort.CompareTo(other.Sort) == 0 &&
+		CompareComponent(Sort, other.Sort) == 0 &&
 		Key.Equals(other.Key);
 
 	public override bool Equals(object? obj) =>

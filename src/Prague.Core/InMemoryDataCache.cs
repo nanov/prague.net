@@ -533,12 +533,15 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldIndexKey = _keySelector(key, originalValue);
 		var newIndexKey = _keySelector(key, newValue);
-		if (oldIndexKey.Equals(newIndexKey))
+		// CompareTo instead of Equals: on a constrained type parameter Equals binds to
+		// object.Equals and boxes the argument on every cache update; the constrained
+		// CompareTo call (TIndexKey : IComparable) devirtualizes and is allocation-free.
+		if (oldIndexKey.CompareTo(newIndexKey) == 0)
 			return;
 
-		_index.Add(newIndexKey, key);
-		_index.Remove(oldIndexKey, key);
-		// Size doesn't change on update (removing one, adding one)
+		// Single locked move (insert-before-remove inside): one write-lock round-trip
+		// instead of two. Size doesn't change on update (removing one, adding one).
+		_index.Update(oldIndexKey, newIndexKey, key);
 	}
 
 	public ulong GetCounters(out ulong vlaues) {
