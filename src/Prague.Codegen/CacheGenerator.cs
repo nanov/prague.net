@@ -489,6 +489,34 @@ public class CacheGenerator : IIncrementalGenerator {
 			}
 		}
 
+		// Warn when the cache KEY type is not comparable while the entity declares
+		// Range indexes: range indexes store entity keys as the tree's values, and
+		// only comparable values get the O(log n) composite point operations inside
+		// duplicate-key runs — non-comparable keys silently fall back to the legacy
+		// linear run scans, which degrade removals on batch-stamped index keys.
+		if (keyProperty != null
+			&& indexedProperties.Any(x => GetIndexType(x.IndexAttribute!) == "Range")) {
+			var cacheKeyType = keyProperty.Type;
+			var keyIsComparable = cacheKeyType.AllInterfaces
+					.Any(i => i.OriginalDefinition.ToDisplayString() == "System.IComparable<T>")
+				|| IsBuiltInComparable(cacheKeyType);
+
+			if (!keyIsComparable) {
+				var diagnostic = Diagnostic.Create(
+					new DiagnosticDescriptor(
+						"CACHE051",
+						"Non-comparable cache key puts Range indexes in slow mode",
+						"Cache key type '{0}' of '{1}' does not implement IComparable<T>. Range indexes keep entity keys as tree values; without a key order, point operations inside runs of equal index keys degrade from O(log n) to O(run length), slowing updates on batch-stamped (e.g. timestamp) indexes. Implement IComparable<T> on the key type to enable the fast composite mode.",
+						"CacheGenerator",
+						DiagnosticSeverity.Warning,
+						true),
+					keyProperty.Locations.FirstOrDefault(),
+					cacheKeyType.ToDisplayString(),
+					classSymbol.Name);
+				context.ReportDiagnostic(diagnostic);
+			}
+		}
+
 		// Find and validate properties with [DataCacheForeignKey<T>] attribute using helper.
 		// Direct-form FKs (declared on the FK property itself) come from this entity directly.
 		// Virtual FKs are dual-form declarations placed on OTHER entities that target this one
