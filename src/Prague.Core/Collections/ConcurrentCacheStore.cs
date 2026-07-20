@@ -43,8 +43,8 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		get {
 			var locksAcquired = 0;
 			try {
-				AcquireAllLocks(ref locksAcquired);
-				return GetCountNoLocks();
+				var tables = AcquireAllLocks(ref locksAcquired);
+				return GetCountNoLocks(tables);
 			} finally {
 				ReleaseLocks(locksAcquired);
 			}
@@ -767,10 +767,9 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	public void Clear() {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			if (AreAllBucketsEmpty())
+			var tables = AcquireAllLocks(ref locksAcquired);
+			if (AreAllBucketsEmpty(tables))
 				return;
-			var tables = _tables;
 			var newTables = new Tables(
 				new VolatileNode[HashHelpers.GetPrime(_initialCapacity)],
 				tables.Locks,
@@ -967,9 +966,9 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private int GetCountNoLocks() {
+	private static int GetCountNoLocks(Tables tables) {
 		var count = 0;
-		foreach (var perLock in _tables.CountPerLock)
+		foreach (var perLock in tables.CountPerLock)
 			count += perLock;
 		return count;
 	}
@@ -1066,16 +1065,16 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private bool AreAllBucketsEmpty() => !_tables.CountPerLock.AsSpan().ContainsAnyExcept(0);
+	private static bool AreAllBucketsEmpty(Tables tables) => !tables.CountPerLock.AsSpan().ContainsAnyExcept(0);
 
 	internal int CountValues(Predicate<TValue> predicate) {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			if (GetCountNoLocks() == 0)
+			var tables = AcquireAllLocks(ref locksAcquired);
+			if (GetCountNoLocks(tables) == 0)
 				return 0;
 			var count = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value))
 						++count;
@@ -1091,13 +1090,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	internal ArraySegment<TValue> GetValues(Predicate<TValue> predicate) {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return Array.Empty<TValue>();
 			var array = new TValue[count];
 			var actualCount = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value))
 						array[actualCount++] = node.Value;
@@ -1114,13 +1113,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IResultContainerInitializer<TKey, TValue>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return;
 			container.Init(count);
 			var actualCount = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value)) {
 						container.Add(node.Key, node.Value);
@@ -1139,13 +1138,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IResultContainerInitializer<TKey, TValue>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return;
 			container.Init(count);
 			var actualCount = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					++actualCount;
 					container.Add(node.Key, node.Value);
@@ -1163,13 +1162,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IResultContainerInitializer<TKey, TMapped>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return;
 			container.Init(count);
 			var actualCount = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					var result = mapper.MapOrFilter(node.Value);
 					if (result.Include) {
@@ -1189,10 +1188,10 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IJoinedResultContainer<TKey, TValue>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			if (GetCountNoLocks() == 0)
+			var tables = AcquireAllLocks(ref locksAcquired);
+			if (GetCountNoLocks(tables) == 0)
 				return;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next)
 					container.Add(node.Key, node.Value);
 			}
@@ -1205,10 +1204,10 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IJoinedResultContainer<TKey, TValue>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			if (GetCountNoLocks() == 0)
+			var tables = AcquireAllLocks(ref locksAcquired);
+			if (GetCountNoLocks(tables) == 0)
 				return;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value))
 						container.Add(node.Key, node.Value);
@@ -1223,13 +1222,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		var locksAcquired = 0;
 		var values = Array.Empty<TValue>();
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return values;
 			values = new TValue[count];
 			var index = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next)
 					values[index++] = node.Value;
 			}
@@ -1244,13 +1243,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		var locksAcquired = 0;
 		var items = Array.Empty<KeyValuePair<TKey, TValue>>();
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return items;
 			items = new KeyValuePair<TKey, TValue>[count];
 			var index = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next)
 					items[index++] = new KeyValuePair<TKey, TValue>(node.Key, node.Value);
 			}
@@ -1267,7 +1266,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 			AcquireFirstLock(out locksAcquired);
 			if (tables != _tables)
 				return;
-			if (GetCountNoLocks() < tables.Buckets.Length / 4) {
+			if (GetCountNoLocks(tables) < tables.Buckets.Length / 4) {
 				_budget = 2 * _budget;
 				if (_budget < 0)
 					_budget = int.MaxValue;
@@ -1310,10 +1309,19 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		}
 	}
 
+	// Lock-array growth copies the old lock object references forward (Array.Copy in GrowTable),
+	// so element identity is stable across generations for every index a thread has entered.
+	// Two consequences these helpers rely on: entering Locks[0] through a fresh _tables read
+	// always targets the one true first lock, and once it is held _tables is pinned — GrowTable
+	// swaps it only while holding every lock. ReleaseLocks may therefore re-read _tables.Locks
+	// and still exit exactly the objects that were entered, even if the array was swapped or
+	// acquisition threw midway. Pinned by ConcurrentCacheStoreLockingTests.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void AcquireAllLocks(ref int locksAcquired) {
+	private Tables AcquireAllLocks(ref int locksAcquired) {
 		AcquireFirstLock(out locksAcquired);
-		AcquirePostFirstLock(_tables, ref locksAcquired);
+		var tables = _tables;
+		AcquirePostFirstLock(tables, ref locksAcquired);
+		return tables;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
