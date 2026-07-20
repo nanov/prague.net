@@ -57,13 +57,12 @@ public readonly struct DefaultKeyComparer<T> : IKeyComparer<T> {
 			return s is null ? 0 : s.GetHashCode();  // Marvin32 — already well-mixed
 		}
 		if (typeof(T).IsValueType) {
-			// Fibonacci hashing (Knuth) — single multiply by golden-ratio * 2^32 = 2654435769.
+			// Fibonacci hashing (Knuth) — see HashMixing for the constant and its inverse.
 			// `int.GetHashCode()` returns the int identity, which is catastrophic for power-of-2 +
 			// linear-probe tables (e.g. ValueDictionary) on sequential IDs. The Fibonacci mix spreads
 			// bits across the full 32-bit range for ~1 extra cycle per probe. Harmless on prime-sized
 			// tables (PooledSet, ValueSet, ConcurrentCacheStore) where FastMod already diffuses bits.
-			var h = value!.GetHashCode();
-			return (int)((uint)h * 2654435769U);
+			return HashMixing.Mix(value!.GetHashCode());
 		}
 		return value is null ? 0 : EqualityComparer<T>.Default.GetHashCode(value);
 	}
