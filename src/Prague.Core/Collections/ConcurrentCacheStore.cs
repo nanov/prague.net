@@ -1072,9 +1072,9 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		var locksAcquired = 0;
 		try {
 			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
-			if (count == 0)
+			if (GetCountNoLocks() == 0)
 				return 0;
+			var count = 0;
 			foreach (var bucket in _tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value))
