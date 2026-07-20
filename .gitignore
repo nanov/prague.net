@@ -415,3 +415,6 @@ snapshots/
 
 # Serena MCP tool state
 .serena/
+
+# Per-user local tooling state
+.omp/
