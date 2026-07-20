@@ -212,6 +212,21 @@ public class ConcurrentCacheStoreHashingTests {
 		Assert.That(values[..count].ToArray(), Is.EqualTo(new[] { 100, 105, 109, 101 }));
 	}
 
+	[Test]
+	public void UpdateResultAndTryRemoveExposeDefaultComparerHash() {
+		var store = new ConcurrentCacheStore<int, string>();
+		var expected = default(DefaultKeyComparer<int>).GetHashCode(42);
+
+		var r = store.AddOrUpdate(42, "v", static (_, _, _) => true);
+		Assert.That(r.KeyHash, Is.EqualTo(expected));
+
+		var r2 = store.AddOrUpdate(42, "w", static (_, _, _) => true);
+		Assert.That(r2.KeyHash, Is.EqualTo(expected)); // update path too
+
+		Assert.That(store.TryRemove(42, out _, out var removeHash), Is.True);
+		Assert.That(removeHash, Is.EqualTo(expected));
+	}
+
 	private sealed class CollidingKey : IEquatable<CollidingKey> {
 		private readonly int _id;
 
