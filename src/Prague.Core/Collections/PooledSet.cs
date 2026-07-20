@@ -344,8 +344,14 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool Add(T item) {
-		var hashCode = GetHashCode(item);
+	public bool Add(T item) => Add(item, _comparer.GetHashCode(item));
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool Add(T item, int hashCode) {
+		// Callers pass the raw TKeyComparer hash (e.g. ConcurrentCacheStore.KeyHash); the sign-bit
+		// mask is this set's internal free-slot sentinel, applied here — never by callers.
+		System.Diagnostics.Debug.Assert(hashCode == _comparer.GetHashCode(item), "pre-hashed Add: hash produced by a different comparer");
+		hashCode &= 0x7FFFFFFF;
 		var tables = _tables;
 		System.Diagnostics.Debug.Assert(!ReferenceEquals(tables, DisposedTables), "Add after Dispose");
 		var bucket = GetBucket(tables, hashCode);
@@ -396,8 +402,13 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool Remove(T item) {
-		var hashCode = GetHashCode(item);
+	public bool Remove(T item) => Remove(item, _comparer.GetHashCode(item));
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool Remove(T item, int hashCode) {
+		// See Add: raw TKeyComparer hash in, sign-bit sentinel mask applied here.
+		System.Diagnostics.Debug.Assert(hashCode == _comparer.GetHashCode(item), "pre-hashed Remove: hash produced by a different comparer");
+		hashCode &= 0x7FFFFFFF;
 		var tables = _tables;
 		System.Diagnostics.Debug.Assert(!ReferenceEquals(tables, DisposedTables), "Remove after Dispose");
 		var bucket = GetBucket(tables, hashCode);
