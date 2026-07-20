@@ -1340,22 +1340,35 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 
-			for (var i = pos; i < count; i++) {
-				var key = Unsafe.Add(ref keys, i); // COPY, not ref: the guard, the bound compare
-				// and the emit must all see one value — a racing shrink can null the slot
-				// between three separate reads of a ref (reproduced: 1036 null keys emitted).
-				// A ref-typed key is never legitimately null, so a null here means this
-				// lock-free reader raced a shrink into a vacated slot: stop rather than emit
-				// a default entry into the caller's results. The IsReferenceOrContainsReferences
-					// guard is a JIT constant, so the whole check is erased for value-typed TIndex —
-					// `key is null` alone does NOT reliably fold and costs a box per element.
-				if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>() && key is null)
-					return;
-				// `to` is the receiver: the slot may be a vacated (null) one under a
-				// racing shrink — safe as an argument, an NRE as a receiver.
-				if (to.CompareTo(key) < 0)
-					return;
-				agg.Add(key, Unsafe.Add(ref values, i));
+			// Split on a JIT constant — exactly ONE loop is emitted per closed type. The
+			// ref-typed loop pays for the vacated-slot hazard; the value-typed loop must
+			// NOT (measured 1.28× on a full scan when it did — the copy + argument-position
+			// compare defeat the JIT's induction addressing on the emit).
+			if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>()) {
+				for (var i = pos; i < count; i++) {
+					var key = Unsafe.Add(ref keys, i); // COPY, not ref: the guard, the bound compare
+					// and the emit must all see one value — a racing shrink can null the slot
+					// between three separate reads of a ref (reproduced: 1036 null keys emitted).
+					// A ref-typed key is never legitimately null, so a null here means this
+					// lock-free reader raced a shrink into a vacated slot: stop rather than emit
+					// a default entry into the caller's results.
+					if (key is null)
+						return;
+					// `to` is the receiver: the slot may be a vacated (null) one under a
+					// racing shrink — safe as an argument, an NRE as a receiver.
+					if (to.CompareTo(key) < 0)
+						return;
+					agg.Add(key, Unsafe.Add(ref values, i));
+				}
+			}
+			else {
+				// Value-typed keys can't race to null — pre-PR-20 loop verbatim.
+				for (var i = pos; i < count; i++) {
+					ref var key = ref Unsafe.Add(ref keys, i);
+					if (key.CompareTo(to) > 0)
+						return;
+					agg.Add(key, Unsafe.Add(ref values, i));
+				}
 			}
 
 			leaf = leaf.Next;
@@ -1444,21 +1457,25 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
-			for (var i = 0; i < count; i++) {
-				var key = Unsafe.Add(ref keys, i); // COPY, not ref: the guard, the bound compare
-				// and the emit must all see one value — a racing shrink can null the slot
-				// between three separate reads of a ref (reproduced: 1036 null keys emitted).
-				// A ref-typed key is never legitimately null, so a null here means this
-				// lock-free reader raced a shrink into a vacated slot: stop rather than emit
-				// a default entry into the caller's results. The IsReferenceOrContainsReferences
-					// guard is a JIT constant, so the whole check is erased for value-typed TIndex —
-					// `key is null` alone does NOT reliably fold and costs a box per element.
-				if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>() && key is null)
-					return;
-				// `to` is the receiver — see RangeCore.
-				if (to.CompareTo(key) < 0)
-					return;
-				agg.Add(key, Unsafe.Add(ref values, i));
+			// Ref/value split on a JIT constant — see RangeCore.
+			if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>()) {
+				for (var i = 0; i < count; i++) {
+					var key = Unsafe.Add(ref keys, i); // COPY, not ref — see RangeCore.
+					if (key is null) // raced a vacated slot — see RangeCore
+						return;
+					// `to` is the receiver — see RangeCore.
+					if (to.CompareTo(key) < 0)
+						return;
+					agg.Add(key, Unsafe.Add(ref values, i));
+				}
+			}
+			else {
+				for (var i = 0; i < count; i++) {
+					ref var key = ref Unsafe.Add(ref keys, i);
+					if (key.CompareTo(to) > 0)
+						return;
+					agg.Add(key, Unsafe.Add(ref values, i));
+				}
 			}
 
 			leaf = leaf.Next;
@@ -1489,21 +1506,25 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 
-			for (var i = 0; i < count; i++) {
-				var key = Unsafe.Add(ref keys, i); // COPY, not ref: the guard, the bound compare
-				// and the emit must all see one value — a racing shrink can null the slot
-				// between three separate reads of a ref (reproduced: 1036 null keys emitted).
-				// A ref-typed key is never legitimately null, so a null here means this
-				// lock-free reader raced a shrink into a vacated slot: stop rather than emit
-				// a default entry into the caller's results. The IsReferenceOrContainsReferences
-					// guard is a JIT constant, so the whole check is erased for value-typed TIndex —
-					// `key is null` alone does NOT reliably fold and costs a box per element.
-				if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>() && key is null)
-					return;
-				// `to` is the receiver — see RangeCore.
-				if (to.CompareTo(key) <= 0)
-					return;
-				agg.Add(key, Unsafe.Add(ref values, i));
+			// Ref/value split on a JIT constant — see RangeCore.
+			if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>()) {
+				for (var i = 0; i < count; i++) {
+					var key = Unsafe.Add(ref keys, i); // COPY, not ref — see RangeCore.
+					if (key is null) // raced a vacated slot — see RangeCore
+						return;
+					// `to` is the receiver — see RangeCore.
+					if (to.CompareTo(key) <= 0)
+						return;
+					agg.Add(key, Unsafe.Add(ref values, i));
+				}
+			}
+			else {
+				for (var i = 0; i < count; i++) {
+					ref var key = ref Unsafe.Add(ref keys, i);
+					if (key.CompareTo(to) >= 0)
+						return;
+					agg.Add(key, Unsafe.Add(ref values, i));
+				}
 			}
 
 			leaf = leaf.Next;
@@ -1623,22 +1644,27 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
 			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
 
-			for (var i = pos; i < count; i++) {
-				var key = Unsafe.Add(ref keys, i); // COPY, not ref: the guard, the bound compare
-				// and the emit must all see one value — a racing shrink can null the slot
-				// between three separate reads of a ref (reproduced: 1036 null keys emitted).
-				// A ref-typed key is never legitimately null, so a null here means this
-				// lock-free reader raced a shrink into a vacated slot: stop rather than emit
-				// a default entry into the caller's results. The IsReferenceOrContainsReferences
-					// guard is a JIT constant, so the whole check is erased for value-typed TIndex —
-					// `key is null` alone does NOT reliably fold and costs a box per element.
-				if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>() && key is null)
-					return;
-				// `to` is the receiver — see RangeCore.
-				var cmp = to.CompareTo(key);
-				if (includeTo ? cmp < 0 : cmp <= 0)
-					return;
-				agg.Add(key, Unsafe.Add(ref values, i));
+			// Ref/value split on a JIT constant — see RangeCore.
+			if (RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>()) {
+				for (var i = pos; i < count; i++) {
+					var key = Unsafe.Add(ref keys, i); // COPY, not ref — see RangeCore.
+					if (key is null) // raced a vacated slot — see RangeCore
+						return;
+					// `to` is the receiver — see RangeCore.
+					var cmp = to.CompareTo(key);
+					if (includeTo ? cmp < 0 : cmp <= 0)
+						return;
+					agg.Add(key, Unsafe.Add(ref values, i));
+				}
+			}
+			else {
+				for (var i = pos; i < count; i++) {
+					ref var key = ref Unsafe.Add(ref keys, i);
+					var cmp = key.CompareTo(to);
+					if (includeTo ? cmp > 0 : cmp >= 0)
+						return;
+					agg.Add(key, Unsafe.Add(ref values, i));
+				}
 			}
 
 			leaf = leaf.Next;
