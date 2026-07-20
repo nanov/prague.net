@@ -140,15 +140,40 @@ second, same benchmark re-run; both result tables recorded in the PR/changelog.
 Expectation (honest): `(int,int)` gains measurable but modest (its hash is `HashCode.Combine`-
 class); string-PK `UpdateAll` is where the win compounds. The benchmark decides.
 
+**Benchmark verdict (2026-07-20, M4 Pro, N=100k, two confirming runs):** composites won
+(AddAll −8.0%, UpdateAll −9.0%, RemoveAll −0.6%) but all string scenarios regressed
+(AddAll +13.9%, UpdateAll +18.8%, RemoveAll +55.7%) — the Marvin32 stored-value descent
+cost in duplicate runs swamps the saved incoming hash. Tripwire held; nothing shipped.
+
+### 6. Leaf-stored hashes (decision 5, user-approved — replaces the DJB2-revert fallback)
+
+`PooledBTree` materializes the tiebreak hash next to each stored value, eliminating stored-value
+re-hashing entirely: composite-descent comparisons become array reads.
+
+- `LeafNode` gains `int[] ValueHashes` (pool-rented, `LeafCapacity`); `InternalNode` gains
+  `int[] SepValueHashes` (pool-rented, `InternalCapacity - 1`). Returned to the pool with their
+  siblings in `ReturnToPool`.
+- Invariant: `ValueHashes[i] == HashOf(Values[i])` for every live slot; separators mirror
+  `SepValues`. Every write/shift/copy/split/merge of `Values`/`SepValues` moves the hash array
+  in lockstep; hashes ride the existing publication order (written before the `Count`/link
+  stores that make a slot reader-visible), inheriting the documented staleness model unchanged.
+- Every `HashOf(<stored expression>)` call site is replaced by the corresponding array read
+  (internal-node composite child search, leaf composite lower bound, `TryFindPair` probes,
+  backwards prev-leaf scans, append-fast-path last-element check, `RepairPath`). After this,
+  `HashOf` runs only on INCOMING values: public entry points and `Contains`.
+- At insert, the hash is already in hand (threaded, or computed once in the public wrapper) —
+  stored, never recomputed.
+- Unique-key trees carry the arrays without reading them: +4 bytes/entry always-on. Lazy
+  materialization at the duplicate transition was rejected — it would need an O(n) backfill
+  pause under the write lock.
+- With decision 4 (Marvin threaded in) plus this, the string btree mutation path computes zero
+  string hashes.
+
 ## Non-goals
 
 - `DefaultKeyComparer` / `ValueDictionary` unchanged (decision 1).
-- BTree re-hashing of **stored** values during composite descent
-  (`HashOf(sepValues[mid])`/`HashOf(leaf.Values[pos])`, O(log n) per op) — caching hashes in
-  leaves is a separate memory-tradeoff optimization; this change only switches the function
-  those rehashes use for strings (decision 4) and measures it.
-- Read/query paths — already hash-reusing where it matters.
 - Group-key (`TIndexKey`) hashing in index-owned stores — different key per index, nothing to share.
+- Read/query paths — already hash-reusing where it matters.
 
 ## Risks & verification
 

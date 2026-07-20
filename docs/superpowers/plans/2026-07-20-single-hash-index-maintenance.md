@@ -848,3 +848,70 @@ Expected shape: `UpdateAll_String` shows the largest improvement; `AddAll_Compos
 git add docs/superpowers/plans/2026-07-20-single-hash-bench-results.md
 git commit -m "bench: single-hash index maintenance before/after results"
 ```
+
+---
+
+### Task 9: PooledBTree leaf-stored hashes (tripwire response)
+
+Task 8's tripwire fired: composites −8.0/−9.0/−0.6%, strings +13.9/+18.8/+55.7% (two confirming
+runs). Decision 5 (spec §6, user-approved): store the tiebreak hash next to each stored value so
+composite-descent comparisons become array reads — instead of the DJB2-revert fallback.
+
+**Files:**
+- Modify: `src/Prague.Core/Collections/PooledBTree.cs` (LeafNode, InternalNode, every
+  Values/SepValues write/shift/copy/split/merge site, every `HashOf(<stored expression>)` call site)
+- Test: `tests/Prague.Generated.Tests/Cache/PooledBTreePreHashedTests.cs` (extend if a new seam
+  appears; the existing differential + churn suites are the main evidence)
+
+**Interfaces:**
+- Consumes: the Task 5 pre-hashed entry points (hash already in hand at insert).
+- Produces: no signature changes — internal representation only.
+
+- [ ] **Step 1: Add the arrays**
+
+`LeafNode` gains `public int[] ValueHashes` rented at `LeafCapacity`; `InternalNode` gains
+`public int[] SepValueHashes` rented at `InternalCapacity - 1`. Both rented in the ctor beside
+their siblings, both returned in `ReturnToPool` with the same try/catch pattern (no clear needed
+— int arrays).
+
+- [ ] **Step 2: Maintain the invariant at every mutation site**
+
+`ValueHashes[i] == HashOf(Values[i])` for live slots; `SepValueHashes` mirrors `SepValues`.
+Mechanically: wherever `Values`/`SepValues` is written or moved (insert shift, append fast path,
+split copy loops incl. the ThreadStatic split buffers — widen `_splitSepValuesBuf` handling with
+a parallel `int[]` buffer — merge/borrow, separator updates, RepairPath), the hash array gets the
+identical operation. Hash writes happen BEFORE the `Count`/link publication that makes a slot
+reader-visible (same ordering as Values today).
+
+- [ ] **Step 3: Replace stored-value HashOf call sites with array reads**
+
+Internal-node composite child search (`HashOf(sepValues[mid])` → `sepValueHashes[mid]`), leaf
+composite lower bound, `TryFindPair` probes, backwards prev-leaf scans, append-fast-path
+last-element check, `RepairPath` (`HashOf(target.Values[0])` → `target.ValueHashes[0]`).
+After this step the ONLY `HashOf` calls remaining are on incoming values (public wrappers,
+`Contains`). Grep-verify: `grep -n "HashOf(" src/Prague.Core/Collections/PooledBTree.cs` — every
+surviving hit must be an incoming-value site; list them in the report.
+
+- [ ] **Step 4: Run the btree suites (Release AND Debug, both TFMs)**
+
+Run: `dotnet test tests/Prague.Generated.Tests -c Release --filter "FullyQualifiedName~PooledBTree"`
+Run: `dotnet test tests/Prague.Generated.Tests -c Debug --filter "FullyQualifiedName~PooledBTree"`
+Run: `dotnet test tests/Prague.Core.Tests -c Debug` (index traffic through the tree with asserts)
+Expected: all green — representation change is invisible.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Prague.Core/Collections/PooledBTree.cs tests/Prague.Generated.Tests
+git commit -m "perf: store tiebreak hashes in PooledBTree nodes"
+```
+
+---
+
+### Task 10: Re-verify and record final numbers
+
+Repeat Task 8 verbatim (same commands, same `-f net9.0`, same tripwire) at the new HEAD. The
+`## After`/`## Delta` sections are written fresh against the ORIGINAL baseline. Additionally
+record an intermediate note: the pre-Task-9 measurement (composites −8/−9/−0.6%, strings
++14/+19/+56%) lives in the ledger and task-8 report for the PR narrative. Expected shape now:
+ALL scenarios ≤ baseline; strings should show the largest wins.
