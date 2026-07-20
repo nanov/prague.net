@@ -252,9 +252,9 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool ContainsKey(TIndexKey key) => _cache.TryGetValue(key, out _);
 
-	public void Update(TKey key, TValue orginialValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue orginialValue, TValue newValue, long timestampMs) {
 		if (_collectionSelector is not null) {
-			UpdateCollection(key, orginialValue, newValue, timestampMs);
+			UpdateCollection(key, keyHash, orginialValue, newValue, timestampMs);
 			return;
 		}
 
@@ -268,21 +268,21 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		// Different index keys - add to new first, then remove from old
 		// This ensures the key is always visible (may temporarily duplicate, but won't disappear)
 		var r = _cache.AddOrUpdate(newIndexKey,
-			static (_, k) => { var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(); s.Add(k); return s; },
-			static (_, hs, k) => { hs.Add(k); return hs; }, key);
+			static (_, a) => { var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(); s.Add(a.Key, a.Hash); return s; },
+			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; }, (Key: key, Hash: keyHash));
 
 		var sizeDelta = (ulong)r.Value.Count;
 		if (r.OldValue is not null)
 			sizeDelta -= (ulong)r.OldValue.Count;
 		ApproximateCount += sizeDelta;
 
-		var rr = _cache.UpdateOrRemove(oldIndexKey, static (_, hs, ov) => {
-			hs.Remove(ov);
+		var rr = _cache.UpdateOrRemove(oldIndexKey, static (_, hs, a) => {
+			hs.Remove(a.Key, a.Hash);
 			if (hs.Count > 0)
 				return (true, hs);
 			hs.Dispose();
 			return (false, null);
-		}, key);
+		}, (Key: key, Hash: keyHash));
 
 		sizeDelta = 0UL;
 		if (rr.OldValue is not null)
@@ -292,50 +292,50 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 			sizeDelta += (ulong)rr.NewValue.Count;
 
 		ApproximateCount += sizeDelta;
-		_cacheReverse?.Add(newIndexKey, key, timestampMs);
+		_cacheReverse?.Add(newIndexKey, keyHash, key, timestampMs);
 	}
 
 	// Population is unified onto a span path: scalar feeds a zero-alloc 1-item span over the computed
 	// key; collection feeds a span over the concrete List<T>/array. Both loop the per-key helpers.
 
-	public void Add(TKey key, TValue value, long timestampMs) {
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) {
 		if (_collectionSelector is not null) {
-			AddCollection(key, value, timestampMs);
+			AddCollection(key, keyHash, value, timestampMs);
 			return;
 		}
 
 		var indexKey = KeySelector(key, value);
-		AddKeys(MemoryMarshal.CreateReadOnlySpan(ref indexKey, 1), key, timestampMs);
+		AddKeys(MemoryMarshal.CreateReadOnlySpan(ref indexKey, 1), key, keyHash, timestampMs);
 	}
 
-	public void Remove(TKey key, TValue orginialValue, long timestampMs) {
+	public void Remove(TKey key, int keyHash, TValue orginialValue, long timestampMs) {
 		if (_collectionSelector is not null) {
-			RemoveCollection(key, orginialValue, timestampMs);
+			RemoveCollection(key, keyHash, orginialValue, timestampMs);
 			return;
 		}
 
 		var indexKey = KeySelector(key, orginialValue);
-		RemoveKeys(MemoryMarshal.CreateReadOnlySpan(ref indexKey, 1), key, timestampMs);
+		RemoveKeys(MemoryMarshal.CreateReadOnlySpan(ref indexKey, 1), key, keyHash, timestampMs);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void AddKeys(ReadOnlySpan<TIndexKey> indexKeys, TKey key, long timestampMs) {
+	private void AddKeys(ReadOnlySpan<TIndexKey> indexKeys, TKey key, int keyHash, long timestampMs) {
 		foreach (var indexKey in indexKeys)
-			AddUnderKey(indexKey, key, timestampMs);
+			AddUnderKey(indexKey, key, keyHash, timestampMs);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void RemoveKeys(ReadOnlySpan<TIndexKey> indexKeys, TKey key, long timestampMs) {
+	private void RemoveKeys(ReadOnlySpan<TIndexKey> indexKeys, TKey key, int keyHash, long timestampMs) {
 		foreach (var indexKey in indexKeys)
-			RemoveUnderKey(indexKey, key, timestampMs);
+			RemoveUnderKey(indexKey, key, keyHash, timestampMs);
 	}
 
 	// Registers/unregisters one (indexKey -> key) edge. Idempotent on Add; a no-op on Remove once the
 	// edge is gone (so duplicate elements in a collection cannot mis-count _keysSize/ApproximateCount).
-	internal void AddUnderKey(TIndexKey indexKey, TKey key, long timestampMs) {
+	internal void AddUnderKey(TIndexKey indexKey, TKey key, int keyHash, long timestampMs) {
 		var r = _cache.AddOrUpdate(indexKey,
-			static (_, k) => { var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(); s.Add(k); return s; },
-			static (_, hs, k) => { hs.Add(k); return hs; }, key);
+			static (_, a) => { var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(); s.Add(a.Key, a.Hash); return s; },
+			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; }, (Key: key, Hash: keyHash));
 
 		var sizeDelta = (ulong)r.Value.Count;
 		var keyDelta = 1UL;
@@ -346,19 +346,19 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 
 		_keysSize += keyDelta;
 		ApproximateCount += sizeDelta;
-		_cacheReverse?.Add(indexKey, key, timestampMs);
+		_cacheReverse?.Add(indexKey, keyHash, key, timestampMs);
 	}
 
-	internal void RemoveUnderKey(TIndexKey indexKey, TKey key, long timestampMs) {
-		_cacheReverse?.Remove(indexKey, key, timestampMs);
+	internal void RemoveUnderKey(TIndexKey indexKey, TKey key, int keyHash, long timestampMs) {
+		_cacheReverse?.Remove(indexKey, keyHash, key, timestampMs);
 		var r = _cache.UpdateOrRemove(indexKey,
-			static (_, hs, ov) => {
-				hs.Remove(ov);
+			static (_, hs, a) => {
+				hs.Remove(a.Key, a.Hash);
 				if (hs.Count > 0)
 					return (true, hs);
 				hs.Dispose();
 				return (false, null);
-			}, key);
+			}, (Key: key, Hash: keyHash));
 
 		var sizeDelta = 0UL;
 		if (r.OldValue is not null)
@@ -374,45 +374,45 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 
 	// ── Collection-backed population (register the owner under each element) ──
 
-	private void AddCollection(TKey key, TValue value, long timestampMs) {
+	private void AddCollection(TKey key, int keyHash, TValue value, long timestampMs) {
 		var coll = _collectionSelector!(key, value);
 		switch (coll) {
 			case null:
 				return;
 			case TIndexKey[] arr:
-				AddKeys(arr, key, timestampMs);
+				AddKeys(arr, key, keyHash, timestampMs);
 				return;
 			case List<TIndexKey> list:
-				AddKeys(CollectionsMarshal.AsSpan(list), key, timestampMs);
+				AddKeys(CollectionsMarshal.AsSpan(list), key, keyHash, timestampMs);
 				return;
 			default:
 				for (var i = 0; i < coll.Count; i++)
-					AddUnderKey(coll[i], key, timestampMs);
+					AddUnderKey(coll[i], key, keyHash, timestampMs);
 				return;
 		}
 	}
 
-	private void RemoveCollection(TKey key, TValue value, long timestampMs) {
+	private void RemoveCollection(TKey key, int keyHash, TValue value, long timestampMs) {
 		var coll = _collectionSelector!(key, value);
 		switch (coll) {
 			case null:
 				return;
 			case TIndexKey[] arr:
-				RemoveKeys(arr, key, timestampMs);
+				RemoveKeys(arr, key, keyHash, timestampMs);
 				return;
 			case List<TIndexKey> list:
-				RemoveKeys(CollectionsMarshal.AsSpan(list), key, timestampMs);
+				RemoveKeys(CollectionsMarshal.AsSpan(list), key, keyHash, timestampMs);
 				return;
 			default:
 				for (var i = 0; i < coll.Count; i++)
-					RemoveUnderKey(coll[i], key, timestampMs);
+					RemoveUnderKey(coll[i], key, keyHash, timestampMs);
 				return;
 		}
 	}
 
 	// Element-set diff: add (new \ old) first for reader visibility, then remove (old \ new). Runs only on
 	// value changes (the cold update path), so a plain membership scan over IReadOnlyList is fine here.
-	private void UpdateCollection(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+	private void UpdateCollection(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldColl = _collectionSelector!(key, originalValue);
 		var newColl = _collectionSelector!(key, newValue);
 		var oldCount = oldColl?.Count ?? 0;
@@ -422,13 +422,13 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		for (var i = 0; i < newCount; i++) {
 			var e = newColl![i];
 			if (!ListContains(oldColl, oldCount, e, cmp))
-				AddUnderKey(e, key, timestampMs);
+				AddUnderKey(e, key, keyHash, timestampMs);
 		}
 
 		for (var i = 0; i < oldCount; i++) {
 			var e = oldColl![i];
 			if (!ListContains(newColl, newCount, e, cmp))
-				RemoveUnderKey(e, key, timestampMs);
+				RemoveUnderKey(e, key, keyHash, timestampMs);
 		}
 	}
 
@@ -753,13 +753,13 @@ public sealed class CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TInd
 
 	public ulong GetCounters(out ulong values) => Forward.GetCounters(out values);
 
-	public void Add(TKey key, TValue value, long timestampMs) =>
-		ApplyAll(_collectionSelector(key, value), key, timestampMs, add: true);
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) =>
+		ApplyAll(_collectionSelector(key, value), key, keyHash, timestampMs, add: true);
 
-	public void Remove(TKey key, TValue originalValue, long timestampMs) =>
-		ApplyAll(_collectionSelector(key, originalValue), key, timestampMs, add: false);
+	public void Remove(TKey key, int keyHash, TValue originalValue, long timestampMs) =>
+		ApplyAll(_collectionSelector(key, originalValue), key, keyHash, timestampMs, add: false);
 
-	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldColl = _collectionSelector(key, originalValue);
 		var newColl = _collectionSelector(key, newValue);
 		var oldCount = oldColl?.Count ?? 0;
@@ -769,47 +769,52 @@ public sealed class CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TInd
 		for (var i = 0; i < newCount; i++) {
 			var e = newColl![i];
 			if (!Contains(oldColl, oldCount, e, cmp))
-				ApplyOne(e, key, timestampMs, add: true);
+				ApplyOne(e, key, keyHash, timestampMs, add: true);
 		}
 
 		for (var i = 0; i < oldCount; i++) {
 			var e = oldColl![i];
 			if (!Contains(newColl, newCount, e, cmp))
-				ApplyOne(e, key, timestampMs, add: false);
+				ApplyOne(e, key, keyHash, timestampMs, add: false);
 		}
 	}
 
-	private void ApplyAll(IReadOnlyList<TIndexKey>? coll, TKey key, long timestampMs, bool add) {
+	private void ApplyAll(IReadOnlyList<TIndexKey>? coll, TKey key, int keyHash, long timestampMs, bool add) {
 		switch (coll) {
 			case null:
 				return;
 			case TIndexKey[] arr:
-				ApplySpan(arr, key, timestampMs, add);
+				ApplySpan(arr, key, keyHash, timestampMs, add);
 				return;
 			case List<TIndexKey> list:
-				ApplySpan(CollectionsMarshal.AsSpan(list), key, timestampMs, add);
+				ApplySpan(CollectionsMarshal.AsSpan(list), key, keyHash, timestampMs, add);
 				return;
 			default:
 				for (var i = 0; i < coll.Count; i++)
-					ApplyOne(coll[i], key, timestampMs, add);
+					ApplyOne(coll[i], key, keyHash, timestampMs, add);
 				return;
 		}
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void ApplySpan(ReadOnlySpan<TIndexKey> elements, TKey key, long timestampMs, bool add) {
+	private void ApplySpan(ReadOnlySpan<TIndexKey> elements, TKey key, int keyHash, long timestampMs, bool add) {
 		foreach (var element in elements)
-			ApplyOne(element, key, timestampMs, add);
+			ApplyOne(element, key, keyHash, timestampMs, add);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void ApplyOne(TIndexKey element, TKey key, long timestampMs, bool add) {
+	private void ApplyOne(TIndexKey element, TKey key, int keyHash, long timestampMs, bool add) {
+		// Forward's per-element set stores the MAIN key: thread the store-provided keyHash into the
+		// pre-hashed set mutation. Reverse's per-owner set stores the ELEMENT — keyHash covers the
+		// main key only (Reverse spends it as its store key, hashed internally as before), so the
+		// element's set hash is computed here with the same comparer the set itself uses.
+		var elementHash = default(DefaultKeyComparer<TIndexKey>).GetHashCode(element);
 		if (add) {
-			Forward.AddUnderKey(element, key, timestampMs);
-			Reverse.AddUnderKey(key, element, timestampMs);
+			Forward.AddUnderKey(element, key, keyHash, timestampMs);
+			Reverse.AddUnderKey(key, element, elementHash, timestampMs);
 		} else {
-			Forward.RemoveUnderKey(element, key, timestampMs);
-			Reverse.RemoveUnderKey(key, element, timestampMs);
+			Forward.RemoveUnderKey(element, key, keyHash, timestampMs);
+			Reverse.RemoveUnderKey(key, element, elementHash, timestampMs);
 		}
 	}
 

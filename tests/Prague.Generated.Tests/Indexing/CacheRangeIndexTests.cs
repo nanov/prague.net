@@ -3,6 +3,7 @@ namespace Prague.Generated.Tests.Indexing;
 using System.Diagnostics;
 using System.Globalization;
 using Prague.Core;
+using Prague.Core.Collections;
 using Prague.Generated.Tests.Fixtures;
 using Prague.Generated.Tests.Fixtures.Entities;
 using Prague.Generated.Tests.Fixtures.Enums;
@@ -1505,8 +1506,8 @@ public class CacheRangeIndexTests {
 				"the fixture keys must be ordinally different");
 
 			var index = new CacheRangeIndex<int, string, string>((_, value) => value);
-			index.Add(1, oldKey, 0);
-			index.Update(1, oldKey, newKey, 0);
+			index.Add(1, default(DefaultKeyComparer<int>).GetHashCode(1), oldKey, 0);
+			index.Update(1, default(DefaultKeyComparer<int>).GetHashCode(1), oldKey, newKey, 0);
 
 			Assert.That(index.GetCounters(out _), Is.EqualTo(1UL), "update leaked or dropped an index entry");
 			Assert.That(index.TryGetMin(out var storedKey, out var entityKey), Is.True);
@@ -1531,8 +1532,8 @@ public class CacheRangeIndexTests {
 			         }) {
 				CultureInfo.CurrentCulture = culture;
 				var index = new CacheRangeIndex<int, string, string>((_, value) => value);
-				index.Add(1, oldKey, 0);
-				index.Update(1, oldKey, newKey, 0);
+				index.Add(1, default(DefaultKeyComparer<int>).GetHashCode(1), oldKey, 0);
+				index.Update(1, default(DefaultKeyComparer<int>).GetHashCode(1), oldKey, newKey, 0);
 				Assert.That(index.TryGetMin(out var storedKey, out _), Is.True);
 				results.Add(storedKey);
 			}
