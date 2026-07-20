@@ -190,3 +190,18 @@ re-hashing entirely: composite-descent comparisons become array reads.
   (`PooledBTreeDifferentialTests`, `CacheCollectionKeyValueListIndexTests`, hashing tests) must
   pass unchanged — the change is invisible except for fewer hash computations and the
   run-internal-order change above.
+
+## Follow-up candidates (out of scope, recorded 2026-07-21)
+
+- **Node-shell pooling through ReaderGate:** PooledBTree pools arrays but allocates
+  LeafNode/InternalNode shells per split. The existing post-grace `ReclaimToPool` hook is the
+  safe recycling point for the shells themselves (a bounded freelist per closed generic).
+  Benchmark-gated; touches the reclamation path hardened here. (Prompted by reviewing a
+  skip-list multimap alternative — rejected for lock-free-reader UAF on pooled nodes, mixed
+  CAS/plain-write value chains, remove livelock after marking, no range API, O(run) duplicate
+  removal, ~10x per-entry memory. Its optimistic lazy-locking recipe is only relevant if the
+  single-writer-per-cache model ever changes; the B+tree analogue would be B-link, not per-node
+  locks.)
+- **`UpdateOrRemoveResult.KeyHash`:** Task 3 surfaced the hash on `UpdateResult`/`TryRemove`
+  only; `LastUpdatedIndex.Remove` still recomputes its group-key hash once (cost identical to
+  pre-change).
