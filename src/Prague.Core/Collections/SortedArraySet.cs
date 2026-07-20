@@ -14,7 +14,7 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 
 		private readonly int _count;
 
-		private readonly bool _isPooled;
+		private bool _isPooled;
 
 		private int _index;
 
@@ -48,6 +48,7 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 		{
 			if (_isPooled)
 			{
+				_isPooled = false; // fire-once: a second Dispose must not decrement the refcount again
 				_owner.ReleasePooledArray(_items);
 			}
 		}

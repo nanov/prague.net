@@ -114,6 +114,30 @@ public class CollectionLeakTests {
 			enumerator.Dispose();
 		});
 
+	[Test]
+	public void SortedArraySet_EnumeratorDoubleDispose_DoesNotDoubleRelease() =>
+		LeakAssert.Balanced(static () => {
+			var set = new SortedArraySet<int>();
+			for (var i = 0; i < 100; i++)
+				set.Add(i);
+			var enumerator = set.GetEnumerator();
+			enumerator.MoveNext();
+			enumerator.Dispose();
+			enumerator.Dispose(); // must be a no-op, not a second refcount decrement
+			Assert.That(set.Contains(50), Is.True, "set must still be usable");
+
+			// The double-dispose above (when unguarded) already drives the refcount to
+			// zero and returns the array to the pool while the set is still live. A
+			// second acquire/dispose cycle re-increments that corrupted refcount and
+			// hands out the very same, already-returned array; disposing it drives the
+			// refcount to zero a second time, forcing a real double-return of one array
+			// instance — that's what TrackingArrayPool flags as a violation.
+			var enumerator2 = set.GetEnumerator();
+			enumerator2.MoveNext();
+			enumerator2.Dispose();
+			set.Dispose();
+		});
+
 	// ── ValueSet ─────────────────────────────────────────────────────────────
 
 	[Test]
