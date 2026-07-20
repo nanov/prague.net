@@ -126,8 +126,12 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-	public bool Add(T item)
-		=> AddIfNotPresent(item);
+	public bool Add(T item) {
+		// _size == 0 after Dispose while IsInitlized stays true: FastMod with size 0 produces a
+		// garbage bucket and Unsafe.Add writes out of bounds. Debug-only by design (2026-07-20).
+		Debug.Assert(!IsInitlized || _size > 0, "ValueSet used after Dispose");
+		return AddIfNotPresent(item);
+	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
 	public bool Contains(T item) {

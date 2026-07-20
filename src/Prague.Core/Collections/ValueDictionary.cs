@@ -52,6 +52,7 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
 	public void Add(TKey key, TValue value) {
 		Debug.Assert(Count < _values.Length, "ValueDictionary capacity exceeded");
+		Debug.Assert(_metadata != null, "ValueDictionary used after Dispose");
 		var hashCode = GetHashCode(key);
 		var capacityMask = _capacityMask;
 		var num = hashCode & capacityMask;
