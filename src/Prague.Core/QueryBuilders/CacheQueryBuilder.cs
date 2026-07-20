@@ -1801,6 +1801,16 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 			// ExtractKeyedResults defaults the container's dict/disposer, so on success this
 			// is a no-op; on a throw it returns everything the container still owns.
 			container.Dispose();
+			// A seeded/auto-populated candidate set the base execution never consumed is still
+			// ours. Base execution disposes candidates BY REF through this same storage
+			// (_leftQuery.Candidates is a ref to the leaf's field — verified Task 3 Step 1), so
+			// after a legitimate consume the field's arrays are already null and this Dispose is a
+			// no-op (ValueSet.Dispose is idempotent: ReturnArrays nulls + null-guards each array).
+			// On a throw before base execution the arrays are still rented — this returns them
+			// exactly once. IsInitlized only gates the never-seeded (default) case.
+			var candidates = _leftQuery.Candidates;
+			if (candidates.IsInitlized)
+				candidates.Dispose();
 		}
 	}
 

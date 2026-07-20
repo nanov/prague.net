@@ -183,6 +183,27 @@ public class QueryJoinLeakTests {
 			results.Dispose();
 		});
 
+	// ── Nested JoinMany: inner plan throws in its indexed-inner phase ─────────
+	// The nested-join seam (ExecuteCoreJoinedKeyed) seeds the inner plan's candidate set
+	// via UnsafeSeedCandidates BEFORE running the inner plan. The inner plan here carries an
+	// InnerJoinOne whose narrowing (UnsafeExecuteIndexedInner) applies a throwing filter — the
+	// throw lands after the candidates are seeded but before the inner base execution consumes
+	// them. The seeded set's rented arrays are the outer union (>StackSize, so pooled); if the
+	// keyed pipeline's finally does not release the still-owned candidate set, they leak.
+	[Test]
+	public void NestedJoinMany_InnerPlanThrowsBeforeBase_DoesNotLeakSeededCandidates() =>
+		LeakAssert.Balanced(() => {
+			try {
+				_left.Query().Where(static l => l.Id < 50)
+					.JoinMany(_rightMany, _manyIndex,
+						db => db.InnerJoinOne(_right,
+							static q => q.Where(static _ => throw new InvalidOperationException("hostile nested filter"))))
+					.ExecutePooled();
+				Assert.Fail("nested filter must throw");
+			} catch (InvalidOperationException) {
+			}
+		});
+
 	[Test]
 	public void InnerJoinMany_Count_MatchesExecuteCount() =>
 		LeakAssert.Balanced(() => {
