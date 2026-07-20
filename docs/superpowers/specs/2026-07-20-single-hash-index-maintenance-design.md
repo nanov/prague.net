@@ -131,6 +131,8 @@ Set-index cardinality: groups of ~100 (genuinely "many"). Scenarios per model:
   `[IterationSetup]`; N via `[Params]`, default 100_000).
 - `UpdateAll`: prefilled cache; re-`AddOrUpdate` every key with shifted `CategoryId`/`RegionId`/
   `Timestamp`/`Age` so the Update path moves every index group (the double-hash case).
+- `RemoveAll`: prefilled cache (repopulated per iteration via `[IterationSetup]`); `Remove` every
+  key — covers the third threaded mutation path.
 
 Methodology: benchmark lands and runs on current code first (baseline), the optimization lands
 second, same benchmark re-run; both result tables recorded in the PR/changelog.
