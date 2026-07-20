@@ -533,10 +533,12 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldIndexKey = _keySelector(key, originalValue);
 		var newIndexKey = _keySelector(key, newValue);
-		// CompareTo instead of Equals: on a constrained type parameter Equals binds to
-		// object.Equals and boxes the argument on every cache update; the constrained
-		// CompareTo call (TIndexKey : IComparable) devirtualizes and is allocation-free.
-		if (oldIndexKey.CompareTo(newIndexKey) == 0)
+		// EqualityComparer<T>.Default, not CompareTo: the raw CompareTo is culture-sensitive
+		// for string index keys, so "Strasse" and "Straße" would compare equal under de-DE
+		// and the update would be skipped, leaving the index on the stale key — and the
+		// answer would differ per thread. This keeps the de-boxing win (the comparer is a
+		// JIT intrinsic that devirtualizes for value types) without the culture dependency.
+		if (EqualityComparer<TIndexKey>.Default.Equals(oldIndexKey, newIndexKey))
 			return;
 
 		// Single locked move (insert-before-remove inside): one write-lock round-trip

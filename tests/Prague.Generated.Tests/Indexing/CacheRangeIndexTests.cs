@@ -1,6 +1,7 @@
 namespace Prague.Generated.Tests.Indexing;
 
 using System.Diagnostics;
+using System.Globalization;
 using Prague.Core;
 using Prague.Generated.Tests.Fixtures;
 using Prague.Generated.Tests.Fixtures.Entities;
@@ -1477,5 +1478,70 @@ public class CacheRangeIndexTests {
 		var aroundZero = rangeIndex.GetValuesBetween(-25, 25).ToList();
 		Assert.That(aroundZero, Has.Count.EqualTo(1));
 		Assert.That(aroundZero[0], Is.EqualTo(3));
+	}
+
+	// ───────────────────── Ordinal-vs-culture Update semantics ─────────────────────
+
+	[Test]
+	[TestCase("de-DE", "abc", "ab\u00ADc")]
+	[TestCase("", "abc", "ab\u00ADc")]
+	[TestCase("de-DE", "Strasse", "Stra\u00DFe")]
+	[TestCase("", "Strasse", "Stra\u00DFe")]
+	public void RangeIndex_Update_CultureEqualButOrdinallyDifferentKeys_MovesIndexToNewKey(
+		string cultureName, string oldKey, string newKey) {
+		// CacheRangeIndex.Update short-circuits when the old and new index keys match.
+		// string.CompareTo is CULTURE-sensitive, so a raw CompareTo(...) == 0 short-circuit
+		// skipped updates between ordinally-distinct keys that the current culture collates
+		// as equal — leaving the index on the stale key, with an answer that varied per
+		// thread culture. EqualityComparer<TIndexKey>.Default is ordinal for string.
+		var original = CultureInfo.CurrentCulture;
+		try {
+			CultureInfo.CurrentCulture =
+				cultureName.Length == 0 ? CultureInfo.InvariantCulture : new CultureInfo(cultureName);
+
+			Assume.That(string.Compare(oldKey, newKey, CultureInfo.CurrentCulture, CompareOptions.None), Is.Zero,
+				"culture does not collate these as equal here (globalization-invariant ICU?) — nothing to test");
+			Assert.That(oldKey.Equals(newKey, StringComparison.Ordinal), Is.False,
+				"the fixture keys must be ordinally different");
+
+			var index = new CacheRangeIndex<int, string, string>((_, value) => value);
+			index.Add(1, oldKey, 0);
+			index.Update(1, oldKey, newKey, 0);
+
+			Assert.That(index.GetCounters(out _), Is.EqualTo(1UL), "update leaked or dropped an index entry");
+			Assert.That(index.TryGetMin(out var storedKey, out var entityKey), Is.True);
+			Assert.That(entityKey, Is.EqualTo(1));
+			Assert.That(storedKey, Is.EqualTo(newKey).Using(StringComparer.Ordinal),
+				"update was skipped as a culture-equal no-op — the index is still on the stale key");
+		}
+		finally {
+			CultureInfo.CurrentCulture = original;
+		}
+	}
+
+	[Test]
+	public void RangeIndex_Update_CultureEqualKeys_BehavesIdenticallyAcrossCultures() {
+		const string oldKey = "abc";
+		const string newKey = "ab\u00ADc"; // soft hyphen: linguistically ignorable, ordinally distinct
+		var original = CultureInfo.CurrentCulture;
+		var results = new List<string>();
+		try {
+			foreach (var culture in new[] {
+				         CultureInfo.InvariantCulture, new CultureInfo("de-DE"), new CultureInfo("tr-TR")
+			         }) {
+				CultureInfo.CurrentCulture = culture;
+				var index = new CacheRangeIndex<int, string, string>((_, value) => value);
+				index.Add(1, oldKey, 0);
+				index.Update(1, oldKey, newKey, 0);
+				Assert.That(index.TryGetMin(out var storedKey, out _), Is.True);
+				results.Add(storedKey);
+			}
+		}
+		finally {
+			CultureInfo.CurrentCulture = original;
+		}
+
+		Assert.That(results, Has.All.EqualTo(newKey).Using(StringComparer.Ordinal),
+			"CacheRangeIndex.Update produced a culture-dependent result");
 	}
 }

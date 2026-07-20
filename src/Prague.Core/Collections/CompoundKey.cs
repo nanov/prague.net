@@ -3,6 +3,36 @@ namespace Prague.Core.Collections;
 using System.Runtime.CompilerServices;
 
 /// <summary>
+///   Null-tolerant component helpers shared by every <c>CompoundKey</c> arity.
+/// </summary>
+internal static class CompoundKeyComponent {
+	/// <summary>
+	///   Null-tolerant component comparison: seek keys are built with default! halves
+	///   meaning "from the very start of this prefix", so a null component sorts as
+	///   negative infinity. Stored keys never carry nulls; either side of the compare
+	///   may be the receiver in the tree's searches. The null checks fold away for
+	///   value-typed components.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static int Compare<T>(T a, T b) where T : IComparable<T> {
+		if (a is null) return b is null ? 0 : -1;
+		if (b is null) return 1;
+		return a.CompareTo(b);
+	}
+
+	/// <summary>
+	///   Null-tolerant component equality — the Equals counterpart of <see cref="Compare{T}" />.
+	///   Without it a null-bearing key compares equal (0) yet throws on Equals, breaking the
+	///   comparer/equality agreement the tree's composite ordering relies on.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static bool AreEqual<T>(T a, T b) where T : IEquatable<T> {
+		if (a is null) return b is null;
+		return b is not null && a.Equals(b);
+	}
+}
+
+/// <summary>
 ///   A compound key for use in a B+ tree that provides lexicographic ordering.
 ///   First compares by the prefix (equality/filter field), then by the sort key,
 ///   then by the entity key as tiebreaker.
@@ -26,32 +56,18 @@ public readonly struct CompoundKey<TPrefix, TSort, TKey>
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public int CompareTo(CompoundKey<TPrefix, TSort, TKey> other) {
-		var cmp = Prefix.CompareTo(other.Prefix);
+		var cmp = CompoundKeyComponent.Compare(Prefix, other.Prefix);
 		if (cmp != 0) return cmp;
-		cmp = CompareComponent(Sort, other.Sort);
+		cmp = CompoundKeyComponent.Compare(Sort, other.Sort);
 		if (cmp != 0) return cmp;
-		return CompareComponent(Key, other.Key);
-	}
-
-	/// <summary>
-	///   Null-tolerant component comparison: seek keys are built with default! halves
-	///   meaning "from the very start of this prefix", so a null component sorts as
-	///   negative infinity. Stored keys never carry nulls; either side of the compare
-	///   may be the receiver in the tree's searches. The null checks fold away for
-	///   value-typed components.
-	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private static int CompareComponent<T>(T a, T b) where T : IComparable<T> {
-		if (a is null) return b is null ? 0 : -1;
-		if (b is null) return 1;
-		return a.CompareTo(b);
+		return CompoundKeyComponent.Compare(Key, other.Key);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Equals(CompoundKey<TPrefix, TSort, TKey> other) =>
-		Prefix.CompareTo(other.Prefix) == 0 &&
-		CompareComponent(Sort, other.Sort) == 0 &&
-		Key.Equals(other.Key);
+		CompoundKeyComponent.Compare(Prefix, other.Prefix) == 0 &&
+		CompoundKeyComponent.Compare(Sort, other.Sort) == 0 &&
+		CompoundKeyComponent.AreEqual(Key, other.Key);
 
 	public override bool Equals(object? obj) =>
 		obj is CompoundKey<TPrefix, TSort, TKey> other && Equals(other);
@@ -87,21 +103,21 @@ public readonly struct CompoundKey<TPrefix1, TPrefix2, TSort, TKey>
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public int CompareTo(CompoundKey<TPrefix1, TPrefix2, TSort, TKey> other) {
-		var cmp = Prefix1.CompareTo(other.Prefix1);
+		var cmp = CompoundKeyComponent.Compare(Prefix1, other.Prefix1);
 		if (cmp != 0) return cmp;
-		cmp = Prefix2.CompareTo(other.Prefix2);
+		cmp = CompoundKeyComponent.Compare(Prefix2, other.Prefix2);
 		if (cmp != 0) return cmp;
-		cmp = Sort.CompareTo(other.Sort);
+		cmp = CompoundKeyComponent.Compare(Sort, other.Sort);
 		if (cmp != 0) return cmp;
-		return Key.CompareTo(other.Key);
+		return CompoundKeyComponent.Compare(Key, other.Key);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Equals(CompoundKey<TPrefix1, TPrefix2, TSort, TKey> other) =>
-		Prefix1.CompareTo(other.Prefix1) == 0 &&
-		Prefix2.CompareTo(other.Prefix2) == 0 &&
-		Sort.CompareTo(other.Sort) == 0 &&
-		Key.Equals(other.Key);
+		CompoundKeyComponent.Compare(Prefix1, other.Prefix1) == 0 &&
+		CompoundKeyComponent.Compare(Prefix2, other.Prefix2) == 0 &&
+		CompoundKeyComponent.Compare(Sort, other.Sort) == 0 &&
+		CompoundKeyComponent.AreEqual(Key, other.Key);
 
 	public override bool Equals(object? obj) =>
 		obj is CompoundKey<TPrefix1, TPrefix2, TSort, TKey> other && Equals(other);
