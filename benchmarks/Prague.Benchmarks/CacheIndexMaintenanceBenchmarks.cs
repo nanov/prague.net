@@ -59,6 +59,8 @@ public class CacheIndexMaintenanceBenchmarks {
 
 	private InMemoryDataCache<CompositeId, CompositeEntity> _compositeUpdateCache = null!;
 	private InMemoryDataCache<string, StringKeyEntity> _stringUpdateCache = null!;
+	private InMemoryDataCache<CompositeId, CompositeEntity> _compositeRemoveCache = null!;
+	private InMemoryDataCache<string, StringKeyEntity> _stringRemoveCache = null!;
 	private int _round;
 
 	private static CompositeEntity MakeComposite(int i, int gen, int groups) => new() {
@@ -152,5 +154,38 @@ public class CacheIndexMaintenanceBenchmarks {
 		var ts = (long)_round * N;
 		for (var i = 0; i < entities.Length; i++)
 			_stringUpdateCache.AddOrUpdate(entities[i].Id, entities[i], ts + i);
+	}
+
+	// RemoveAll empties the cache, so each iteration gets a freshly repopulated one via
+	// IterationSetup (excluded from the measurement window). Repopulation costs one AddAll
+	// (~tens of ms), acceptable against a same-order measured loop.
+	[IterationSetup(Target = nameof(RemoveAll_Composite))]
+	public void FillCompositeRemoveCache() {
+		_compositeRemoveCache = NewCompositeCache();
+		for (var i = 0; i < N; i++)
+			_compositeRemoveCache.AddOrUpdate(_compositeGen0[i].Id, _compositeGen0[i], i);
+	}
+
+	[Benchmark]
+	public void RemoveAll_Composite() {
+		var cache = _compositeRemoveCache;
+		var entities = _compositeGen0;
+		for (var i = 0; i < entities.Length; i++)
+			cache.Remove(entities[i].Id, N + i);
+	}
+
+	[IterationSetup(Target = nameof(RemoveAll_String))]
+	public void FillStringRemoveCache() {
+		_stringRemoveCache = NewStringCache();
+		for (var i = 0; i < N; i++)
+			_stringRemoveCache.AddOrUpdate(_stringGen0[i].Id, _stringGen0[i], i);
+	}
+
+	[Benchmark]
+	public void RemoveAll_String() {
+		var cache = _stringRemoveCache;
+		var entities = _stringGen0;
+		for (var i = 0; i < entities.Length; i++)
+			cache.Remove(entities[i].Id, N + i);
 	}
 }
