@@ -2,7 +2,6 @@ namespace Prague.Core.Tests.Cache;
 
 using System.Collections.Immutable;
 using Prague.Core.Collections;
-using Prague.Core.Utils;
 using NUnit.Framework;
 
 /// <summary>
@@ -73,7 +72,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 		// Act - First add creates hashset
 		var result = cache.AddOrUpdate(
 			"index-key",
-			static (_, k) => ImmutableHashSet.Create(HashCollectionsTools.GetEqualityComparer<int>(null), k),
+			static (_, k) => ImmutableHashSet.Create(EqualityComparer<int>.Default, k),
 			static (_, hs, k) => hs.Add(k),
 			42
 		);
@@ -92,7 +91,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 		// Add first item
 		cache.AddOrUpdate(
 			"index-key",
-			static (_, k) => ImmutableHashSet.Create(HashCollectionsTools.GetEqualityComparer<int>(null), k),
+			static (_, k) => ImmutableHashSet.Create(EqualityComparer<int>.Default, k),
 			static (_, hs, k) => hs.Add(k),
 			42
 		);
@@ -100,7 +99,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 		// Act - Add second item to same key
 		var result = cache.AddOrUpdate(
 			"index-key",
-			static (_, k) => ImmutableHashSet.Create(HashCollectionsTools.GetEqualityComparer<int>(null), k),
+			static (_, k) => ImmutableHashSet.Create(EqualityComparer<int>.Default, k),
 			static (_, hs, k) => hs.Add(k),
 			100
 		);
@@ -121,13 +120,13 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 		// Add two items
 		cache.AddOrUpdate(
 			"index-key",
-			static (_, k) => ImmutableHashSet.Create(HashCollectionsTools.GetEqualityComparer<int>(null), k),
+			static (_, k) => ImmutableHashSet.Create(EqualityComparer<int>.Default, k),
 			static (_, hs, k) => hs.Add(k),
 			42
 		);
 		cache.AddOrUpdate(
 			"index-key",
-			static (_, k) => ImmutableHashSet.Create(HashCollectionsTools.GetEqualityComparer<int>(null), k),
+			static (_, k) => ImmutableHashSet.Create(EqualityComparer<int>.Default, k),
 			static (_, hs, k) => hs.Add(k),
 			100
 		);
@@ -179,7 +178,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 					var value = threadId * itemsPerThread + i;
 					cache.AddOrUpdate(
 						"shared-key",
-						static (_, k) => ImmutableHashSet.Create(HashCollectionsTools.GetEqualityComparer<int>(null), k),
+						static (_, k) => ImmutableHashSet.Create(EqualityComparer<int>.Default, k),
 						static (_, hs, k) => hs.Add(k),
 						value
 					);
@@ -203,7 +202,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 		for (var i = 0; i < 100; i++)
 			cache.AddOrUpdate(
 				"key",
-				static (_, k) => ImmutableHashSet.Create(HashCollectionsTools.GetEqualityComparer<int>(null), k),
+				static (_, k) => ImmutableHashSet.Create(EqualityComparer<int>.Default, k),
 				static (_, hs, k) => hs.Add(k),
 				i
 			);
@@ -213,7 +212,7 @@ public class ConcurrentCacheStoreRealUseCaseTests {
 			for (var i = 100; i < 200; i++)
 				cache.AddOrUpdate(
 					"key",
-					static (_, k) => ImmutableHashSet.Create(HashCollectionsTools.GetEqualityComparer<int>(null), k),
+					static (_, k) => ImmutableHashSet.Create(EqualityComparer<int>.Default, k),
 					static (_, hs, k) => hs.Add(k),
 					i
 				);
