@@ -533,12 +533,17 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldIndexKey = _keySelector(key, originalValue);
 		var newIndexKey = _keySelector(key, newValue);
-		if (oldIndexKey.Equals(newIndexKey))
+		// EqualityComparer<T>.Default, not CompareTo: the raw CompareTo is culture-sensitive
+		// for string index keys, so "Strasse" and "Straße" would compare equal under de-DE
+		// and the update would be skipped, leaving the index on the stale key — and the
+		// answer would differ per thread. This keeps the de-boxing win (the comparer is a
+		// JIT intrinsic that devirtualizes for value types) without the culture dependency.
+		if (EqualityComparer<TIndexKey>.Default.Equals(oldIndexKey, newIndexKey))
 			return;
 
-		_index.Add(newIndexKey, key);
-		_index.Remove(oldIndexKey, key);
-		// Size doesn't change on update (removing one, adding one)
+		// Single locked move (insert-before-remove inside): one write-lock round-trip
+		// instead of two. Size doesn't change on update (removing one, adding one).
+		_index.Update(oldIndexKey, newIndexKey, key);
 	}
 
 	public ulong GetCounters(out ulong vlaues) {

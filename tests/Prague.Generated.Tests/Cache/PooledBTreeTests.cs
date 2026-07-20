@@ -9,7 +9,7 @@ public class PooledBTreeTests {
 
 	private struct ListAggregator<TI, TV> : PooledBTree<TI, TV>.IResultAggregator
 		where TI : IComparable<TI>
-		where TV : IEquatable<TV> {
+		where TV : IEquatable<TV>, IComparable<TV> {
 		public readonly List<(TI Index, TV Value)> Items;
 
 		public ListAggregator() {
@@ -1114,5 +1114,549 @@ public class PooledBTreeTests {
 
 		Assert.That(tree.Length, Is.EqualTo(items));
 		tree.Dispose();
+	}
+
+	// ───────────────────── Composite (key, value) ordering — comparable TValue ─────────────────────
+	// When TValue is IComparable, equal-key runs are value-sorted and point operations
+	// binary-search the exact pair instead of scanning the run. These tests pin the
+	// composite path at scales where runs span many leaves and internal splits promote
+	// separators from inside runs.
+
+	[Test]
+	public void Remove_BatchStampedKeys_LargeScale_RemovesScatteredPairs() {
+		// The production incident pattern: keys quantized into large batches (feed
+		// producers stamp whole batches with one timestamp), removes target arbitrary
+		// values inside runs of thousands of equal keys.
+		var tree = new PooledBTree<long, long>();
+		const int items = 20_000;
+		const int batch = 1024;
+		for (long i = 0; i < items; i++)
+			tree.Add(i / batch, i);
+
+		Assert.That(tree.Length, Is.EqualTo(items));
+
+		// Remove every third pair, scattered across all runs
+		var removed = 0;
+		for (long i = 0; i < items; i += 3) {
+			Assert.That(tree.Remove(i / batch, i), Is.True, $"pair ({i / batch}, {i}) not found");
+			removed++;
+		}
+
+		Assert.That(tree.Length, Is.EqualTo(items - removed));
+
+		// Survivors are all present, removed are all gone
+		for (long i = 0; i < items; i++)
+			Assert.That(tree.Contains(i / batch, i), Is.EqualTo(i % 3 != 0), $"pair ({i / batch}, {i})");
+
+		tree.Dispose();
+	}
+
+	[Test]
+	public void UpdateChurn_BatchStampedKeys_LengthStaysBounded() {
+		// CacheRangeIndex.Update against batch-stamped keys: every update removes a
+		// pair from the middle of a long run and appends into the newest run.
+		var tree = new PooledBTree<long, long>();
+		const int items = 5_000;
+		var current = new long[items];
+		for (long i = 0; i < items; i++) {
+			current[i] = 0;
+			tree.Add(0, i);
+		}
+
+		var rng = new Random(42);
+		for (var round = 1; round <= 5; round++)
+			for (var op = 0; op < items; op++) {
+				var id = rng.Next(items);
+				var newKey = (long)round;
+				if (tree.Add(newKey, id)) {
+					Assert.That(tree.Remove(current[id], id), Is.True, $"round {round}, item {id} leaked");
+					current[id] = newKey;
+				}
+			}
+
+		Assert.That(tree.Length, Is.EqualTo(items));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Remove_EntireRunInsideNeighbors_CollapsesLeavesAndKeepsNeighbors() {
+		// Deleting a whole multi-leaf run empties leaves in the middle of the tree,
+		// exercising RemoveEmptyLeaf/RemoveFromParent separator maintenance (including
+		// the separator-value halves) with runs on both sides.
+		var tree = new PooledBTree<int, long>();
+		for (long i = 0; i < 300; i++) tree.Add(10, i);
+		for (long i = 0; i < 300; i++) tree.Add(42, i);
+		for (long i = 0; i < 300; i++) tree.Add(90, i);
+
+		for (long i = 0; i < 300; i++)
+			Assert.That(tree.Remove(42, i), Is.True, $"mid pair {i} not found");
+
+		Assert.That(tree.Length, Is.EqualTo(600));
+		for (long i = 0; i < 300; i++) {
+			Assert.That(tree.Contains(10, i), Is.True, $"low pair {i} lost");
+			Assert.That(tree.Contains(90, i), Is.True, $"high pair {i} lost");
+			Assert.That(tree.Contains(42, i), Is.False, $"mid pair {i} survived");
+		}
+
+		// Reinsert into the collapsed region and verify placement
+		for (long i = 0; i < 100; i++)
+			Assert.That(tree.Add(42, i), Is.True);
+		var agg = new ListAggregator<int, long>();
+		tree.Range(42, 42, ref agg);
+		Assert.That(agg.Items.Count, Is.EqualTo(100));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Add_DuplicatePair_DeepInsideSpanningRun_ReturnsFalse() {
+		// Duplicate probes must find pairs anywhere inside a run spanning many leaves,
+		// not just in the first or last leaf of the run.
+		var tree = new PooledBTree<int, long>();
+		for (long i = 0; i < 1000; i += 2)
+			tree.Add(42, i);
+
+		for (long i = 0; i < 1000; i += 2)
+			Assert.That(tree.Add(42, i), Is.False, $"duplicate ({i}) accepted");
+		for (long i = 1; i < 1000; i += 2)
+			Assert.That(tree.Add(42, i), Is.True, $"new pair ({i}) rejected");
+
+		Assert.That(tree.Length, Is.EqualTo(1000));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void TryGetMinMax_WithMultiLeafRuns_ReturnsBoundaryPairs() {
+		var tree = new PooledBTree<int, long>();
+		// Descending insertion order: only value-sorted runs put 199 at the run's end,
+		// an insertion-ordered run would end with 0.
+		for (long i = 199; i >= 0; i--) tree.Add(5, i);
+		for (long i = 199; i >= 0; i--) tree.Add(7, i);
+
+		Assert.That(tree.TryGetMin(out var minKey, out var minVal), Is.True);
+		Assert.That(minKey, Is.EqualTo(5));
+		Assert.That(minVal, Is.EqualTo(0), "values inside an equal-key run are value-sorted");
+		Assert.That(tree.TryGetMax(out var maxKey, out var maxVal), Is.True);
+		Assert.That(maxKey, Is.EqualTo(7));
+		Assert.That(maxVal, Is.EqualTo(199), "values inside an equal-key run are value-sorted");
+		tree.Dispose();
+	}
+
+	// ───────────────────── Update (single-lock move) ─────────────────────
+
+	[Test]
+	public void Update_MovesValueToNewKey() {
+		var tree = new PooledBTree<long, long>();
+		tree.Add(10, 7);
+		Assert.That(tree.Update(10, 20, 7), Is.True);
+		Assert.That(tree.Contains(10, 7), Is.False);
+		Assert.That(tree.Contains(20, 7), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Update_SameIndexKey_KeepsEntry() {
+		var tree = new PooledBTree<long, long>();
+		tree.Add(10, 7);
+		Assert.That(tree.Update(10, 10, 7), Is.True);
+		Assert.That(tree.Contains(10, 7), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		Assert.That(tree.Update(10, 10, 999), Is.False, "absent pair under equal keys");
+		// The equal-key miss must be a pure no-op: nothing inserted, nothing removed.
+		Assert.That(tree.Contains(10, 999), Is.False);
+		Assert.That(tree.Contains(10, 7), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Update_MissingOldPair_StillAddsNew_ReturnsFalse() {
+		// Same semantics as the Add+Remove sequence it replaces: the add happens,
+		// the remove misses.
+		var tree = new PooledBTree<long, long>();
+		Assert.That(tree.Update(10, 20, 7), Is.False);
+		Assert.That(tree.Contains(20, 7), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void UpdateChurn_BatchStamped_CombinedUpdate_LengthStaysBounded() {
+		var tree = new PooledBTree<long, long>();
+		const int items = 5_000;
+		var current = new long[items];
+		for (long i = 0; i < items; i++) {
+			current[i] = 0;
+			tree.Add(0, i);
+		}
+
+		var rng = new Random(42);
+		for (var round = 1; round <= 5; round++)
+			for (var op = 0; op < items; op++) {
+				var id = rng.Next(items);
+				var newKey = (long)round;
+				Assert.That(tree.Update(current[id], newKey, id), Is.True,
+					$"round {round}, item {id} leaked");
+				current[id] = newKey;
+			}
+
+		Assert.That(tree.Length, Is.EqualTo(items));
+		tree.Dispose();
+	}
+
+	// ───────────────────── Lock-free readers vs writer races ─────────────────────
+
+	[Test]
+	public void Range_RefTypedKeys_ConcurrentRemovals_NoExceptions() {
+		// Regression test for the key-side receiver orientation: removals clear
+		// vacated KEY slots to null (ref-typed TIndex), and a racing range reader
+		// binary-searches / bound-checks those slots. With the slot as the CompareTo
+		// receiver this NREs within milliseconds; with the caller's bound as the
+		// receiver a stale probe is just documented staleness.
+		var tree = new PooledBTree<string, long>();
+		const int ids = 500;
+		for (var i = 0; i < ids; i++)
+			tree.Add($"k{i:D6}", i);
+
+		var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+		var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+
+		var writer = Task.Run(() => {
+			var rnd = new Random(42);
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					var i = rnd.Next(ids);
+					tree.Remove($"k{i:D6}", i);
+					tree.Add($"k{i:D6}", i);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token);
+
+		var readers = Enumerable.Range(0, 3).Select(t => Task.Run(() => {
+			var rnd = new Random(100 + t);
+			var agg = default(CountingAggregator<string, long>);
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					var lo = $"k{rnd.Next(ids):D6}";
+					var hi = $"k{rnd.Next(ids):D6}";
+					tree.Range(lo, hi, ref agg);
+					tree.RangeFrom(lo, ref agg);
+					tree.RangeFromExclusive(lo, ref agg);
+					tree.RangeTo(hi, ref agg);
+					tree.RangeToExclusive(hi, ref agg);
+					tree.RangeCustom(lo, hi, rnd.Next(2) == 0, rnd.Next(2) == 0, ref agg);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token)).ToArray();
+
+		try {
+			Task.WaitAll([writer, .. readers]);
+		}
+		catch (AggregateException) { }
+
+		Assert.That(exceptions, Is.Empty,
+			() => $"{exceptions.FirstOrDefault()?.GetType().Name}: {exceptions.FirstOrDefault()?.Message}\n{exceptions.FirstOrDefault()?.StackTrace}");
+
+		tree.Dispose();
+	}
+
+	[Test]
+	public void RangeFrom_BeyondAllKeys_ConcurrentInserts_NeverEmitsBelowBound() {
+		// Regression test for the stale-pos-vs-fresh-count race: the reader's lower
+		// bound lands at pos == count (nothing >= the bound exists), then a racing
+		// insert shifts entries and grows Count. If the emission loop re-reads a
+		// FRESHER count than the bound search used, it emits slots the search never
+		// vetted — fabricating entries strictly below the requested bound.
+		var tree = new PooledBTree<long, long>();
+		tree.Add(10, 10);
+		tree.Add(20, 20);
+		tree.Add(30, 30);
+
+		var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+		var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+		long violations = 0;
+
+		// Single-leaf tree: inserts of low keys shift the tail on every Add.
+		var writer = Task.Run(() => {
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					for (long k = 1; k <= 8 && !cts.Token.IsCancellationRequested; k++)
+						tree.Add(k, k);
+					for (long k = 1; k <= 8 && !cts.Token.IsCancellationRequested; k++)
+						tree.Remove(k, k);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token);
+
+		var reader = Task.Run(() => {
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					var agg = default(CountingAggregator<long, long>);
+					tree.RangeFrom(1_000, ref agg); // beyond every key ever inserted
+					if (agg.Count > 0)
+						Interlocked.Add(ref violations, agg.Count);
+
+					agg = default;
+					tree.RangeFromExclusive(1_000, ref agg);
+					if (agg.Count > 0)
+						Interlocked.Add(ref violations, agg.Count);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token);
+
+		try {
+			Task.WaitAll(writer, reader);
+		}
+		catch (AggregateException) { }
+
+		Assert.That(exceptions, Is.Empty,
+			() => $"{exceptions.FirstOrDefault()?.GetType().Name}: {exceptions.FirstOrDefault()?.Message}");
+		Assert.That(Interlocked.Read(ref violations), Is.Zero,
+			"RangeFrom(bound beyond all keys) emitted entries — the emission loop used a fresher count than the bound search");
+
+		tree.Dispose();
+	}
+
+	[Test]
+	public void Range_RefTypedKeys_ConcurrentRemovals_NeverEmitsNullKey() {
+		// Regression test for the null-key emission guard. Removals clear vacated KEY
+		// slots to null for a ref-typed TIndex; a lock-free range scan can walk a slot
+		// between the count read and the key read. Without the
+		// IsReferenceOrContainsReferences<TIndex>() && key is null stop, the reader
+		// either NRE'd on the bound compare or handed a null index key straight into
+		// the caller's aggregator — i.e. a null entry inside query results.
+		var tree = new PooledBTree<string, long>();
+		const int ids = 500;
+		for (var i = 0; i < ids; i++)
+			tree.Add($"k{i:D6}", i);
+
+		var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+		var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+		long nullKeys = 0;
+		long emitted = 0;
+
+		var writer = Task.Run(() => {
+			var rnd = new Random(7);
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					var i = rnd.Next(ids);
+					tree.Remove($"k{i:D6}", i);
+					tree.Add($"k{i:D6}", i);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token);
+
+		var readers = Enumerable.Range(0, 3).Select(t => Task.Run(() => {
+			var rnd = new Random(200 + t);
+			while (!cts.Token.IsCancellationRequested)
+				try {
+					var agg = default(NullDetectingAggregator<long>);
+					var lo = $"k{rnd.Next(ids):D6}";
+					var hi = $"k{rnd.Next(ids):D6}";
+					tree.Range(lo, hi, ref agg);
+					tree.RangeFrom(lo, ref agg);
+					tree.RangeFromExclusive(lo, ref agg);
+					tree.RangeTo(hi, ref agg);
+					tree.RangeToExclusive(hi, ref agg);
+					tree.RangeCustom(lo, hi, rnd.Next(2) == 0, rnd.Next(2) == 0, ref agg);
+					if (agg.NullOrDefaultKeys > 0)
+						Interlocked.Add(ref nullKeys, agg.NullOrDefaultKeys);
+					Interlocked.Add(ref emitted, agg.Count);
+				}
+				catch (Exception ex) {
+					exceptions.Add(ex);
+					cts.Cancel();
+				}
+		}, cts.Token)).ToArray();
+
+		try {
+			Task.WaitAll([writer, .. readers]);
+		}
+		catch (AggregateException) { }
+
+		Assert.That(exceptions, Is.Empty,
+			() => $"{exceptions.FirstOrDefault()?.GetType().Name}: {exceptions.FirstOrDefault()?.Message}\n{exceptions.FirstOrDefault()?.StackTrace}");
+		Assert.That(Interlocked.Read(ref nullKeys), Is.Zero,
+			"a lock-free range scan emitted a null/default index key into the aggregator");
+		Assert.That(Interlocked.Read(ref emitted), Is.GreaterThan(0),
+			"the readers never observed any entry — the race window was never exercised");
+
+		tree.Dispose();
+	}
+
+	private struct CountingAggregator<TI, TV> : PooledBTree<TI, TV>.IResultAggregator
+		where TI : IComparable<TI>
+		where TV : IEquatable<TV>, IComparable<TV> {
+		public long Count;
+
+		public void Add(TI index, TV value) => Count++;
+
+		public void Dispose() { }
+	}
+
+	private struct NullDetectingAggregator<TV> : PooledBTree<string, TV>.IResultAggregator
+		where TV : IEquatable<TV>, IComparable<TV> {
+		public long Count;
+		public long NullOrDefaultKeys;
+
+		public void Add(string index, TV value) {
+			// default(string) is null — one check covers both "null" and "default".
+			if (index is null)
+				NullOrDefaultKeys++;
+			else
+				Count++;
+		}
+
+		public void Dispose() { }
+	}
+
+	// ───────────────────── Comparer-vs-equality contract edges ─────────────────────
+
+	[Test]
+	public void Remove_CultureEqualStringValues_BothStoredAndBothRemovable() {
+		// string.CompareTo is culture-sensitive: "abc" and "ab­c" (soft hyphen,
+		// a linguistically ignorable character) compare EQUAL without being Equals.
+		// Value comparison must be ordinal, or the single composite probe treats the
+		// tied neighbor as a definitive miss and the entry becomes unremovable — the
+		// exact leaked-index-entry class this rework eliminates.
+		var plain = "abc";
+		var withSoftHyphen = "ab­c";
+		Assume.That(plain.Equals(withSoftHyphen), Is.False);
+
+		var tree = new PooledBTree<long, string>();
+		Assert.That(tree.Add(1, plain), Is.True);
+		Assert.That(tree.Add(1, withSoftHyphen), Is.True, "culture-equal value rejected as duplicate");
+
+		Assert.That(tree.Contains(1, plain), Is.True);
+		Assert.That(tree.Contains(1, withSoftHyphen), Is.True);
+
+		Assert.That(tree.Remove(1, withSoftHyphen), Is.True, "culture-equal neighbor made the pair unfindable");
+		Assert.That(tree.Remove(1, plain), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(0));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void CompoundIndex_SeekAndTake_RefTypedComponents_SeeksFromPrefixStart() {
+		// Seek keys are built with default! sort/key halves; with the caller-supplied
+		// key as the CompareTo receiver those halves are null for reference-typed
+		// components and must sort as negative infinity instead of throwing.
+		var index = new CompoundIndex<string, string, string>();
+		index.Add("a", "s1", "k1");
+		index.Add("a", "s2", "k2");
+		index.Add("b", "s0", "k3");
+
+		var buffer = new string[4];
+		var found = index.SeekAndTake("a", 0, 4, buffer);
+
+		Assert.That(found, Is.EqualTo(2));
+		Assert.That(buffer.Take(2), Is.EqualTo(new[] { "k1", "k2" }));
+		index.Dispose();
+	}
+
+	// ───────────────────── Legacy path — non-comparable TValue ─────────────────────
+	// TValue without IComparable keeps the pre-composite behavior: insertion order
+	// within runs, linear run scans on the cold paths. The duplicate-run scenarios
+	// must stay correct there — this is the branch the runtime switch preserves so
+	// the public contract needs no IComparable constraint.
+
+	private readonly record struct OpaqueValue(int Id);
+
+	[Test]
+	public void NonComparableValue_DuplicateRunSpanningLeaves_RemoveAndContains() {
+		var tree = new PooledBTree<int, OpaqueValue>();
+		for (var i = 0; i < 200; i++)
+			tree.Add(42, new OpaqueValue(i));
+
+		for (var i = 0; i < 200; i++)
+			Assert.That(tree.Contains(42, new OpaqueValue(i)), Is.True, $"value {i} not found");
+
+		Assert.That(tree.Add(42, new OpaqueValue(0)), Is.False, "duplicate accepted");
+
+		for (var i = 0; i < 200; i++)
+			Assert.That(tree.Remove(42, new OpaqueValue(i)), Is.True, $"value {i} not removed");
+
+		Assert.That(tree.Length, Is.EqualTo(0));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void NonComparableValue_UpdateChurn_LengthStaysBounded() {
+		var tree = new PooledBTree<long, OpaqueValue>();
+		const int items = 300;
+		var current = new long[items];
+		for (var i = 0; i < items; i++) {
+			current[i] = 1000;
+			tree.Add(1000, new OpaqueValue(i));
+		}
+
+		for (var round = 1; round <= 10; round++) {
+			var newKey = 1000 + round;
+			for (var i = 0; i < items; i++) {
+				tree.Add(newKey, new OpaqueValue(i));
+				Assert.That(tree.Remove(current[i], new OpaqueValue(i)), Is.True,
+					$"round {round}, item {i} leaked");
+				current[i] = newKey;
+			}
+		}
+
+		Assert.That(tree.Length, Is.EqualTo(items));
+		tree.Dispose();
+	}
+
+	[Test]
+	public void NonComparableValue_WithinRunOrder_IsUnspecified_ButSetSemanticsHold() {
+		// Within a run of equal index keys the tree orders by value hash, so the order in
+		// which the run's values come back is deliberately UNSPECIFIED — it is an
+		// implementation detail of the composite (key, hash) ordering and must not be
+		// asserted. What IS contractual: keys are non-decreasing across the scan and the
+		// tree behaves as a set of (key, value) pairs.
+		var tree = new PooledBTree<int, OpaqueValue>();
+		tree.Add(42, new OpaqueValue(3));
+		tree.Add(42, new OpaqueValue(1));
+		tree.Add(42, new OpaqueValue(2));
+
+		var agg = new OpaqueListAggregator();
+		tree.RangeFrom(int.MinValue, ref agg);
+		Assert.That(tree.Length, Is.EqualTo(3));
+		Assert.That(agg.Items, Is.EquivalentTo(new[] { (42, 1), (42, 2), (42, 3) }),
+			"the run's (key, value) set changed");
+		foreach (var id in new[] { 1, 2, 3 })
+			Assert.That(tree.Contains(42, new OpaqueValue(id)), Is.True, $"value {id} not found");
+		tree.Dispose();
+	}
+
+	[Test]
+	public void NonComparableValue_UpdateSingleLock_MovesValue() {
+		var tree = new PooledBTree<long, OpaqueValue>();
+		tree.Add(10, new OpaqueValue(7));
+		Assert.That(tree.Update(10, 20, new OpaqueValue(7)), Is.True);
+		Assert.That(tree.Contains(10, new OpaqueValue(7)), Is.False);
+		Assert.That(tree.Contains(20, new OpaqueValue(7)), Is.True);
+		Assert.That(tree.Length, Is.EqualTo(1));
+		tree.Dispose();
+	}
+
+	private struct OpaqueListAggregator : PooledBTree<int, OpaqueValue>.IResultAggregator {
+		public List<(int Key, int Id)> Items;
+
+		public void Add(int index, OpaqueValue value) => (Items ??= new List<(int, int)>()).Add((index, value.Id));
+
+		public void Dispose() { }
 	}
 }
