@@ -31,7 +31,7 @@ internal struct TopKHeap<TKey, TScore> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public TopKHeap(int k) {
 		_capacity = k;
-		_buffer = ArrayPool<(TScore, TKey)>.Shared.Rent(k);
+		_buffer = PragueArrayPool<(TScore, TKey)>.Pool.Rent(k);
 		_count = 0;
 		_heapified = false;
 	}
@@ -123,7 +123,7 @@ internal struct TopKHeap<TKey, TScore> : IDisposable
 
 	public void Dispose() {
 		if (_buffer != null!) {
-			ArrayPool<(TScore, TKey)>.Shared.Return(_buffer);
+			PragueArrayPool<(TScore, TKey)>.Pool.Return(_buffer);
 			_buffer = null!;
 		}
 	}

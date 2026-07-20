@@ -369,8 +369,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 		} else {
 			Span<int> buffer = stackalloc int[ValueSet<TKey, DefaultKeyComparer<TKey>>.StackAllocThreshold];
 			var va = new ValueIntersect<long>(ref Candidates, buffer, ref max);
-			lastUpdatedIndex.GetValuesGt(updatedAfter, ref va);
-			va.Dispose();
+			try {
+				lastUpdatedIndex.GetValuesGt(updatedAfter, ref va);
+			} finally {
+				va.Dispose();
+			}
 		}
 
 		_first = false;
@@ -444,8 +447,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 		} else {
 			Span<int> buffer = stackalloc int[ValueSet<TKey, DefaultKeyComparer<TKey>>.StackAllocThreshold];
 			var va = IndexSkip<long>.Create(updatedAfter, new ValueIntersect<long>(ref Candidates, buffer));
-			lastUpdatedIndex.GetValuesBetween(updatedAfter, updatedUntilInclusive, ref va);
-			va.Dispose();
+			try {
+				lastUpdatedIndex.GetValuesBetween(updatedAfter, updatedUntilInclusive, ref va);
+			} finally {
+				va.Dispose();
+			}
 		}
 
 		_first = false;
@@ -528,8 +534,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					index.GetValuesGte(gte, ref va);
 				} else {
 					var va = new ValueIntersect<TIndexKey>(ref Candidates, buffer);
-					index.GetValuesGte(gte, ref va);
-					va.Dispose();
+					try {
+						index.GetValuesGte(gte, ref va);
+					} finally {
+						va.Dispose();
+					}
 				}
 
 				break;
@@ -539,8 +548,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					index.GetValuesBetween(gte, lt, ref va);
 				} else {
 					var va = IndexSkip<TIndexKey>.Create(lt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
-					index.GetValuesBetween(gte, lt, ref va);
-					va.Dispose();
+					try {
+						index.GetValuesBetween(gte, lt, ref va);
+					} finally {
+						va.Dispose();
+					}
 				}
 
 				break;
@@ -550,8 +562,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					index.GetValuesBetween(gte, lte, ref va);
 				} else {
 					var va = new ValueIntersect<TIndexKey>(ref Candidates, buffer);
-					index.GetValuesBetween(gte, lte, ref va);
-					va.Dispose();
+					try {
+						index.GetValuesBetween(gte, lte, ref va);
+					} finally {
+						va.Dispose();
+					}
 				}
 
 				break;
@@ -562,8 +577,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					va.Dispose();
 				} else {
 					var va = IndexSkip<TIndexKey>.Create(gt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
-					index.GetValuesGte(gt, ref va);
-					va.Dispose();
+					try {
+						index.GetValuesGte(gt, ref va);
+					} finally {
+						va.Dispose();
+					}
 				}
 
 				break;
@@ -573,8 +591,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					index.GetValuesBetween(gt, lt, ref va);
 				} else {
 					var va = IndexSkip<TIndexKey>.Create(gt, lt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
-					index.GetValuesBetween(gt, lt, ref va);
-					va.Dispose();
+					try {
+						index.GetValuesBetween(gt, lt, ref va);
+					} finally {
+						va.Dispose();
+					}
 				}
 
 				break;
@@ -584,8 +605,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					index.GetValuesBetween(gt, lte, ref va);
 				} else {
 					var va = IndexSkip<TIndexKey>.Create(gt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
-					index.GetValuesBetween(gt, lte, ref va);
-					va.Dispose();
+					try {
+						index.GetValuesBetween(gt, lte, ref va);
+					} finally {
+						va.Dispose();
+					}
 				}
 
 				break;
@@ -595,8 +619,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					index.GetValuesLte(lte, ref va);
 				} else {
 					var va = new ValueIntersect<TIndexKey>(ref Candidates, buffer);
-					index.GetValuesLte(lte, ref va);
-					va.Dispose();
+					try {
+						index.GetValuesLte(lte, ref va);
+					} finally {
+						va.Dispose();
+					}
 				}
 
 				break;
@@ -606,8 +633,11 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 					index.GetValuesLte(lt, ref va);
 				} else {
 					var va = IndexSkip<TIndexKey>.Create(lt, new ValueIntersect<TIndexKey>(ref Candidates, buffer));
-					index.GetValuesLte(lt, ref va);
-					va.Dispose();
+					try {
+						index.GetValuesLte(lt, ref va);
+					} finally {
+						va.Dispose();
+					}
 				}
 
 				break;
@@ -1721,7 +1751,7 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 			container.PrepareIndexedInner(ref this);
 			return _leftQuery.CountBase();
 		} finally {
-			container.HardDispose();
+			container.Dispose();
 		}
 	}
 
@@ -1759,11 +1789,17 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 		// cloned), so the extracted rows are independent of the source caches.
 		var container = new JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, TJoinResult>(
 			ref _resolverChain, pool, clone, 0, int.MaxValue, _manyCount);
-		container.PrepareIndexedInner(ref this);
-		container.ExecuteIndexedInner(ref this);
-		_leftQuery.ExecuteBase(ref container);
-		container.ExecuteJoins();
-		container.ExtractKeyedResults(out results, out disposer);
+		try {
+			container.PrepareIndexedInner(ref this);
+			container.ExecuteIndexedInner(ref this);
+			_leftQuery.ExecuteBase(ref container);
+			container.ExecuteJoins();
+			container.ExtractKeyedResults(out results, out disposer);
+		} finally {
+			// ExtractKeyedResults defaults the container's dict/disposer, so on success this
+			// is a no-op; on a throw it returns everything the container still owns.
+			container.Dispose();
+		}
 	}
 
 	// Overwrite the candidate set the next Execute* walks. Used by the nested-join resolver
@@ -1775,12 +1811,14 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 	internal QueryResults<TLeftValue> ExecuteCoreSimple<TResolver>(ref TResolver resolver, bool pool, bool clone, int skip, int take)
 		where TResolver: struct, IJoinResolver {
 		var container = new SimpleResultContainer<TLeftKey, TLeftValue, TResolver>(resolver, pool, clone, skip, take);
-		// try {
+		try {
 			_leftQuery.ExecuteBase(ref container);
 			return container.BuildResults();
-		// } finally {
-		// 	container.Dispose();
-		// }
+		} finally {
+			// No-op once BuildResults hands the buffer to the returned QueryResults; returns
+			// the rented buffer on the empty-result and user-predicate-throw paths.
+			container.Dispose();
+		}
 	}
 
 

@@ -5,6 +5,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Collections;
 using Utils;
 
 public interface IQueryResultDisposePolicy<T> {
@@ -44,11 +45,11 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 
 
 	internal QueryResults(int capacity, bool shouldPool) {
-		_array = shouldPool ? ArrayPool<T>.Shared.Rent(capacity) : new T[capacity];
+		_array = shouldPool ? PragueArrayPool<T>.Pool.Rent(capacity) : new T[capacity];
 		_offset = 0;
 		_capacity = _array.Length;
 		_isPooled = shouldPool;
-		_pool = shouldPool ? ArrayPool<T>.Shared : null;
+		_pool = shouldPool ? PragueArrayPool<T>.Pool : null;
 	}
 
 	internal QueryResults(int capacity, ArrayPool<T> pool) {
@@ -80,13 +81,13 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 	}
 
 	private QueryResults(int capacity, int offset, int count, int totalCount, bool shouldPool) {
-		_array = shouldPool ? ArrayPool<T>.Shared.Rent(capacity) : new T[capacity];
+		_array = shouldPool ? PragueArrayPool<T>.Pool.Rent(capacity) : new T[capacity];
 		_offset = offset;
 		_count = count;
 		_totalCount = totalCount;
 		_capacity = _array.Length;
 		_isPooled = shouldPool;
-		_pool = shouldPool ? ArrayPool<T>.Shared : null;
+		_pool = shouldPool ? PragueArrayPool<T>.Pool : null;
 	}
 
 	private QueryResults(int capacity, int offset, int count, int totalCount, ArrayPool<T> pool) {
@@ -134,14 +135,14 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 	/// Creates a QueryResults from an existing array. Used by join builders that manage their own arrays.
 	/// </summary>
 	internal static QueryResults<T> FromArray(T[] array, int offset, int count, int totalCount, bool isPooled) {
-		return new QueryResults<T>(array, offset, count, totalCount, isPooled, ArrayPool<T>.Shared, default);
+		return new QueryResults<T>(array, offset, count, totalCount, isPooled, PragueArrayPool<T>.Pool, default);
 	}
 
 	/// <summary>
 	/// Creates a QueryResults from an existing array with a disposer. Used by unified join builders.
 	/// </summary>
 	internal static QueryResults<T> FromArray(T[] array, int offset, int count, int totalCount, bool isPooled, in QueryResultsDisposer disposer) {
-		return new QueryResults<T>(array, offset, count, totalCount, isPooled, ArrayPool<T>.Shared, in disposer);
+		return new QueryResults<T>(array, offset, count, totalCount, isPooled, PragueArrayPool<T>.Pool, in disposer);
 	}
 
 	private QueryResults(T[] array, int offset, int count, int totalCount, bool isPooled, ArrayPool<T>? pool, in QueryResultsDisposer disposer) {
@@ -164,12 +165,16 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 	}
 
 	public void Dispose() {
-		_disposer.Dispose();
+		// Write-through (same trick as the _array null-out below): Dispose zeroes the
+		// disposer's entry count in place, so a second Dispose of this instance cannot
+		// re-return the registered child buffers. A plain call on the readonly field
+		// would mutate a defensive copy and lose the guard.
+		Unsafe.AsRef(in _disposer).Dispose();
 
 		if (!_isPooled || _array is null || _array.Length is 0)
 			return;
 
-		(_pool ?? ArrayPool<T>.Shared).Return(_array, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+		(_pool ?? PragueArrayPool<T>.Pool).Return(_array, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
 		Unsafe.AsRef<T[]?>(in _array) = null;
 	}
 
@@ -311,14 +316,14 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 	}
 
 	public T[] ToPooledArray() {
-		return ToPooledArray(ArrayPool<T>.Shared);
+		return ToPooledArray(PragueArrayPool<T>.Pool);
 	}
 
 	public T[] ToPooledArray(ArrayPool<T> pool) {
 		if (_array is null)
 			return Array.Empty<T>();
 
-		if (_isPooled && ReferenceEquals(pool, _pool ?? ArrayPool<T>.Shared) && _offset == 0) {
+		if (_isPooled && ReferenceEquals(pool, _pool ?? PragueArrayPool<T>.Pool) && _offset == 0) {
 			var arr = _array;
 			Unsafe.AsRef<T[]?>(in _array) = null;
 			return arr;
@@ -564,7 +569,7 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 /// </summary>
 internal static class PragueArrayReturn<T> {
 	internal static readonly Action<Array> Return = static a =>
-		ArrayPool<T>.Shared.Return((T[])a, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+		PragueArrayPool<T>.Pool.Return((T[])a, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
 }
 
 /// <summary>
@@ -652,10 +657,18 @@ public struct QueryResultsDisposer {
 		}
 	}
 
-	public readonly void Dispose() {
-		for (var i = 0; i < _count; i++) {
-			ref readonly var entry = ref i < InlineCapacity ? ref _inline[i] : ref _overflow![i - InlineCapacity];
+	public void Dispose() {
+		// Fire-once: zero the count up front and drop each entry's buffer root after
+		// returning it, so a re-Dispose (or a Dispose of a copy taken afterwards) can
+		// never hand the same buffer to the pool twice.
+		var count = _count;
+		if (count == 0)
+			return;
+		_count = 0;
+		for (var i = 0; i < count; i++) {
+			ref var entry = ref i < InlineCapacity ? ref _inline[i] : ref _overflow![i - InlineCapacity];
 			entry.Returner(entry.Buffer);
+			entry = default;
 		}
 	}
 }

@@ -60,9 +60,15 @@ internal sealed class CompoundIndex<TPrefix, TSort, TKey> : IDisposable
 	///   Caller must return the buffer.
 	/// </summary>
 	public (TKey[] buffer, int count) SeekAndTakePooled(TPrefix prefix, int skip, int take) {
-		var buffer = ArrayPool<TKey>.Shared.Rent(take);
-		var count = SeekAndTake(prefix, skip, take, buffer);
-		return (buffer, count);
+		var buffer = PragueArrayPool<TKey>.Pool.Rent(take);
+		try {
+			var count = SeekAndTake(prefix, skip, take, buffer);
+			return (buffer, count);
+		} catch {
+			// The tree walk runs user CompareTo — ownership only transfers on success.
+			PragueArrayPool<TKey>.Pool.Return(buffer, RuntimeHelpers.IsReferenceOrContainsReferences<TKey>());
+			throw;
+		}
 	}
 
 	/// <summary>

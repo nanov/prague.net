@@ -110,8 +110,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		public LeafNode? Prev;
 
 		public LeafNode() {
-			Keys = ArrayPool<TIndex>.Shared.Rent(LeafCapacity);
-			Values = ArrayPool<TValue>.Shared.Rent(LeafCapacity);
+			Keys = PragueArrayPool<TIndex>.Pool.Rent(LeafCapacity);
+			Values = PragueArrayPool<TValue>.Pool.Rent(LeafCapacity);
 		}
 
 		public override void ReclaimToPool() => ReturnToPool();
@@ -122,12 +122,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			Keys = null!;
 			Values = null!;
 			try {
-				ArrayPool<TIndex>.Shared.Return(keys, RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>());
+				PragueArrayPool<TIndex>.Pool.Return(keys, RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>());
 			}
 			catch (ArgumentException) { }
 
 			try {
-				ArrayPool<TValue>.Shared.Return(values, RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
+				PragueArrayPool<TValue>.Pool.Return(values, RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
 			}
 			catch (ArgumentException) { }
 		}
@@ -140,9 +140,9 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		public int KeyCount; // number of separator keys; child count = KeyCount + 1
 
 		public InternalNode() {
-			Keys = ArrayPool<TIndex>.Shared.Rent(InternalCapacity - 1);
-			SepValues = ArrayPool<TValue>.Shared.Rent(InternalCapacity - 1);
-			Children = ArrayPool<Node>.Shared.Rent(InternalCapacity);
+			Keys = PragueArrayPool<TIndex>.Pool.Rent(InternalCapacity - 1);
+			SepValues = PragueArrayPool<TValue>.Pool.Rent(InternalCapacity - 1);
+			Children = PragueArrayPool<Node>.Pool.Rent(InternalCapacity);
 		}
 
 		public override void ReclaimToPool() => ReturnToPool();
@@ -155,17 +155,17 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			SepValues = null!;
 			Children = null!;
 			try {
-				ArrayPool<TIndex>.Shared.Return(keys, RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>());
+				PragueArrayPool<TIndex>.Pool.Return(keys, RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>());
 			}
 			catch (ArgumentException) { }
 
 			try {
-				ArrayPool<TValue>.Shared.Return(sepValues, RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
+				PragueArrayPool<TValue>.Pool.Return(sepValues, RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
 			}
 			catch (ArgumentException) { }
 
 			try {
-				ArrayPool<Node>.Shared.Return(children, true); // clear refs
+				PragueArrayPool<Node>.Pool.Return(children, true); // clear refs
 			}
 			catch (ArgumentException) { }
 		}
