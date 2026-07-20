@@ -14,7 +14,7 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 
 		private readonly int _count;
 
-		private readonly bool _isPooled;
+		private bool _isPooled;
 
 		private int _index;
 
@@ -48,6 +48,7 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 		{
 			if (_isPooled)
 			{
+				_isPooled = false; // fire-once: a second Dispose must not decrement the refcount again
 				_owner.ReleasePooledArray(_items);
 			}
 		}
@@ -55,9 +56,15 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 
 	private sealed class BoxedEnumerator : IEnumerator<T>, IEnumerator, IDisposable
 	{
+		private readonly SortedArraySet<T> _owner;
+
 		private readonly T[] _items;
 
 		private readonly int _count;
+
+		private readonly bool _isPooled;
+
+		private int _released; // 0 = holds a refcount, 1 = released
 
 		private int _index;
 
@@ -65,10 +72,12 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 
 		object? IEnumerator.Current => Current;
 
-		internal BoxedEnumerator(T[] items, int count)
+		internal BoxedEnumerator(SortedArraySet<T> owner, T[] items, int count, bool isPooled)
 		{
+			_owner = owner;
 			_items = items;
 			_count = count;
+			_isPooled = isPooled;
 			_index = -1;
 		}
 
@@ -84,6 +93,21 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 
 		public void Dispose()
 		{
+			DisposeCore();
+			GC.SuppressFinalize(this);
+		}
+
+		~BoxedEnumerator()
+		{
+			DisposeCore();
+		}
+
+		private void DisposeCore()
+		{
+			if (_isPooled && Interlocked.Exchange(ref _released, 1) == 0)
+			{
+				_owner.ReleasePooledArray(_items);
+			}
 		}
 	}
 
@@ -192,12 +216,24 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 
 	IEnumerator<T> IEnumerable<T>.GetEnumerator()
 	{
-		return new BoxedEnumerator(_items, _count);
+		return CreateBoxedEnumerator();
 	}
 
 	IEnumerator IEnumerable.GetEnumerator()
 	{
-		return new BoxedEnumerator(_items, _count);
+		return CreateBoxedEnumerator();
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private BoxedEnumerator CreateBoxedEnumerator()
+	{
+		var items = _items;
+		var isPooled = items == _pooledArray;
+		if (isPooled)
+		{
+			Interlocked.Increment(ref _pooledRefCount);
+		}
+		return new BoxedEnumerator(this, items, _count, isPooled);
 	}
 
 	public void Dispose()

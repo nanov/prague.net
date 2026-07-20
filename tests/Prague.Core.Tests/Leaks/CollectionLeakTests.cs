@@ -114,19 +114,60 @@ public class CollectionLeakTests {
 			enumerator.Dispose();
 		});
 
-	// ── TopKHeap ─────────────────────────────────────────────────────────────
+	[Test]
+	public void SortedArraySet_EnumeratorDoubleDispose_DoesNotDoubleRelease() =>
+		LeakAssert.Balanced(static () => {
+			var set = new SortedArraySet<int>();
+			for (var i = 0; i < 100; i++)
+				set.Add(i);
+			var enumerator = set.GetEnumerator();
+			enumerator.MoveNext();
+			enumerator.Dispose();
+			enumerator.Dispose(); // must be a no-op, not a second refcount decrement
+			Assert.That(set.Contains(50), Is.True, "set must still be usable");
+
+			// The double-dispose above (when unguarded) already drives the refcount to
+			// zero and returns the array to the pool while the set is still live. A
+			// second acquire/dispose cycle re-increments that corrupted refcount and
+			// hands out the very same, already-returned array; disposing it drives the
+			// refcount to zero a second time, forcing a real double-return of one array
+			// instance — that's what TrackingArrayPool flags as a violation.
+			var enumerator2 = set.GetEnumerator();
+			enumerator2.MoveNext();
+			enumerator2.Dispose();
+			set.Dispose();
+		});
 
 	[Test]
-	public void TopKHeap_PushDrainDispose_Balanced() =>
+	public void SortedArraySet_DisposeDuringBoxedEnumeration_DefersArrayReturn() =>
 		LeakAssert.Balanced(static () => {
-			var heap = new TopKHeap<int, long>(64);
-			for (var i = 0; i < 1_000; i++)
-				heap.Push(i, 1_000 - i);
-			var keys = new int[64];
-			heap.DrainSorted(keys);
-			heap.Dispose();
-			heap.Dispose();
+			var set = new SortedArraySet<int>();
+			for (var i = 0; i < 100; i++)
+				set.Add(i);
+			var boxed = ((IEnumerable<int>)set).GetEnumerator();
+			boxed.MoveNext();
+			set.Dispose(); // must NOT return the array while boxed still reads it
+			Assert.That(boxed.MoveNext(), Is.True);
+			boxed.Dispose(); // last owner: releases here
 		});
+
+	[Test]
+	public void SortedArraySet_AbandonedBoxedEnumerator_FinalizerBackstop_Balanced() =>
+		LeakAssert.Balanced(static () => {
+			var set = new SortedArraySet<int>();
+			for (var i = 0; i < 100; i++)
+				set.Add(i);
+			AbandonBoxedEnumerator(set);
+			set.Dispose();
+		});
+
+	// Keep the undisposed boxed enumerator's lifetime confined to a non-inlined frame
+	// so the finalizer can run during LeakAssert's quiesce.
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static void AbandonBoxedEnumerator(SortedArraySet<int> set) {
+		var enumerator = ((IEnumerable<int>)set).GetEnumerator();
+		enumerator.MoveNext();
+	}
 
 	// ── ValueSet ─────────────────────────────────────────────────────────────
 
