@@ -52,12 +52,14 @@ using System.Runtime.InteropServices;
 	///     makes a lock-free reader observing a STALE _hasDuplicateKeys == false correct
 	///     rather than merely lucky: it returns the right answer on a tree that already
 	///     has duplicates, just more slowly. Writers read the flag under the write lock.
-	///   - Every stored value's tiebreak hash rides beside it (leaf ValueHashes, internal
+	///   - Ref-typed values' tiebreak hashes ride beside them (leaf ValueHashes, internal
 	///     SepValueHashes), maintained in lockstep with each Values/SepValues move and
 	///     written before the Count/link store that publishes the slot. Composite descents
 	///     and probes compare stored ints instead of re-hashing values (Marvin32 on string
-	///     values made stored-value re-hashing the dominant duplicate-run cost). Unique-key
-	///     trees carry the arrays without reading them — +4 bytes per entry, accepted.
+	///     values made stored-value re-hashing the dominant duplicate-run cost). Value-typed
+	///     values skip the arrays entirely (StoreValueHashes, JIT-folded) and recompute the
+	///     identity-class hash on read: Task 10 measured always-on storage as pure carry
+	///     cost there (RemoveAll_Composite +2.3–6%, +4 bytes per entry never read).
 /// </summary>
 internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	where TIndex : IComparable<TIndex>
@@ -66,6 +68,11 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	private const int InternalCapacity = 64; // max children per internal node
 	private const int MaxDepth = 8; // 64^8 > 10^14, more than enough
 
+	// JIT-folded per closed generic: value-type tiebreak hashes are identity-class raw
+	// GetHashCode — recomputing beats maintaining a third parallel array (Task 10 measured
+	// RemoveAll_Composite +2.3–6% with always-on storage). Ref-type hashes (Marvin over
+	// strings) are O(length): stored once at insert, read forever.
+	private static readonly bool StoreValueHashes = !typeof(TValue).IsValueType;
 
 	[ThreadStatic] private static InternalNode?[]? _ancestorsBuf;
 	[ThreadStatic] private static int[]? _childIdxBuf;
@@ -112,7 +119,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	private sealed class LeafNode : Node {
 		public TIndex[] Keys;
 		public TValue[] Values;
-		public int[] ValueHashes; // ValueHashes[i] == HashOf(Values[i]) for every live slot
+		public int[]? ValueHashes; // ValueHashes[i] == HashOf(Values[i]) for every live slot; null unless StoreValueHashes
 		public int Count;
 		public LeafNode? Next;
 		public LeafNode? Prev;
@@ -120,7 +127,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		public LeafNode() {
 			Keys = PragueArrayPool<TIndex>.Pool.Rent(LeafCapacity);
 			Values = PragueArrayPool<TValue>.Pool.Rent(LeafCapacity);
-			ValueHashes = PragueArrayPool<int>.Pool.Rent(LeafCapacity);
+			ValueHashes = StoreValueHashes ? PragueArrayPool<int>.Pool.Rent(LeafCapacity) : null;
 		}
 
 		public override void ReclaimToPool() => ReturnToPool();
@@ -131,7 +138,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			var valueHashes = ValueHashes;
 			Keys = null!;
 			Values = null!;
-			ValueHashes = null!;
+			ValueHashes = null;
 			try {
 				PragueArrayPool<TIndex>.Pool.Return(keys, RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>());
 			}
@@ -142,24 +149,26 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			}
 			catch (ArgumentException) { }
 
-			try {
-				PragueArrayPool<int>.Pool.Return(valueHashes, false); // ints — no clear
+			if (valueHashes != null) {
+				try {
+					PragueArrayPool<int>.Pool.Return(valueHashes, false); // ints — no clear
+				}
+				catch (ArgumentException) { }
 			}
-			catch (ArgumentException) { }
 		}
 	}
 
 	private sealed class InternalNode : Node {
 		public TIndex[] Keys; // separator keys
 		public TValue[] SepValues; // separator values: SepValues[i] pairs with Keys[i] (first pair of Children[i + 1])
-		public int[] SepValueHashes; // SepValueHashes[i] == HashOf(SepValues[i])
+		public int[]? SepValueHashes; // SepValueHashes[i] == HashOf(SepValues[i]); null unless StoreValueHashes
 		public Node[] Children;
 		public int KeyCount; // number of separator keys; child count = KeyCount + 1
 
 		public InternalNode() {
 			Keys = PragueArrayPool<TIndex>.Pool.Rent(InternalCapacity - 1);
 			SepValues = PragueArrayPool<TValue>.Pool.Rent(InternalCapacity - 1);
-			SepValueHashes = PragueArrayPool<int>.Pool.Rent(InternalCapacity - 1);
+			SepValueHashes = StoreValueHashes ? PragueArrayPool<int>.Pool.Rent(InternalCapacity - 1) : null;
 			Children = PragueArrayPool<Node>.Pool.Rent(InternalCapacity);
 		}
 
@@ -172,7 +181,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			var children = Children;
 			Keys = null!;
 			SepValues = null!;
-			SepValueHashes = null!;
+			SepValueHashes = null;
 			Children = null!;
 			try {
 				PragueArrayPool<TIndex>.Pool.Return(keys, RuntimeHelpers.IsReferenceOrContainsReferences<TIndex>());
@@ -184,10 +193,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			}
 			catch (ArgumentException) { }
 
-			try {
-				PragueArrayPool<int>.Pool.Return(sepValueHashes, false); // ints — no clear
+			if (sepValueHashes != null) {
+				try {
+					PragueArrayPool<int>.Pool.Return(sepValueHashes, false); // ints — no clear
+				}
+				catch (ArgumentException) { }
 			}
-			catch (ArgumentException) { }
 
 			try {
 				PragueArrayPool<Node>.Pool.Return(children, true); // clear refs
@@ -240,6 +251,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return buf;
 	}
 
+	// Stored mode only: callers rent and touch this scratch under StoreValueHashes.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int[] GetSplitSepValueHashesBuf() {
 		var buf = _splitSepValueHashesBuf;
@@ -297,10 +309,11 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	///   ordinal-consistent, process-stable) — the same hash the store threads in precomputed,
 	///   so pre-hashed entry points consume it for free (2026-07-20 single-hash spec; DJB2
 	///   tiebreak retired). Hash ties are resolved by an Equals probe, so a collision costs
-	///   time, never correctness. Called on INCOMING values only (public wrappers, Contains,
-	///   pre-hashed debug asserts): stored slots carry their hash in ValueHashes /
-	///   SepValueHashes, so descents and probes read an int instead of re-hashing. Still
-	///   null-tolerant — an incoming default value hashes safely.
+	///   time, never correctness. Called on incoming values (public wrappers, Contains,
+	///   pre-hashed debug asserts) and, through HashAt in value-type trees, on stored
+	///   slots — identity-class there, so recomputing beats carrying a parallel array.
+	///   Ref-typed stored slots carry their hash in ValueHashes / SepValueHashes instead.
+	///   Still null-tolerant — an incoming default value hashes safely.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int HashOf(TValue value) {
@@ -308,6 +321,25 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			return value!.GetHashCode();
 		return value is null ? 0 : value.GetHashCode();
 	}
+
+	/// <summary>
+	///   Mode-folded tiebreak hash of stored slot i (JIT-folded per closed generic): the
+	///   stored-hash read when StoreValueHashes, an identity-class recompute from the value
+	///   otherwise — value-type instantiations fold back to the compute-on-the-fly codegen,
+	///   ref-type ones to the stored-array read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int HashAt(TValue[] values, int[]? hashes, int i) =>
+		StoreValueHashes ? hashes![i] : HashOf(values[i]);
+
+	/// <summary>
+	///   Hoisted-ref variant for the binary-search loops: callers keep their
+	///   GetArrayDataReference bounds-check elision; the hashes ref is NullRef (and
+	///   provably unread) when !StoreValueHashes.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int HashAt(ref TValue values, ref int hashes, int i) =>
+		StoreValueHashes ? Unsafe.Add(ref hashes, i) : HashOf(Unsafe.Add(ref values, i));
 
 	/// <summary>
 	///   Composite FindChildIndex: separators are (key, value) pairs, entries equal to
@@ -319,15 +351,19 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		// Hoisted out of the loop. The original resolved this inside the tie-branch so that
 		// unique-key descents never loaded a second array header; with the duplicate-key
 		// flag, unique-key trees never reach the composite descent at all, so that
-		// protection is dead weight and the repeated resolve is pure cost.
-		ref var sepValueHashes = ref MemoryMarshal.GetArrayDataReference(node.SepValueHashes);
+		// protection is dead weight and the repeated resolve is pure cost. Per mode exactly
+		// one of the two refs below is live (HashAt folds); the other load is dead code.
+		ref var sepValues = ref MemoryMarshal.GetArrayDataReference(node.SepValues);
+		ref var sepValueHashes = ref StoreValueHashes
+			? ref MemoryMarshal.GetArrayDataReference(node.SepValueHashes!)
+			: ref Unsafe.NullRef<int>();
 		var lo = 0;
 		var hi = node.KeyCount - 1;
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
 			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
 			if (cmp == 0)
-				cmp = valueHash.CompareTo(Unsafe.Add(ref sepValueHashes, mid));
+				cmp = valueHash.CompareTo(HashAt(ref sepValues, ref sepValueHashes, mid));
 
 			// Equal goes RIGHT — the same routing the key-only tree used, which is what
 			// keeps the unique-key path free of extra leaf hops. (key, hash) does NOT
@@ -392,19 +428,23 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	///   receiver (same orientation as FindChildIndexComposite): a lock-free reader racing
 	///   a shrink may observe a stale Count and probe a vacated slot, which for ref-typed
 	///   keys reads as null — safe as an argument, an NRE as a receiver. The value half is
-	///   a stored-hash read (ValueHashes), so vacated slots cost nothing there.
+	///   a stored-hash read (ValueHashes) in stored mode; in value-type trees HashAt
+	///   recomputes from the slot, whose vacated read is a struct default — hashes safely.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int LeafLowerBoundComposite(LeafNode leaf, TIndex index, int valueHash) {
 		ref var keys = ref MemoryMarshal.GetArrayDataReference(leaf.Keys);
-		ref var valueHashes = ref MemoryMarshal.GetArrayDataReference(leaf.ValueHashes); // hoisted — see FindChildIndexComposite
+		ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values); // hoisted — see FindChildIndexComposite
+		ref var valueHashes = ref StoreValueHashes
+			? ref MemoryMarshal.GetArrayDataReference(leaf.ValueHashes!)
+			: ref Unsafe.NullRef<int>();
 		var lo = 0;
 		var hi = Volatile.Read(ref leaf.Count) - 1; // acquire: pairs with InsertIntoLeaf's release
 		while (lo <= hi) {
 			var mid = (lo + hi) >>> 1;
 			var cmp = index.CompareTo(Unsafe.Add(ref keys, mid));
 			if (cmp == 0)
-				cmp = valueHash.CompareTo(Unsafe.Add(ref valueHashes, mid));
+				cmp = valueHash.CompareTo(HashAt(ref values, ref valueHashes, mid));
 
 			if (cmp > 0)
 				lo = mid + 1;
@@ -614,7 +654,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		while (true) {
 			var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
 			for (; pos < count; pos++) {
-				if (index.CompareTo(leaf.Keys[pos]) != 0 || valueHash != leaf.ValueHashes[pos])
+				if (index.CompareTo(leaf.Keys[pos]) != 0 || valueHash != HashAt(leaf.Values, leaf.ValueHashes, pos))
 					break;
 				if (value.Equals(leaf.Values[pos])) {
 					foundLeaf = leaf;
@@ -648,7 +688,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 			var i = count - 1;
 			for (; i >= 0; i--) {
-				if (index.CompareTo(prev.Keys[i]) != 0 || valueHash != prev.ValueHashes[i])
+				if (index.CompareTo(prev.Keys[i]) != 0 || valueHash != HashAt(prev.Values, prev.ValueHashes, i))
 					break;
 				if (value.Equals(prev.Values[i])) {
 					foundLeaf = prev;
@@ -675,7 +715,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// </summary>
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private void RepairPath(LeafNode target, InternalNode?[] ancestors, int[] childIndices, out int depth) {
-		var leaf = FindLeafWithPathComposite(target.Keys[0], target.ValueHashes[0],
+		var leaf = FindLeafWithPathComposite(target.Keys[0], HashAt(target.Values, target.ValueHashes, 0),
 			ancestors, childIndices, out depth);
 		var guard = 0;
 		while (!ReferenceEquals(leaf, target)) {
@@ -764,11 +804,12 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			// In unique mode an equal key means this Add creates the first duplicate, so
 			// fall through and let the mode flip rather than appending.
 			if (cmpLast == 0 && _hasDuplicateKeys)
-				cmpLast = valueHash.CompareTo(last.ValueHashes[lastCount - 1]);
+				cmpLast = valueHash.CompareTo(HashAt(last.Values, last.ValueHashes, lastCount - 1));
 			if (cmpLast > 0) {
 				last.Keys[lastCount] = index;
 				last.Values[lastCount] = value;
-				last.ValueHashes[lastCount] = valueHash;
+				if (StoreValueHashes)
+					last.ValueHashes![lastCount] = valueHash;
 				// Release-publish the grown count AFTER the slot stores (see InsertIntoLeaf).
 				Volatile.Write(ref last.Count, lastCount + 1);
 				_length++;
@@ -816,7 +857,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		// A key-or-hash mismatch at the composite lower bound proves this pair is absent
 		// without walking anything — that is every unique-key insert.
 		if (insertPos == 0 || insertPos >= leaf.Count
-			|| index.CompareTo(leaf.Keys[insertPos]) == 0 && valueHash == leaf.ValueHashes[insertPos]) {
+			|| index.CompareTo(leaf.Keys[insertPos]) == 0 && valueHash == HashAt(leaf.Values, leaf.ValueHashes, insertPos)) {
 			if (TryFindPair(leaf, insertPos, index, value, valueHash, out _, out _))
 				return false;
 		}
@@ -838,12 +879,14 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		if (pos < leaf.Count) {
 			Array.Copy(leaf.Keys, pos, leaf.Keys, pos + 1, leaf.Count - pos);
 			Array.Copy(leaf.Values, pos, leaf.Values, pos + 1, leaf.Count - pos);
-			Array.Copy(leaf.ValueHashes, pos, leaf.ValueHashes, pos + 1, leaf.Count - pos);
+			if (StoreValueHashes)
+				Array.Copy(leaf.ValueHashes!, pos, leaf.ValueHashes!, pos + 1, leaf.Count - pos);
 		}
 
 		leaf.Keys[pos] = index;
 		leaf.Values[pos] = value;
-		leaf.ValueHashes[pos] = valueHash;
+		if (StoreValueHashes)
+			leaf.ValueHashes![pos] = valueHash;
 		// Release-publish the grown count AFTER the slot stores: on weak memory models
 		// a plain Count++ can become visible first, letting a concurrent reader scan
 		// the not-yet-written tail slot and serve dirt left in the pooled array.
@@ -870,7 +913,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			// Copy right portion to new leaf
 			Array.Copy(leaf.Keys, leftKeep, newLeaf.Keys, 0, rightCount);
 			Array.Copy(leaf.Values, leftKeep, newLeaf.Values, 0, rightCount);
-			Array.Copy(leaf.ValueHashes, leftKeep, newLeaf.ValueHashes, 0, rightCount);
+			if (StoreValueHashes)
+				Array.Copy(leaf.ValueHashes!, leftKeep, newLeaf.ValueHashes!, 0, rightCount);
 			newLeaf.Count = rightCount;
 
 			// Trim old leaf to leftKeep items
@@ -892,7 +936,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			// Copy right portion to new leaf
 			Array.Copy(leaf.Keys, mid, newLeaf.Keys, 0, rightCount);
 			Array.Copy(leaf.Values, mid, newLeaf.Values, 0, rightCount);
-			Array.Copy(leaf.ValueHashes, mid, newLeaf.ValueHashes, 0, rightCount);
+			if (StoreValueHashes)
+				Array.Copy(leaf.ValueHashes!, mid, newLeaf.ValueHashes!, 0, rightCount);
 			newLeaf.Count = rightCount;
 
 			// Trim old leaf
@@ -925,7 +970,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		// value half to discriminate children inside duplicate-key runs.
 		var promotedKey = newLeaf.Keys[0];
 		var promotedValue = newLeaf.Values[0];
-		var promotedHash = newLeaf.ValueHashes[0];
+		var promotedHash = HashAt(newLeaf.Values, newLeaf.ValueHashes, 0);
 		InsertIntoParent(leaf, promotedKey, promotedValue, promotedHash, newLeaf,
 			ancestors, childIndices, depth);
 	}
@@ -939,7 +984,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			var newRoot = new InternalNode();
 			newRoot.Keys[0] = key;
 			newRoot.SepValues[0] = sepValue;
-			newRoot.SepValueHashes[0] = sepValueHash;
+			if (StoreValueHashes)
+				newRoot.SepValueHashes![0] = sepValueHash;
 			newRoot.Children[0] = leftChild;
 			newRoot.Children[1] = rightChild;
 			newRoot.KeyCount = 1;
@@ -957,14 +1003,16 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			if (insertAt < parent.KeyCount) {
 				Array.Copy(parent.Keys, insertAt, parent.Keys, insertAt + 1, parent.KeyCount - insertAt);
 				Array.Copy(parent.SepValues, insertAt, parent.SepValues, insertAt + 1, parent.KeyCount - insertAt);
-				Array.Copy(parent.SepValueHashes, insertAt, parent.SepValueHashes, insertAt + 1, parent.KeyCount - insertAt);
+				if (StoreValueHashes)
+					Array.Copy(parent.SepValueHashes!, insertAt, parent.SepValueHashes!, insertAt + 1, parent.KeyCount - insertAt);
 				Array.Copy(parent.Children, insertAt + 1, parent.Children, insertAt + 2,
 					parent.KeyCount - insertAt);
 			}
 
 			parent.Keys[insertAt] = key;
 			parent.SepValues[insertAt] = sepValue;
-			parent.SepValueHashes[insertAt] = sepValueHash;
+			if (StoreValueHashes)
+				parent.SepValueHashes![insertAt] = sepValueHash;
 			// Release-publish the new node: its rented arrays were filled with plain
 			// stores and must be visible before any pointer to it.
 			Volatile.Write(ref parent.Children[insertAt + 1], rightChild);
@@ -988,7 +1036,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		// Build temporary arrays with the new key/child inserted (thread-static, zero alloc)
 		var tempKeys = GetSplitKeysBuf();
 		var tempSepValues = GetSplitSepValuesBuf();
-		var tempSepValueHashes = GetSplitSepValueHashesBuf();
+		var tempSepValueHashes = StoreValueHashes ? GetSplitSepValueHashesBuf() : null;
 		var tempChildren = GetSplitChildrenBuf();
 
 		// Copy existing keys/children with insertion
@@ -996,7 +1044,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			if (j == insertAt) {
 				tempKeys[j] = key;
 				tempSepValues[j] = sepValue;
-				tempSepValueHashes[j] = sepValueHash;
+				if (StoreValueHashes)
+					tempSepValueHashes![j] = sepValueHash;
 				tempChildren[j] = node.Children[i];
 				tempChildren[j + 1] = rightChild;
 				i--; // don't advance source
@@ -1004,7 +1053,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			else {
 				tempKeys[j] = node.Keys[i];
 				tempSepValues[j] = node.SepValues[i];
-				tempSepValueHashes[j] = node.SepValueHashes[i];
+				if (StoreValueHashes)
+					tempSepValueHashes![j] = node.SepValueHashes![i];
 				// j == insertAt + 1 is already set to rightChild — don't overwrite it
 				if (j != insertAt + 1)
 					tempChildren[j] = node.Children[i];
@@ -1016,13 +1066,14 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		// The promoted pair is (tempKeys[midIdx], tempSepValues[midIdx])
 		var promotedKey = tempKeys[midIdx];
 		var promotedValue = tempSepValues[midIdx];
-		var promotedHash = tempSepValueHashes[midIdx];
+		var promotedHash = HashAt(tempSepValues, tempSepValueHashes, midIdx);
 
 		// Left node keeps keys 0..midIdx-1, children 0..midIdx
 		node.KeyCount = midIdx;
 		Array.Copy(tempKeys, 0, node.Keys, 0, midIdx);
 		Array.Copy(tempSepValues, 0, node.SepValues, 0, midIdx);
-		Array.Copy(tempSepValueHashes, 0, node.SepValueHashes, 0, midIdx);
+		if (StoreValueHashes)
+			Array.Copy(tempSepValueHashes!, 0, node.SepValueHashes!, 0, midIdx);
 		for (var i = 0; i <= midIdx; i++)
 			node.Children[i] = tempChildren[i];
 		// Clear excess slots
@@ -1039,7 +1090,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		newNode.KeyCount = rightKeyCount;
 		Array.Copy(tempKeys, midIdx + 1, newNode.Keys, 0, rightKeyCount);
 		Array.Copy(tempSepValues, midIdx + 1, newNode.SepValues, 0, rightKeyCount);
-		Array.Copy(tempSepValueHashes, midIdx + 1, newNode.SepValueHashes, 0, rightKeyCount);
+		if (StoreValueHashes)
+			Array.Copy(tempSepValueHashes!, midIdx + 1, newNode.SepValueHashes!, 0, rightKeyCount);
 		for (var i = 0; i <= rightKeyCount; i++)
 			newNode.Children[i] = tempChildren[midIdx + 1 + i];
 
@@ -1133,7 +1185,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		if (exactPos < leaf.Count) {
 			Array.Copy(leaf.Keys, exactPos + 1, leaf.Keys, exactPos, leaf.Count - exactPos);
 			Array.Copy(leaf.Values, exactPos + 1, leaf.Values, exactPos, leaf.Count - exactPos);
-			Array.Copy(leaf.ValueHashes, exactPos + 1, leaf.ValueHashes, exactPos, leaf.Count - exactPos);
+			if (StoreValueHashes)
+				Array.Copy(leaf.ValueHashes!, exactPos + 1, leaf.ValueHashes!, exactPos, leaf.Count - exactPos);
 		}
 
 		// Clear the last slot
@@ -1193,7 +1246,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		if (keyIdx < parent.KeyCount - 1) {
 			Array.Copy(parent.Keys, keyIdx + 1, parent.Keys, keyIdx, parent.KeyCount - keyIdx - 1);
 			Array.Copy(parent.SepValues, keyIdx + 1, parent.SepValues, keyIdx, parent.KeyCount - keyIdx - 1);
-			Array.Copy(parent.SepValueHashes, keyIdx + 1, parent.SepValueHashes, keyIdx, parent.KeyCount - keyIdx - 1);
+			if (StoreValueHashes)
+				Array.Copy(parent.SepValueHashes!, keyIdx + 1, parent.SepValueHashes!, keyIdx, parent.KeyCount - keyIdx - 1);
 		}
 
 		// Shift children left
@@ -1321,9 +1375,13 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		if (pos > 0 && pos < Volatile.Read(ref leaf.Count)) {
 			if (index.CompareTo(Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(leaf.Keys), pos)) != 0)
 				return false;
-			if (valueHash != Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(leaf.ValueHashes), pos))
+			ref var values = ref MemoryMarshal.GetArrayDataReference(leaf.Values);
+			ref var valueHashes = ref StoreValueHashes
+				? ref MemoryMarshal.GetArrayDataReference(leaf.ValueHashes!)
+				: ref Unsafe.NullRef<int>();
+			if (valueHash != HashAt(ref values, ref valueHashes, pos))
 				return false;
-			if (value.Equals(Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(leaf.Values), pos)))
+			if (value.Equals(Unsafe.Add(ref values, pos)))
 				return true;
 		}
 
