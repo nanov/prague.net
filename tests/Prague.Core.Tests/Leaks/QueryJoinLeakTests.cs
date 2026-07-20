@@ -187,9 +187,9 @@ public class QueryJoinLeakTests {
 	public void InnerJoinMany_Count_MatchesExecuteCount() =>
 		LeakAssert.Balanced(() => {
 			int executed;
-			using (var results = _left.Query().Where(static l => l.Id < 50).InnerJoinMany(_rightMany, _manyIndex).ExecutePooled())
+			using (var results = _left.Query().Where(static l => l.Id < Size).InnerJoinMany(_rightMany, _manyIndex).ExecutePooled())
 				executed = results.Count;
-			var counted = _left.Query().Where(static l => l.Id < 50).InnerJoinMany(_rightMany, _manyIndex).Count();
+			var counted = _left.Query().Where(static l => l.Id < Size).InnerJoinMany(_rightMany, _manyIndex).Count();
 			Assert.That(counted, Is.EqualTo(executed));
 		});
 }
