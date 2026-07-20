@@ -138,6 +138,37 @@ public class CollectionLeakTests {
 			set.Dispose();
 		});
 
+	[Test]
+	public void SortedArraySet_DisposeDuringBoxedEnumeration_DefersArrayReturn() =>
+		LeakAssert.Balanced(static () => {
+			var set = new SortedArraySet<int>();
+			for (var i = 0; i < 100; i++)
+				set.Add(i);
+			var boxed = ((IEnumerable<int>)set).GetEnumerator();
+			boxed.MoveNext();
+			set.Dispose(); // must NOT return the array while boxed still reads it
+			Assert.That(boxed.MoveNext(), Is.True);
+			boxed.Dispose(); // last owner: releases here
+		});
+
+	[Test]
+	public void SortedArraySet_AbandonedBoxedEnumerator_FinalizerBackstop_Balanced() =>
+		LeakAssert.Balanced(static () => {
+			var set = new SortedArraySet<int>();
+			for (var i = 0; i < 100; i++)
+				set.Add(i);
+			AbandonBoxedEnumerator(set);
+			set.Dispose();
+		});
+
+	// Keep the undisposed boxed enumerator's lifetime confined to a non-inlined frame
+	// so the finalizer can run during LeakAssert's quiesce.
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static void AbandonBoxedEnumerator(SortedArraySet<int> set) {
+		var enumerator = ((IEnumerable<int>)set).GetEnumerator();
+		enumerator.MoveNext();
+	}
+
 	// ── ValueSet ─────────────────────────────────────────────────────────────
 
 	[Test]
