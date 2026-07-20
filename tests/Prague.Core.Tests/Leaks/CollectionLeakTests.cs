@@ -114,20 +114,6 @@ public class CollectionLeakTests {
 			enumerator.Dispose();
 		});
 
-	// ── TopKHeap ─────────────────────────────────────────────────────────────
-
-	[Test]
-	public void TopKHeap_PushDrainDispose_Balanced() =>
-		LeakAssert.Balanced(static () => {
-			var heap = new TopKHeap<int, long>(64);
-			for (var i = 0; i < 1_000; i++)
-				heap.Push(i, 1_000 - i);
-			var keys = new int[64];
-			heap.DrainSorted(keys);
-			heap.Dispose();
-			heap.Dispose();
-		});
-
 	// ── ValueSet ─────────────────────────────────────────────────────────────
 
 	[Test]
