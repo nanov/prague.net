@@ -101,9 +101,16 @@ jobs:
             [[ -n "$LATEST_PRE" ]] && PRE_BASE="${LATEST_PRE%%-pre.*}"
             # Reuse the in-flight prerelease base only while it is still ahead of the latest full
             # release (else it was already promoted -> start fresh by bumping the release).
+            # Within an in-flight series, `patch` continues it; `minor`/`major` start a new
+            # series bumped from the series base (e.g. 0.5.0-pre.N + minor -> 0.6.0-pre.1).
             if [[ -n "$PRE_BASE" ]] && { [[ -z "$LATEST_RELEASE" ]] || ! ver_ge "$LATEST_RELEASE" "$PRE_BASE"; }; then
-              BASE="$PRE_BASE"
-              echo "Reusing in-flight prerelease base $BASE"
+              if [[ "$BUMP" == "patch" ]]; then
+                BASE="$PRE_BASE"
+                echo "Continuing in-flight prerelease series $BASE"
+              else
+                BASE="$(bump_version "$PRE_BASE" "$BUMP")"
+                echo "Bumping in-flight prerelease base $PRE_BASE ($BUMP) -> $BASE"
+              fi
             elif [[ -n "$LATEST_RELEASE" ]]; then
               BASE="$(bump_version "$LATEST_RELEASE" "$BUMP")"
               echo "Bumping latest release $LATEST_RELEASE ($BUMP) -> $BASE"
