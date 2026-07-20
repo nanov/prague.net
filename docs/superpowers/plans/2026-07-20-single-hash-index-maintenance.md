@@ -915,3 +915,70 @@ Repeat Task 8 verbatim (same commands, same `-f net9.0`, same tripwire) at the n
 record an intermediate note: the pre-Task-9 measurement (composites −8/−9/−0.6%, strings
 +14/+19/+56%) lives in the ledger and task-8 report for the PR narrative. Expected shape now:
 ALL scenarios ≤ baseline; strings should show the largest wins.
+
+---
+
+### Task 11: Specialize hash storage to ref-type values (second tripwire response)
+
+Task 10 measured (vs original baseline): AddAll −4.9%/−26.0%, UpdateAll −5.8%/−44.0%,
+RemoveAll_String −15.5% — but RemoveAll_Composite +2.3–6% over three runs, and composite-tree
+allocations up (+4B/entry arrays never read). Cause: value-type `HashOf` is identity-class, so
+stored hashes are pure carry cost there. Decision (user-approved): store hashes ONLY for
+ref-type `TValue`; value types recompute on the fly (pre-Task-9 behavior, measured −8/−9/−0.6%).
+
+**Files:**
+- Modify: `src/Prague.Core/Collections/PooledBTree.cs`
+
+**Interfaces:** none change — representation only, JIT-folded per closed generic.
+
+- [ ] **Step 1: Gate the arrays**
+
+House pattern (`PooledSet.AtomicCopy`): a JIT-folded static readonly flag:
+
+```csharp
+	// JIT-folded per closed generic: value-type tiebreak hashes are identity-class raw
+	// GetHashCode — recomputing beats maintaining a third parallel array (Task 10 measured
+	// RemoveAll_Composite +2.3–6% with always-on storage). Ref-type hashes (Marvin over
+	// strings) are O(length): stored once at insert, read forever.
+	private static readonly bool StoreValueHashes = !typeof(TValue).IsValueType;
+```
+
+`LeafNode.ValueHashes` / `InternalNode.SepValueHashes` become nullable, rented only when
+`StoreValueHashes`, returned only when non-null.
+
+- [ ] **Step 2: Gate every lockstep write site**
+
+Each paired hash-array operation from Task 9 becomes `if (StoreValueHashes) { … }` (dead-code
+folded per instantiation). The [ThreadStatic] parallel split scratch is only touched under the
+flag.
+
+- [ ] **Step 3: Unify reads through one helper**
+
+```csharp
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int HashAt(TValue[] values, int[]? hashes, int i) =>
+		StoreValueHashes ? hashes![i] : HashOf(values[i]);
+```
+
+(adjust signature per call-site shape; separator variant symmetric). Every Task-9 array read
+routes through it, so value-type instantiations fold back to exactly the pre-Task-9 codegen.
+
+- [ ] **Step 4: Tests (Release AND Debug, both TFMs) and commit**
+
+Run: `dotnet test tests/Prague.Generated.Tests -c Release --filter "FullyQualifiedName~PooledBTree"`
+Run: `dotnet test tests/Prague.Generated.Tests -c Debug --filter "FullyQualifiedName~PooledBTree"`
+Run: `dotnet test tests/Prague.Core.Tests -c Debug`
+Expected: all green.
+
+```bash
+git add src/Prague.Core/Collections/PooledBTree.cs
+git commit -m "perf: gate PooledBTree hash storage to ref-type values"
+```
+
+---
+
+### Task 12: Final measurement
+
+Repeat Task 10 verbatim at the new HEAD (same commands, `-f net9.0`, same tripwire, deltas vs
+the ORIGINAL baseline). Expected: string scenarios keep −15…−44%; composite scenarios at or
+below their pre-Task-9 marks (−8.0/−9.0/−0.6%); composite allocations back to baseline.
