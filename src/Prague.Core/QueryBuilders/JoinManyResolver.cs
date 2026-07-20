@@ -121,7 +121,7 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		}
 
 		public void PrepareSharedBuffer() {
-			_sharedBuffer = _shouldPool ? ArrayPool<TRightValue>.Shared.Rent(_totalCount) : new TRightValue[_totalCount];
+			_sharedBuffer = _shouldPool ? PragueArrayPool<TRightValue>.Pool.Rent(_totalCount) : new TRightValue[_totalCount];
 			var offset = 0;
 			var keys = _accessor.GetKeys<TLeftKey>();
 			for (var i = 0; i < keys.Length; i++) {
@@ -218,8 +218,14 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		// Pool the per-left child buffer only when a disposer exists to return it (pooled execution).
 		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
-		ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
-		RegisterPooledBuffer(ref disposer, container.GetSharedBuffer());
+		try {
+			ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
+		} finally {
+			// Register even when the user filter / paired execute throws mid-ExecuteReverse —
+			// the buffer is rented before that user code runs, and only the disposer (fired
+			// by the pipeline's container cleanup) can still return it on that path.
+			RegisterPooledBuffer(ref disposer, container.GetSharedBuffer());
+		}
 	}
 
 	void IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>.ExecuteReverseMany<TContainer>(
@@ -535,8 +541,13 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		// Pool the per-left child buffer only when a disposer exists to return it (pooled execution).
 		var inner = new InnerKeyedContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
-		ExecuteOuter(ref inner, accessor.GetKeys<TLeftKey>());
-		RegisterPooledBuffer(ref disposer, inner.GetSharedBuffer());
+		try {
+			ExecuteOuter(ref inner, accessor.GetKeys<TLeftKey>());
+		} finally {
+			// Register even on a user-filter throw mid-ExecuteOuter — only the disposer can
+			// still return the already-rented buffer on that path.
+			RegisterPooledBuffer(ref disposer, inner.GetSharedBuffer());
+		}
 	}
 
 	void IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>.ExecuteReverseMany<TContainer>(
@@ -672,7 +683,7 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 		}
 
 		public void PrepareSharedBuffer() {
-			_sharedBuffer = _shouldPool ? ArrayPool<TRightValue>.Shared.Rent(_totalCount) : new TRightValue[_totalCount];
+			_sharedBuffer = _shouldPool ? PragueArrayPool<TRightValue>.Pool.Rent(_totalCount) : new TRightValue[_totalCount];
 			var offset = 0;
 			var keys = _accessor.GetKeys<TLeftKey>();
 			for (var i = 0; i < keys.Length; i++) {
@@ -810,7 +821,7 @@ public struct JoinManyNestedResolver<TLeftKey, TLeftValue, TRightCache, TRightKe
 		}
 
 		public void PrepareSharedBuffer() {
-			_sharedBuffer = _shouldPool ? ArrayPool<TInnerResult>.Shared.Rent(_totalCount) : new TInnerResult[_totalCount];
+			_sharedBuffer = _shouldPool ? PragueArrayPool<TInnerResult>.Pool.Rent(_totalCount) : new TInnerResult[_totalCount];
 			var offset = 0;
 			var keys = _accessor.GetKeys<TLeftKey>();
 			for (var i = 0; i < keys.Length; i++) {
@@ -840,12 +851,20 @@ public struct JoinManyNestedResolver<TLeftKey, TLeftValue, TRightCache, TRightKe
 			return;
 
 		// 1. Union of every parent's child keys → the inner candidate set (identity selector).
+		// Until the inner plan takes ownership below, a throw out of UnionWith (user
+		// GetHashCode/Equals) leaves us the only owner of the rented set.
 		var union = new ValueSet<TRightKey, DefaultKeyComparer<TRightKey>>(parentKeys.Length);
-		foreach (var parentKey in parentKeys) {
-			var bucket = _rightIndex.GetValuesUnsafe(Unsafe.As<TLeftKey, TLeftKey>(ref Unsafe.AsRef(in parentKey)));
-			if (bucket is null || bucket.Count == 0)
-				continue;
-			union.UnionWith(bucket);
+		try {
+			foreach (var parentKey in parentKeys) {
+				var bucket = _rightIndex.GetValuesUnsafe(Unsafe.As<TLeftKey, TLeftKey>(ref Unsafe.AsRef(in parentKey)));
+				if (bucket is null || bucket.Count == 0)
+					continue;
+				union.UnionWith(bucket);
+			}
+		} catch {
+			if (union.IsInitlized)
+				union.Dispose();
+			throw;
 		}
 
 		// 2. Run the inner plan ONCE over the union → keyed by child key. The union is handed to

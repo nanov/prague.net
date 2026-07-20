@@ -82,12 +82,12 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		public Tables(int size, int lastIndex) {
 			Size = size;
 			FastModMultiplier = HashHelpers.GetFastModMultiplier((uint)size);
-			Buckets = ArrayPool<int>.Shared.Rent(size);
-			Slots = ArrayPool<HashSlot<T>>.Shared.Rent(size);
-			FreeNext = ArrayPool<int>.Shared.Rent(size);
+			Buckets = PragueArrayPool<int>.Pool.Rent(size);
+			Slots = PragueArrayPool<HashSlot<T>>.Pool.Rent(size);
+			FreeNext = PragueArrayPool<int>.Pool.Rent(size);
 			Array.Clear(Buckets, 0, size);
 			if (!AtomicCopy) {
-				Versions = ArrayPool<int>.Shared.Rent(size);
+				Versions = PragueArrayPool<int>.Pool.Rent(size);
 				Array.Clear(Versions, 0, size);
 			}
 
@@ -139,11 +139,11 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		}
 
 		public void ReclaimToPool() {
-			ArrayPool<int>.Shared.Return(Buckets);
-			ArrayPool<HashSlot<T>>.Shared.Return(Slots, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
-			ArrayPool<int>.Shared.Return(FreeNext);
+			PragueArrayPool<int>.Pool.Return(Buckets);
+			PragueArrayPool<HashSlot<T>>.Pool.Return(Slots, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+			PragueArrayPool<int>.Pool.Return(FreeNext);
 			if (Versions != null)
-				ArrayPool<int>.Shared.Return(Versions);
+				PragueArrayPool<int>.Pool.Return(Versions);
 		}
 	}
 

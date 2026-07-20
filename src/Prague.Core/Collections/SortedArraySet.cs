@@ -103,7 +103,7 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 
 	public SortedArraySet()
 	{
-		_items = ArrayPool<T>.Shared.Rent(128);
+		_items = PragueArrayPool<T>.Pool.Rent(128);
 		_pooledArray = _items;
 		_pooledRefCount = 1;
 		_count = 0;
@@ -221,7 +221,7 @@ public sealed class SortedArraySet<T> : IReadOnlyCollection<T>, IEnumerable<T>, 
 	{
 		if (Interlocked.Decrement(ref _pooledRefCount) == 0)
 		{
-			ArrayPool<T>.Shared.Return(array, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+			PragueArrayPool<T>.Pool.Return(array, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
 		}
 	}
 }

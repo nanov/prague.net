@@ -11,9 +11,9 @@ namespace Prague.Core.Collections;
 internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 	where TKey : notnull, IEquatable<TKey>
 	where TKeyComparer : struct, IKeyComparer<TKey> {
-	private static readonly ArrayPool<int> MetadataPool = ArrayPool<int>.Shared;
-	private static readonly ArrayPool<TKey> KeysPool = ArrayPool<TKey>.Shared;
-	private static readonly ArrayPool<TValue> ValuesPool = ArrayPool<TValue>.Shared;
+	private static readonly ArrayPool<int> MetadataPool = PragueArrayPool<int>.Pool;
+	private static readonly ArrayPool<TKey> KeysPool = PragueArrayPool<TKey>.Pool;
+	private static readonly ArrayPool<TValue> ValuesPool = PragueArrayPool<TValue>.Pool;
 
 	private int[] _metadata;
 	private TKey[] _keysArray;
@@ -22,6 +22,7 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 	private Memory<TValue> _values;  // working window
 
 	private readonly int _capacityMask;
+	private readonly bool _pooledValues;
 	private readonly TKeyComparer _comparer;
 
 	public int Count { get; private set; }
@@ -42,6 +43,7 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 		_metadata = MetadataPool.Rent(powerOf2Capacity);
 		Array.Fill(_metadata, -1, 0, powerOf2Capacity);
 		_keysArray = KeysPool.Rent(expectedCount);
+		_pooledValues = shouldPool;
 		ValuesArray = (shouldPool ? ValuesPool.Rent(expectedCount) : new TValue[expectedCount]);
 		_keys = _keysArray.AsMemory(0, expectedCount);
 		_values = ValuesArray.AsMemory(0, expectedCount);
@@ -374,7 +376,9 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 			_metadata = null!;
 		}
 
-		if (withValues)
+		// Only a still-owned, actually-pooled values array goes back to the pool — a heap
+		// array (shouldPool=false) or an already-handed-off/returned one must not.
+		if (withValues && _pooledValues && ValuesArray != null)
 			ValuesPool.Return(ValuesArray, RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
 		ValuesArray = null!;
 		Count = 0;

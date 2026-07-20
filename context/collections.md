@@ -2,6 +2,19 @@
 
 > **Read when:** touching pooled sets/dicts, intersection primitives, or anything that rents from `ArrayPool` on a query/join hot path.
 
+## PragueArrayPool&lt;T&gt; — the pool hook (leak testing)
+
+Every pooled type rents via `PragueArrayPool<T>.Pool` (never `ArrayPool<T>.Shared` directly — a
+compliance grep should find zero direct `Shared` uses in Core outside `PragueArrayPool.cs`). In
+production the hook is a `static readonly` alias of `Shared` (same JIT shape, zero cost); tests
+install a `TrackingArrayPool` provider process-wide (`Prague.Core.Tests/Infrastructure/`,
+global `LeakTrackingSetup` fixture) that ledgers every Rent/Return, catches leaks AND
+double-/foreign returns. `LeakAssert.Balanced(scenario)` runs a scenario twice (first pass warms
+never-returned statics like `PooledSet<T>.Empty`), quiesces (GC + finalizers + `ReaderGate.TryDrain`
+×2), and asserts zero new outstanding arrays. Leak tests live in `Prague.Core.Tests/Leaks/`.
+When adding a Rent site, add/extend a leak test — exception paths included (user
+`CompareTo`/`Equals`/`GetHashCode`/filters can throw mid-operation).
+
 ## ValueSet&lt;T&gt;
 
 Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `IntersectWith`, `UnionWith`, `RetainNonNullSlots`, `IntersectWith<TKey,TInto>(…)`.

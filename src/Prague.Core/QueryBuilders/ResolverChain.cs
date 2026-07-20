@@ -111,6 +111,7 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	private readonly int _skip;
 	private readonly int _take;
 	private int _totalCont;
+	private bool _handedOff;
 	private ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
 	private QueryResultsDisposer _disposer;
 	private ref TResolverChain _chainedResolvers;
@@ -177,16 +178,15 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	}
 
 	public QueryResults<TResult> BuildResults() {
-		if (_results.Count == 0) {
-			// Empty result carries no buffer slices — return any pooled child buffers rented by
-			// inner joins now, since the empty QueryResults won't own the disposer to do it.
-			_disposer.Dispose();
+		// Empty result carries no buffer slices — ownership of the values array and the
+		// disposer stays here, and the pipeline's finally Dispose() returns both.
+		if (_results.Count == 0)
 			return QueryResults<TResult>.EmptyWithTotalCount(TotalCount);
-		}
 
 		var offset = _results.Offset;
 		var allResults = QueryResults<TResult>.FromArray(
 			_results.ValuesArray ?? [], offset, _results.Count, TotalCount, _shouldPool, in _disposer);
+		_handedOff = true;
 
 		// Clone after slicing if needed
 		if (_clone)
@@ -209,10 +209,14 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		_disposer = default;
 	}
 
-	public void Dispose() => _results.Dispose();
-	public void HardDispose() {
-		_disposer.Dispose();
-		_results.Dispose();
+	// Exactly-one-owner cleanup: once BuildResults hands the values array and disposer to
+	// the returned QueryResults, only metadata/keys are still ours. On every other exit —
+	// empty result, Count, or a user callback throwing mid-pipeline — the disposer's child
+	// buffers and a pooled values array must go back to the pool here.
+	public void Dispose() {
+		if (!_handedOff)
+			_disposer.Dispose();
+		_results.Dispose(withValues: !_handedOff);
 	}
 }
 
@@ -227,6 +231,7 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 	private readonly int _skip;
 	private readonly int _take;
 	private int _totalCount;
+	private bool _handedOff;
 	private QueryResults<TValue> _results;
 	private TResolver _chain;
 
@@ -252,12 +257,15 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 	public int Add(TKey foreignKey, TValue result) => _results.UnsafeAdd(_cloneOnAdd ? result.Clone() : result);
 
 	public QueryResults<TValue> BuildResults() {
+		// Empty / skip-past-end: the rented buffer (if Init ran) stays ours and the
+		// pipeline's finally Dispose() returns it.
 		if (_totalCount == 0 || _skip > _totalCount)
 			return QueryResults<TValue>
 				.EmptyWithTotalCount(
 					_totalCount);
 
 		var allResults = _results;
+		_handedOff = true;
 
 		if (TResolver.IsSorter)
 			_chain.UnsafeSortResults(ref allResults, _skip, _take);
@@ -265,6 +273,11 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 			allResults.SliceLeaveTotalCount(_skip, Math.Min(_take, _totalCount - _skip));
 
 		return _clone ? allResults.CloneInPlace() : allResults;
+	}
+
+	public void Dispose() {
+		if (!_handedOff)
+			_results.Dispose();
 	}
 }
 

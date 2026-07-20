@@ -47,10 +47,10 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 	// ReSharper disable once StaticMemberInGenericType
 	// Shared pool for SlotMeta (non-generic, truly shared!)
-	private static readonly ArrayPool<SlotMeta> SSlotMetaPool = ArrayPool<SlotMeta>.Shared;
+	private static readonly ArrayPool<SlotMeta> SSlotMetaPool = PragueArrayPool<SlotMeta>.Pool;
 
 	// ReSharper disable once StaticMemberInGenericType
-	private static readonly ArrayPool<int> SBucketPool = ArrayPool<int>.Shared;
+	private static readonly ArrayPool<int> SBucketPool = PragueArrayPool<int>.Pool;
 
 	private readonly bool _clearOnFree;
 
@@ -464,7 +464,7 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 		_bucketsArray = SBucketPool.Rent(_size);
 		Array.Clear(_bucketsArray, 0, _bucketsArray.Length);
 		_slotMetasArray = SSlotMetaPool.Rent(_size);
-		_valuesArray = ArrayPool<T>.Shared.Rent(_size);
+		_valuesArray = PragueArrayPool<T>.Pool.Rent(_size);
 		return _size;
 	}
 
@@ -499,7 +499,7 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 		else {
 			newSlotMetas = SSlotMetaPool.Rent(newSize);
 			newBuckets = SBucketPool.Rent(newSize);
-			newValues = ArrayPool<T>.Shared.Rent(newSize);
+			newValues = PragueArrayPool<T>.Pool.Rent(newSize);
 
 			Array.Clear(newBuckets, 0, newBuckets.Length);
 			var lastIndex = _lastIndex;
@@ -566,7 +566,7 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		if (values?.Length > 0)
 			try {
-				ArrayPool<T>.Shared.Return(values, _clearOnFree);
+				PragueArrayPool<T>.Pool.Return(values, _clearOnFree);
 			}
 			catch (ArgumentException) {
 			}
@@ -1075,30 +1075,34 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		Span<int> span = stackalloc int[StackAllocThreshold];
 		int[]? rentedArray = null;
-		var bitHelper = intArrayLength <= StackAllocThreshold
-			? new BitHelper(span.Slice(0, intArrayLength), true)
-			: new BitHelper((rentedArray = ArrayPool<int>.Shared.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
+		try {
+			var bitHelper = intArrayLength <= StackAllocThreshold
+				? new BitHelper(span.Slice(0, intArrayLength), true)
+				: new BitHelper((rentedArray = PragueArrayPool<int>.Pool.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
 
-		foreach (var item in other) {
-			var index = InternalIndexOf(into.Into(item));
-			if (index >= 0) bitHelper.MarkBit(index);
+			foreach (var item in other) {
+				var index = InternalIndexOf(into.Into(item));
+				if (index >= 0) bitHelper.MarkBit(index);
+			}
+
+			var metasArr = _slotMetasArray;
+			ref var metaStart = ref metasArr is null
+				? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
+				: ref MemoryMarshal.GetArrayDataReference(metasArr);
+
+			for (var i = bitHelper.FindFirstUnmarked();
+			     (uint)i < (uint)originalLastIndex;
+			     i = bitHelper.FindFirstUnmarked(i + 1)) {
+				var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
+				if (hashCode >= 0)
+					RemoveAt(i, hashCode);
+			}
+		} finally {
+			// The converter, the comparer, and the enumerator are user code — the rented
+			// bitmap must go back even when one of them throws mid-intersection.
+			if (rentedArray is not null)
+				PragueArrayPool<int>.Pool.Return(rentedArray);
 		}
-
-		var metasArr = _slotMetasArray;
-		ref var metaStart = ref metasArr is null
-			? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
-			: ref MemoryMarshal.GetArrayDataReference(metasArr);
-
-		for (var i = bitHelper.FindFirstUnmarked();
-		     (uint)i < (uint)originalLastIndex;
-		     i = bitHelper.FindFirstUnmarked(i + 1)) {
-			var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
-			if (hashCode >= 0)
-				RemoveAt(i, hashCode);
-		}
-
-		if (rentedArray is not null)
-			ArrayPool<int>.Shared.Return(rentedArray);
 	}
 
 	internal void IntersectWithSpan<TOther, TInto>(TInto into, ReadOnlySpan<TOther> other)
@@ -1108,30 +1112,32 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		Span<int> span = stackalloc int[StackAllocThreshold];
 		int[]? rentedArray = null;
-		var bitHelper = intArrayLength <= StackAllocThreshold
-			? new BitHelper(span.Slice(0, intArrayLength), true)
-			: new BitHelper((rentedArray = ArrayPool<int>.Shared.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
+		try {
+			var bitHelper = intArrayLength <= StackAllocThreshold
+				? new BitHelper(span.Slice(0, intArrayLength), true)
+				: new BitHelper((rentedArray = PragueArrayPool<int>.Pool.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
 
-		foreach (var item in other) {
-			var index = InternalIndexOf(into.Into(item));
-			if (index >= 0) bitHelper.MarkBit(index);
+			foreach (var item in other) {
+				var index = InternalIndexOf(into.Into(item));
+				if (index >= 0) bitHelper.MarkBit(index);
+			}
+
+			var metasArr = _slotMetasArray;
+			ref var metaStart = ref metasArr is null
+				? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
+				: ref MemoryMarshal.GetArrayDataReference(metasArr);
+
+			for (var i = bitHelper.FindFirstUnmarked();
+			     (uint)i < (uint)originalLastIndex;
+			     i = bitHelper.FindFirstUnmarked(i + 1)) {
+				var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
+				if (hashCode >= 0)
+					RemoveAt(i, hashCode);
+			}
+		} finally {
+			if (rentedArray is not null)
+				PragueArrayPool<int>.Pool.Return(rentedArray);
 		}
-
-		var metasArr = _slotMetasArray;
-		ref var metaStart = ref metasArr is null
-			? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
-			: ref MemoryMarshal.GetArrayDataReference(metasArr);
-
-		for (var i = bitHelper.FindFirstUnmarked();
-		     (uint)i < (uint)originalLastIndex;
-		     i = bitHelper.FindFirstUnmarked(i + 1)) {
-			var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
-			if (hashCode >= 0)
-				RemoveAt(i, hashCode);
-		}
-
-		if (rentedArray is not null)
-			ArrayPool<int>.Shared.Return(rentedArray);
 	}
 
 
@@ -1142,30 +1148,32 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		Span<int> span = stackalloc int[StackAllocThreshold];
 		int[]? rentedArray = null;
-		var bitHelper = intArrayLength <= StackAllocThreshold
-			? new BitHelper(span.Slice(0, intArrayLength), true)
-			: new BitHelper((rentedArray = ArrayPool<int>.Shared.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
+		try {
+			var bitHelper = intArrayLength <= StackAllocThreshold
+				? new BitHelper(span.Slice(0, intArrayLength), true)
+				: new BitHelper((rentedArray = PragueArrayPool<int>.Pool.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
 
-		foreach (var item in other) {
-			var index = InternalIndexOf(into.Into(item));
-			if (index >= 0) bitHelper.MarkBit(index);
+			foreach (var item in other) {
+				var index = InternalIndexOf(into.Into(item));
+				if (index >= 0) bitHelper.MarkBit(index);
+			}
+
+			var metasArr = _slotMetasArray;
+			ref var metaStart = ref metasArr is null
+				? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
+				: ref MemoryMarshal.GetArrayDataReference(metasArr);
+
+			for (var i = bitHelper.FindFirstUnmarked();
+			     (uint)i < (uint)originalLastIndex;
+			     i = bitHelper.FindFirstUnmarked(i + 1)) {
+				var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
+				if (hashCode >= 0)
+					RemoveAt(i, hashCode);
+			}
+		} finally {
+			if (rentedArray is not null)
+				PragueArrayPool<int>.Pool.Return(rentedArray);
 		}
-
-		var metasArr = _slotMetasArray;
-		ref var metaStart = ref metasArr is null
-			? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
-			: ref MemoryMarshal.GetArrayDataReference(metasArr);
-
-		for (var i = bitHelper.FindFirstUnmarked();
-		     (uint)i < (uint)originalLastIndex;
-		     i = bitHelper.FindFirstUnmarked(i + 1)) {
-			var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
-			if (hashCode >= 0)
-				RemoveAt(i, hashCode);
-		}
-
-		if (rentedArray is not null)
-			ArrayPool<int>.Shared.Return(rentedArray);
 	}
 
 	private void IntersectWithEnumerable(IEnumerable<T> other) {
@@ -1174,30 +1182,32 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		Span<int> span = stackalloc int[StackAllocThreshold];
 		int[]? rentedArray = null;
-		var bitHelper = intArrayLength <= StackAllocThreshold
-			? new BitHelper(span.Slice(0, intArrayLength), true)
-			: new BitHelper((rentedArray = ArrayPool<int>.Shared.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
+		try {
+			var bitHelper = intArrayLength <= StackAllocThreshold
+				? new BitHelper(span.Slice(0, intArrayLength), true)
+				: new BitHelper((rentedArray = PragueArrayPool<int>.Pool.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
 
-		foreach (var item in other) {
-			var index = InternalIndexOf(item);
-			if (index >= 0) bitHelper.MarkBit(index);
+			foreach (var item in other) {
+				var index = InternalIndexOf(item);
+				if (index >= 0) bitHelper.MarkBit(index);
+			}
+
+			var metasArr = _slotMetasArray;
+			ref var metaStart = ref metasArr is null
+				? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
+				: ref MemoryMarshal.GetArrayDataReference(metasArr);
+
+			for (var i = bitHelper.FindFirstUnmarked();
+			     (uint)i < (uint)originalLastIndex;
+			     i = bitHelper.FindFirstUnmarked(i + 1)) {
+				var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
+				if (hashCode >= 0)
+					RemoveAt(i, hashCode);
+			}
+		} finally {
+			if (rentedArray is not null)
+				PragueArrayPool<int>.Pool.Return(rentedArray);
 		}
-
-		var metasArr = _slotMetasArray;
-		ref var metaStart = ref metasArr is null
-			? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
-			: ref MemoryMarshal.GetArrayDataReference(metasArr);
-
-		for (var i = bitHelper.FindFirstUnmarked();
-		     (uint)i < (uint)originalLastIndex;
-		     i = bitHelper.FindFirstUnmarked(i + 1)) {
-			var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
-			if (hashCode >= 0)
-				RemoveAt(i, hashCode);
-		}
-
-		if (rentedArray is not null)
-			ArrayPool<int>.Shared.Return(rentedArray);
 	}
 
 	private void IntersectWithSpan(ReadOnlySpan<T> other) {
@@ -1206,37 +1216,39 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		Span<int> span = stackalloc int[StackAllocThreshold];
 		int[]? rentedArray = null;
-		var bitHelper = intArrayLength <= StackAllocThreshold
-			? new BitHelper(span.Slice(0, intArrayLength), true)
-			: new BitHelper((rentedArray = ArrayPool<int>.Shared.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
+		try {
+			var bitHelper = intArrayLength <= StackAllocThreshold
+				? new BitHelper(span.Slice(0, intArrayLength), true)
+				: new BitHelper((rentedArray = PragueArrayPool<int>.Pool.Rent(intArrayLength)).AsSpan(0, intArrayLength), true);
 
-		foreach (var item in other) {
-			var index = InternalIndexOf(item);
-			if (index >= 0) bitHelper.MarkBit(index);
+			foreach (var item in other) {
+				var index = InternalIndexOf(item);
+				if (index >= 0) bitHelper.MarkBit(index);
+			}
+
+			var metasArr = _slotMetasArray;
+			ref var metaStart = ref metasArr is null
+				? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
+				: ref MemoryMarshal.GetArrayDataReference(metasArr);
+
+			for (var i = bitHelper.FindFirstUnmarked();
+			     (uint)i < (uint)originalLastIndex;
+			     i = bitHelper.FindFirstUnmarked(i + 1)) {
+				var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
+				if (hashCode >= 0)
+					RemoveAt(i, hashCode);
+			}
+		} finally {
+			if (rentedArray is not null)
+				PragueArrayPool<int>.Pool.Return(rentedArray);
 		}
-
-		var metasArr = _slotMetasArray;
-		ref var metaStart = ref metasArr is null
-			? ref Unsafe.AsRef(in _inlineSlotMetas.Value)
-			: ref MemoryMarshal.GetArrayDataReference(metasArr);
-
-		for (var i = bitHelper.FindFirstUnmarked();
-		     (uint)i < (uint)originalLastIndex;
-		     i = bitHelper.FindFirstUnmarked(i + 1)) {
-			var hashCode = Unsafe.Add(ref metaStart, i).HashCode;
-			if (hashCode >= 0)
-				RemoveAt(i, hashCode);
-		}
-
-		if (rentedArray is not null)
-			ArrayPool<int>.Shared.Return(rentedArray);
 	}
 
 	internal ref struct IncrementalIntersecter<TFrom, TInto> where TInto : struct, IInto<TFrom, T> {
 		public bool IsCleared = false;
 
 		private readonly int _originalLastIndex;
-		private readonly int[]? _rentedArray;
+		private int[]? _rentedArray;
 		private ref ValueSet<T, TKeyComparer> _self;
 		private TInto _into;
 		private BitHelper _bitHelper;
@@ -1255,7 +1267,7 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 				_bitHelper = new BitHelper(helperBuffer[..intArrayLength], false);
 				_rentedArray = null;
 			} else {
-				_rentedArray = ArrayPool<int>.Shared.Rent(intArrayLength);
+				_rentedArray = PragueArrayPool<int>.Pool.Rent(intArrayLength);
 				_bitHelper = new BitHelper(_rentedArray.AsSpan()[..intArrayLength], true);
 			}
 		}
@@ -1390,8 +1402,11 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		public void Dispose(bool flush) {
 			if (flush) Flush();
-			if (_rentedArray is not null)
-				ArrayPool<int>.Shared.Return(_rentedArray);
+			if (_rentedArray is not null) {
+				PragueArrayPool<int>.Pool.Return(_rentedArray);
+				// Null-out makes a second Dispose a no-op instead of a silent double-return.
+				_rentedArray = null;
+			}
 		}
 
 		private void Flush() {
@@ -1416,7 +1431,7 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		private ref ValueSet<T, TKeyComparer> _self;
 		private readonly int _originalLastIndex;
-		private readonly int[]? _rentedArray;
+		private int[]? _rentedArray;
 		private BitHelper _bitHelper;
 
 		[UnscopedRef]
@@ -1432,7 +1447,7 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 				_bitHelper = new BitHelper(helperBuffer[..intArrayLength], false);
 				_rentedArray = null;
 			} else {
-				_rentedArray = ArrayPool<int>.Shared.Rent(intArrayLength);
+				_rentedArray = PragueArrayPool<int>.Pool.Rent(intArrayLength);
 				_bitHelper = new BitHelper(_rentedArray.AsSpan()[..intArrayLength], true);
 			}
 		}
@@ -1576,8 +1591,11 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		public void Dispose(bool flush) {
 			if (flush) Flush();
-			if (_rentedArray is not null)
-				ArrayPool<int>.Shared.Return(_rentedArray);
+			if (_rentedArray is not null) {
+				PragueArrayPool<int>.Pool.Return(_rentedArray);
+				// Null-out makes a second Dispose a no-op instead of a silent double-return.
+				_rentedArray = null;
+			}
 		}
 
 		private void Flush() {

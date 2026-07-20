@@ -229,8 +229,13 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
 		// Pool the per-left child buffer only when a disposer exists to return it (pooled execution).
 		var inner = new InnerKeyedContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
-		ExecuteOuter(ref inner, accessor.GetKeys<TLeftKey>());
-		RegisterPooledBuffer(ref disposer, inner.GetSharedBuffer());
+		try {
+			ExecuteOuter(ref inner, accessor.GetKeys<TLeftKey>());
+		} finally {
+			// Register even on a user-filter throw mid-ExecuteOuter — only the disposer can
+			// still return the already-rented buffer on that path.
+			RegisterPooledBuffer(ref disposer, inner.GetSharedBuffer());
+		}
 	}
 
 	void IJoinManyResolver<TLeftKey, TLeftValue, TRightValue>.ExecuteReverseMany<TContainer>(
@@ -364,7 +369,7 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 		}
 
 		public void PrepareSharedBuffer() {
-			_sharedBuffer = _shouldPool ? ArrayPool<TRightValue>.Shared.Rent(_totalCount) : new TRightValue[_totalCount];
+			_sharedBuffer = _shouldPool ? PragueArrayPool<TRightValue>.Pool.Rent(_totalCount) : new TRightValue[_totalCount];
 			var offset = 0;
 			var keys = _accessor.GetKeys<TLeftKey>();
 			for (var i = 0; i < keys.Length; i++) {
