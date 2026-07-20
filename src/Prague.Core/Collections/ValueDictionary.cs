@@ -52,6 +52,7 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
 	public void Add(TKey key, TValue value) {
 		Debug.Assert(Count < _values.Length, "ValueDictionary capacity exceeded");
+		Debug.Assert(_metadata != null, "ValueDictionary used after Dispose");
 		var hashCode = GetHashCode(key);
 		var capacityMask = _capacityMask;
 		var num = hashCode & capacityMask;
@@ -170,22 +171,18 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 		return valuesArray;
 	}
 
-	internal delegate bool Predicate<in TArg>(TKey key, ref TValue item, TArg arg);
-
 	/// <summary>
-	/// Struct-dispatched filter predicate. Companion to the delegate-based
-	/// <see cref="Filter{TArg}(Predicate{TArg}, TArg)"/> for zero-alloc, JIT-devirtualizable
-	/// filtering — JIT specializes per closed generic so <see cref="Keep"/> inlines into
-	/// the compact-and-rebuild loop. Used by inner-join resolvers to drop result-map
-	/// entries where THIS resolver's slot is unset (chained-inner stale-slot pruning).
+	/// Struct-dispatched filter predicate — JIT specializes per closed generic so
+	/// <see cref="Keep"/> inlines into the compact-and-rebuild loop. Used by inner-join
+	/// resolvers to drop result-map entries where THIS resolver's slot is unset
+	/// (chained-inner stale-slot pruning).
 	/// </summary>
 	internal interface IValueDictionaryFilter<TKey1, TValue1> {
 		bool Keep(TKey1 key, ref TValue1 value);
 	}
 
 	/// <summary>
-	/// Struct-dispatched filter overload — same compact-and-rebuild semantics as
-	/// <see cref="Filter{TArg}(Predicate{TArg}, TArg)"/>, but the predicate is a
+	/// Struct-dispatched filter — compact-and-rebuild semantics; the predicate is a
 	/// <see langword="struct"/> implementing <see cref="IValueDictionaryFilter{TKey1, TValue1}"/>.
 	/// </summary>
 	internal void Filter<TFilter>(TFilter filter)
@@ -209,39 +206,6 @@ internal struct ValueDictionary<TKey, TValue, TKeyComparer> : IDisposable
 
 		Count = write;
 
-		var capacityMask = _capacityMask;
-		Array.Fill(_metadata, -1, 0, capacityMask + 1);
-		ref var metaRef = ref MemoryMarshal.GetArrayDataReference(_metadata);
-
-		for (var i = 0; i < write; i++) {
-			var slot = GetHashCode(Unsafe.Add(ref keysRef, i)) & capacityMask;
-			while (Unsafe.Add(ref metaRef, slot) >= 0)
-				slot = (slot + 1) & capacityMask;
-			Unsafe.Add(ref metaRef, slot) = i;
-		}
-	}
-
-	public void Filter<TArg>(Predicate<TArg> predicate, TArg arg) {
-		var count = Count;
-		var keysSpan = _keys.Span;
-		var valuesSpan = _values.Span;
-		ref var keysRef = ref MemoryMarshal.GetReference(keysSpan);
-		ref var valuesRef = ref MemoryMarshal.GetReference(valuesSpan);
-
-		var write = 0;
-		for (var read = 0; read < count; read++) {
-			if (!predicate(Unsafe.Add(ref keysRef, read), ref Unsafe.Add(ref valuesRef, write), arg)) continue; // set.Contains(Unsafe.Add(ref keysRef, read))) continue;
-
-			if (write != read) {
-				Unsafe.Add(ref keysRef, write) = Unsafe.Add(ref keysRef, read);
-				Unsafe.Add(ref valuesRef, write) = Unsafe.Add(ref valuesRef, read);
-			}
-			write++;
-		}
-
-		Count = write;
-
-		// Rebuild metadata
 		var capacityMask = _capacityMask;
 		Array.Fill(_metadata, -1, 0, capacityMask + 1);
 		ref var metaRef = ref MemoryMarshal.GetArrayDataReference(_metadata);
