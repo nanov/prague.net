@@ -253,44 +253,21 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	// ───────────────────── Composite (key, value) search ─────────────────────
 
 	/// <summary>
-	/// <summary>
-	///   Null-tolerant hash of the value half — the tree's tiebreaker inside a run of
-	///   equal index keys. TValue is constrained to IEquatable&lt;TValue&gt;, so
-	///   GetHashCode is consistent with Equals by the framework contract; that is the
-	///   ONLY precondition this tree places on the value type, and it is the same one
-	///   Dictionary already relies on. This matters because the value half is now tree
-	///   PLACEMENT, not merely a scan predicate: an IComparable-based order would have
-	///   to be a stable total order for the tree's lifetime, which Comparer&lt;T&gt;.Default
-	///   is not (it is CurrentCulture for anything string-bearing, so a per-request
-	///   culture change silently reorders the tree). A hash is culture-independent and
-	///   stable for the life of the process. Residual collisions are resolved by the
-	///   Equals probe in TryFindPair, so a hash tie is a slowdown, never a wrong
-	///   answer.
-	///   Deliberately NOT DefaultKeyComparer&lt;T&gt;: that hashes strings with Marvin32 and
-	///   Fibonacci-mixes value types, both of which serve bucket diffusion. This is a tree,
-	///   not a bucket table — it needs a cheap, stable total order with few collisions. See
-	///   the per-branch comments below. Null-safe on every path: a lock-free reader racing
-	///   a shrink can observe a vacated slot as the ARGUMENT of a compare.
+	///   Null-tolerant raw (unmixed) hash of the value half — the tree's tiebreaker inside a
+	///   run of equal index keys. Raw, not DefaultKeyComparer's Fibonacci-mixed form: the mix
+	///   would destroy the value-order ↔ hash-order correlation that the O(1) monotonic-append
+	///   fast path depends on for batch-stamped inserts (equal key, ascending id), and being a
+	///   bijection it removes no collisions either. Strings use string.GetHashCode (Marvin32,
+	///   ordinal-consistent, process-stable) — the same hash the store threads in precomputed,
+	///   so pre-hashed entry points consume it for free (2026-07-20 single-hash spec; DJB2
+	///   tiebreak retired). Hash ties are resolved by an Equals probe, so a collision costs
+	///   time, never correctness. Null-safe on every path: a lock-free reader racing a shrink
+	///   can observe a vacated slot as the ARGUMENT of a compare.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int HashOf(TValue value) {
-		if (typeof(TValue) == typeof(string)) {
-			// The non-randomized DJB2 hash ConcurrentCacheStore/ConcurrentSortedSet use, not
-			// DefaultKeyComparer's Marvin32: this tree needs a total order with few
-			// collisions, NOT bucket diffusion, so Marvin's mixing is pure cost here.
-			// Ordinal, hence consistent with the string.Equals the probe resolves ties by.
-			ref var s = ref Unsafe.As<TValue, string>(ref value);
-			return s is null ? 0 : StringTools.GetNonRandomizedHashCode(s);
-		}
-
-		// Deliberately NOT DefaultKeyComparer's Fibonacci mix. That mix exists to stop
-		// sequential ids clustering in power-of-2 bucket tables; here it would destroy the
-		// correlation between value order and hash order, and with it the O(1)
-		// monotonic-append fast path that batch-stamped inserts (equal key, ascending id)
-		// depend on. Being a bijection it removes no collisions either, so it is all cost.
 		if (typeof(TValue).IsValueType)
 			return value!.GetHashCode();
-
 		return value is null ? 0 : value.GetHashCode();
 	}
 
@@ -705,18 +682,36 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	// ───────────────────── Add ─────────────────────
 
+	// Recover the raw tiebreak hash from a store-form (DefaultKeyComparer) hash. Value types
+	// were Fibonacci-mixed by the store — one inverse multiply undoes it exactly. Ref types
+	// (including strings) were never mixed — the store hash IS the raw hash. JIT-folded.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static int RawHashFromStoreHash(int storeKeyHash) =>
+		typeof(TValue).IsValueType ? HashMixing.Unmix(storeKeyHash) : storeKeyHash;
+
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool Add(TIndex index, TValue value) {
+		var valueHash = HashOf(value);
 		lock (_writeLock) {
-			return AddCore(index, value);
+			return AddCore(index, value, valueHash);
 		}
 	}
 
-	private bool AddCore(TIndex index, TValue value) {
-		// The probe's hash is computed ONCE per operation; every comparison in the
-		// descent and in the leaf binary search is then a single int compare. The
-		// IComparable variant could hoist nothing — it re-ran CompareTo at every level.
-		var valueHash = HashOf(value);
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	internal bool Add(TIndex index, TValue value, int storeKeyHash) {
+		var valueHash = RawHashFromStoreHash(storeKeyHash);
+		System.Diagnostics.Debug.Assert(valueHash == HashOf(value), "pre-hashed Add: hash mismatch");
+		lock (_writeLock) {
+			return AddCore(index, value, valueHash);
+		}
+	}
+
+	private bool AddCore(TIndex index, TValue value, int valueHash) {
+		// valueHash is HashOf(value), computed ONCE per operation by the wrapper (outside
+		// the lock) or recovered from the store hash by the pre-hashed entry; every
+		// comparison in the descent and in the leaf binary search is then a single int
+		// compare. The IComparable variant could hoist nothing — it re-ran CompareTo at
+		// every level.
 
 		// Monotonic-append fast path: range-index keys are typically timestamps, so new
 		// entries usually sort past the current maximum. An entry strictly greater than
@@ -731,7 +726,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			// In unique mode an equal key means this Add creates the first duplicate, so
 			// fall through and let the mode flip rather than appending.
 			if (cmpLast == 0 && _hasDuplicateKeys)
-				cmpLast = HashOf(value).CompareTo(HashOf(last.Values[lastCount - 1]));
+				cmpLast = valueHash.CompareTo(HashOf(last.Values[lastCount - 1]));
 			if (cmpLast > 0) {
 				last.Keys[lastCount] = index;
 				last.Values[lastCount] = value;
@@ -1001,8 +996,18 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool Remove(TIndex index, TValue value) {
+		var valueHash = HashOf(value);
 		lock (_writeLock) {
-			return RemoveCore(index, value);
+			return RemoveCore(index, value, valueHash);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	internal bool Remove(TIndex index, TValue value, int storeKeyHash) {
+		var valueHash = RawHashFromStoreHash(storeKeyHash);
+		System.Diagnostics.Debug.Assert(valueHash == HashOf(value), "pre-hashed Remove: hash mismatch");
+		lock (_writeLock) {
+			return RemoveCore(index, value, valueHash);
 		}
 	}
 
@@ -1010,8 +1015,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	///   Locates the exact (index, value) pair and leaves ancestors/childIndices pointing at
 	///   the leaf that holds it, so a caller can mutate it structurally. Writer-only.
 	/// </summary>
-	private bool TryLocate(TIndex index, TValue value, InternalNode?[] ancestors, int[] childIndices,
-		out LeafNode foundLeaf, out int foundPos, out int depth) {
+	private bool TryLocate(TIndex index, TValue value, int valueHash, InternalNode?[] ancestors,
+		int[] childIndices, out LeafNode foundLeaf, out int foundPos, out int depth) {
 		// Unique-key mode: main's key-only path. Exact under the write lock.
 		if (!_hasDuplicateKeys) {
 			var uLeaf = FindLeafWithPath(index, ancestors, childIndices, out depth);
@@ -1036,8 +1041,8 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 
 		// Composite descent + composite lower bound pinpoint the pair in O(log n) no matter
 		// how long the equal-key run is; TryFindPair then walks only the hash-collision run.
-		// Hashing is deferred to here: unique mode never needs it.
-		var valueHash = HashOf(value);
+		// valueHash arrives precomputed from the caller — the public wrappers hash eagerly
+		// outside the lock, the pre-hashed entries recover it from the store hash.
 		var leaf = FindLeafWithPathComposite(index, valueHash, ancestors, childIndices, out depth);
 		var pos = LeafLowerBoundComposite(leaf, index, valueHash);
 		// Definitive miss at the lower bound — no probe, no out-param call.
@@ -1056,10 +1061,10 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return true;
 	}
 
-	private bool RemoveCore(TIndex index, TValue value) {
+	private bool RemoveCore(TIndex index, TValue value, int valueHash) {
 		var ancestors = GetAncestorsBuf();
 		var childIndices = GetChildIdxBuf();
-		if (!TryLocate(index, value, ancestors, childIndices, out var leaf, out var pos, out var depth))
+		if (!TryLocate(index, value, valueHash, ancestors, childIndices, out var leaf, out var pos, out var depth))
 			return false;
 
 		RemoveFromLeaf(leaf, pos, ancestors, childIndices, depth);
@@ -1177,31 +1182,45 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool Update(TIndex oldIndex, TIndex newIndex, TValue value) {
+		var valueHash = HashOf(value);
 		lock (_writeLock) {
-			// Genuinely the same key — nothing to move.
-			if (EqualityComparer<TIndex>.Default.Equals(oldIndex, newIndex))
-				return ContainsCore(oldIndex, value);
-
-			// Sorts to the same position but is NOT the same key — e.g. two strings that
-			// collate equal under the current culture yet differ ordinally. Add+Remove would
-			// DESTROY the entry here: AddCore rejects the new pair as a duplicate (same
-			// position, same value) and RemoveCore then deletes the original. Overwrite the
-			// key slot in place instead — the sort position is unchanged, so a lock-free
-			// reader observes either the old or the new key and both satisfy the ordering
-			// invariant.
-			if (oldIndex.CompareTo(newIndex) == 0) {
-				var ancestors = GetAncestorsBuf();
-				var childIndices = GetChildIdxBuf();
-				if (!TryLocate(oldIndex, value, ancestors, childIndices, out var leaf, out var pos, out _))
-					return false;
-
-				leaf.Keys[pos] = newIndex;
-				return true;
-			}
-
-			AddCore(newIndex, value);
-			return RemoveCore(oldIndex, value);
+			return UpdateCore(oldIndex, newIndex, value, valueHash);
 		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	internal bool Update(TIndex oldIndex, TIndex newIndex, TValue value, int storeKeyHash) {
+		var valueHash = RawHashFromStoreHash(storeKeyHash);
+		System.Diagnostics.Debug.Assert(valueHash == HashOf(value), "pre-hashed Update: hash mismatch");
+		lock (_writeLock) {
+			return UpdateCore(oldIndex, newIndex, value, valueHash);
+		}
+	}
+
+	private bool UpdateCore(TIndex oldIndex, TIndex newIndex, TValue value, int valueHash) {
+		// Genuinely the same key — nothing to move.
+		if (EqualityComparer<TIndex>.Default.Equals(oldIndex, newIndex))
+			return ContainsCore(oldIndex, value);
+
+		// Sorts to the same position but is NOT the same key — e.g. two strings that
+		// collate equal under the current culture yet differ ordinally. Add+Remove would
+		// DESTROY the entry here: AddCore rejects the new pair as a duplicate (same
+		// position, same value) and RemoveCore then deletes the original. Overwrite the
+		// key slot in place instead — the sort position is unchanged, so a lock-free
+		// reader observes either the old or the new key and both satisfy the ordering
+		// invariant.
+		if (oldIndex.CompareTo(newIndex) == 0) {
+			var ancestors = GetAncestorsBuf();
+			var childIndices = GetChildIdxBuf();
+			if (!TryLocate(oldIndex, value, valueHash, ancestors, childIndices, out var leaf, out var pos, out _))
+				return false;
+
+			leaf.Keys[pos] = newIndex;
+			return true;
+		}
+
+		AddCore(newIndex, value, valueHash);
+		return RemoveCore(oldIndex, value, valueHash);
 	}
 
 	// ───────────────────── Contains ─────────────────────
