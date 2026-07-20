@@ -1,6 +1,5 @@
 namespace Prague.Core.Collections;
 
-using System.Buffers;
 using System.Runtime.CompilerServices;
 
 /// <summary>
@@ -53,22 +52,6 @@ internal sealed class CompoundIndex<TPrefix, TSort, TKey> : IDisposable
 		var seekKey = new CompoundKey<TPrefix, TSort, TKey>(prefix, default!, default!);
 		_tree.RangeFrom(seekKey, ref agg);
 		return agg.Found;
-	}
-
-	/// <summary>
-	///   Same as SeekAndTake but rents a buffer from ArrayPool.
-	///   Caller must return the buffer.
-	/// </summary>
-	public (TKey[] buffer, int count) SeekAndTakePooled(TPrefix prefix, int skip, int take) {
-		var buffer = PragueArrayPool<TKey>.Pool.Rent(take);
-		try {
-			var count = SeekAndTake(prefix, skip, take, buffer);
-			return (buffer, count);
-		} catch {
-			// The tree walk runs user CompareTo — ownership only transfers on success.
-			PragueArrayPool<TKey>.Pool.Return(buffer, RuntimeHelpers.IsReferenceOrContainsReferences<TKey>());
-			throw;
-		}
 	}
 
 	/// <summary>
