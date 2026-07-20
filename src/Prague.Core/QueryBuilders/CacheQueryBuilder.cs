@@ -1747,8 +1747,10 @@ public struct CacheQueryBuilderCombined<TDiscriminator, TLeftQuery, TLeftKey, TL
 		var container = new JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, TJoinResult>(
 			ref _resolverChain, true, false, 0, int.MaxValue, _manyCount);
 		try {
-
 			container.PrepareIndexedInner(ref this);
+			// Same narrowing Execute runs: indexed-inner resolvers drop non-matching lefts from
+			// the candidate set (RetainNonNullSlots), so CountBase counts matched rows.
+			container.ExecuteIndexedInner(ref this);
 			return _leftQuery.CountBase();
 		} finally {
 			container.Dispose();
@@ -2345,7 +2347,8 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TResolverChain : struct, IResolvers
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		=>  Unsafe.AsRef(in builder).CountCoreSimple();
+		where TResult : struct, IJoinResult<TValue>
+		=> Unsafe.AsRef(in builder).CountCoreJoined<TResult>();
 
 	public static QueryResults<TResult> Execute<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TResult>(
 		this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TResult> builder,
@@ -2399,7 +2402,7 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TResult : struct, IJoinResult<TValue>
-		=> Unsafe.AsRef(in builder).CountCoreSimple();
+		=> Unsafe.AsRef(in builder).CountCoreJoined<TResult>();
 
 	public static QueryResults<TResult> Execute<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, TResult>(
 		this in CacheQueryBuilderCombined<SortedQuery<TDiscriminator>, TExecutor, TKey, TValue, TResolverChain, TResult> builder,
@@ -2446,6 +2449,26 @@ public static class CacheQueryBuilderCombinedExecuteJoinedExtensions {
 		=> Unsafe.AsRef(in builder).ExecuteCoreJoined<TResult>(true, true, skip, take);
 }
 public static class CacheQueryBuilderCombinedExecuteSimpleExtensions {
+	// Non-join builders (TResult pinned to TValue): no narrowing to run, so Count reports
+	// the same candidate count Execute would materialize — CountCoreSimple is correct here.
+	public static int Count<TDiscriminator, TExecutor, TKey, TValue, TResolver>(
+		this in CacheQueryBuilderCombined<SortedQuery<TDiscriminator>, TExecutor, TKey, TValue, Resolvers<TResolver>, TValue> builder)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IExecutableQuery
+		where TResolver : struct, IJoinResolver
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		=> Unsafe.AsRef(in builder).CountCoreSimple();
+
+	public static int Count<TDiscriminator, TExecutor, TKey, TValue, TResolver>(
+		this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, Resolvers<TResolver>, TValue> builder)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IExecutableQuery
+		where TResolver : struct, IJoinResolver
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		=> Unsafe.AsRef(in builder).CountCoreSimple();
+
 	public static QueryResults<TValue> Execute<TDiscriminator, TExecutor, TKey, TValue, TResolver>(
 		this in CacheQueryBuilderCombined<SortedQuery<TDiscriminator>, TExecutor, TKey, TValue, Resolvers<TResolver>, TValue> builder,
 		int skip = 0, int take = int.MaxValue)

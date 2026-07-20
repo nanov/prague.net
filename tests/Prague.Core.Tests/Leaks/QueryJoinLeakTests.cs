@@ -117,14 +117,13 @@ public class QueryJoinLeakTests {
 		});
 
 	// Indexed-inner: only this family goes through PrepareIndexedInner's dictionary init,
-	// which is what rents the pooled values array on the Count() path. Count() reports the
-	// LEFT candidate count — inner-join narrowing happens at Execute, not Count — so this
-	// test pins pool balance, not join semantics.
+	// which is what rents the pooled values array on the Count() path.
+	// Count runs the same indexed-inner narrowing as Execute, so it reports matched rows.
 	[Test]
 	public void InnerJoinOne_Indexed_Count_DoesNotLeakValuesArray() =>
 		LeakAssert.Balanced(() => {
 			var count = _left.Query().InnerJoinOne(_rightHalf, _rightHalfUniqueIndex).Count();
-			Assert.That(count, Is.EqualTo(Size));
+			Assert.That(count, Is.EqualTo(Size / 2), "inner-join Count must equal Execute's row count");
 		});
 
 	[Test]
@@ -182,5 +181,15 @@ public class QueryJoinLeakTests {
 			var results = _left.Query().Where(static l => l.Id < 50).JoinMany(_rightMany, _manyIndex).ExecutePooled();
 			results.Dispose();
 			results.Dispose();
+		});
+
+	[Test]
+	public void InnerJoinMany_Count_MatchesExecuteCount() =>
+		LeakAssert.Balanced(() => {
+			int executed;
+			using (var results = _left.Query().Where(static l => l.Id < 50).InnerJoinMany(_rightMany, _manyIndex).ExecutePooled())
+				executed = results.Count;
+			var counted = _left.Query().Where(static l => l.Id < 50).InnerJoinMany(_rightMany, _manyIndex).Count();
+			Assert.That(counted, Is.EqualTo(executed));
 		});
 }
