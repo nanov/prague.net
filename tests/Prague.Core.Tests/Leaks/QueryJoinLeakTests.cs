@@ -117,14 +117,13 @@ public class QueryJoinLeakTests {
 		});
 
 	// Indexed-inner: only this family goes through PrepareIndexedInner's dictionary init,
-	// which is what rents the pooled values array on the Count() path. Count() reports the
-	// LEFT candidate count — inner-join narrowing happens at Execute, not Count — so this
-	// test pins pool balance, not join semantics.
+	// which is what rents the pooled values array on the Count() path.
+	// Count runs the same indexed-inner narrowing as Execute, so it reports matched rows.
 	[Test]
 	public void InnerJoinOne_Indexed_Count_DoesNotLeakValuesArray() =>
 		LeakAssert.Balanced(() => {
 			var count = _left.Query().InnerJoinOne(_rightHalf, _rightHalfUniqueIndex).Count();
-			Assert.That(count, Is.EqualTo(Size));
+			Assert.That(count, Is.EqualTo(Size / 2), "inner-join Count must equal Execute's row count");
 		});
 
 	[Test]
@@ -182,5 +181,36 @@ public class QueryJoinLeakTests {
 			var results = _left.Query().Where(static l => l.Id < 50).JoinMany(_rightMany, _manyIndex).ExecutePooled();
 			results.Dispose();
 			results.Dispose();
+		});
+
+	// ── Nested JoinMany: inner plan throws in its indexed-inner phase ─────────
+	// The nested-join seam (ExecuteCoreJoinedKeyed) seeds the inner plan's candidate set
+	// via UnsafeSeedCandidates BEFORE running the inner plan. The inner plan here carries an
+	// InnerJoinOne whose narrowing (UnsafeExecuteIndexedInner) applies a throwing filter — the
+	// throw lands after the candidates are seeded but before the inner base execution consumes
+	// them. The seeded set's rented arrays are the outer union (>StackSize, so pooled); if the
+	// keyed pipeline's finally does not release the still-owned candidate set, they leak.
+	[Test]
+	public void NestedJoinMany_InnerPlanThrowsBeforeBase_DoesNotLeakSeededCandidates() =>
+		LeakAssert.Balanced(() => {
+			try {
+				_left.Query().Where(static l => l.Id < 50)
+					.JoinMany(_rightMany, _manyIndex,
+						db => db.InnerJoinOne(_right,
+							static q => q.Where(static _ => throw new InvalidOperationException("hostile nested filter"))))
+					.ExecutePooled();
+				Assert.Fail("nested filter must throw");
+			} catch (InvalidOperationException) {
+			}
+		});
+
+	[Test]
+	public void InnerJoinMany_Count_MatchesExecuteCount() =>
+		LeakAssert.Balanced(() => {
+			int executed;
+			using (var results = _left.Query().Where(static l => l.Id < Size).InnerJoinMany(_rightMany, _manyIndex).ExecutePooled())
+				executed = results.Count;
+			var counted = _left.Query().Where(static l => l.Id < Size).InnerJoinMany(_rightMany, _manyIndex).Count();
+			Assert.That(counted, Is.EqualTo(executed));
 		});
 }
