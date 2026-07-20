@@ -118,7 +118,6 @@ public class ValueDictionaryTests {
 
 	[Test]
 	public void StringKey_OrdinalComparer_WorksCorrectly() {
-		// Uses the same NonRandomizedStringEqualityComparer as ConcurrentDictionary
 		using var dict = new ValueDictionary<string, int, CustomKeyComparer<string>>(false, 10, new CustomKeyComparer<string>(StringComparer.Ordinal));
 		dict.Add("Hello", 1);
 		dict.Add("hello", 2);

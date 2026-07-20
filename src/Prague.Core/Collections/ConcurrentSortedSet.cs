@@ -1,7 +1,6 @@
 namespace Prague.Core.Collections;
 
 using System.Runtime.CompilerServices;
-using Utils;
 
 // C# imlementation of https://people.csail.mit.edu/shanir/publications/LazySkipList.pdf
 // Optimized for maximum performance and minimum allocations
@@ -22,15 +21,12 @@ internal sealed class ConcurrentSortedList<TIndex, TValue>
 
 	[ThreadStatic] private static Node?[]? _locked;
 
-	private readonly IEqualityComparer<TValue> _comparer;
-
 	private readonly Node _head;
 	private int _length;
 
 	public ConcurrentSortedList() {
 		_head = new Node(MaxLevel);
 		_head.FullyLinked = true;
-		_comparer = HashCollectionsTools.GetEqualityComparer<TValue>(null);
 	}
 
 	private static Random LocalRandom => _random ??= new Random(Guid.NewGuid().GetHashCode());

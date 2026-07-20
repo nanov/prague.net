@@ -1822,4 +1822,49 @@ public class ConcurrentCacheStoreTests {
 		// Assert - All updates should have succeeded
 		Assert.That(updateResults.All(r => r.Operation == UpdateOrRemoveOperation.Update), Is.True);
 	}
+
+	[Test]
+	public void CountValues_WithMatchingSubset_ReturnsOnlyMatchedCount() {
+		// Arrange
+		var cache = new ConcurrentCacheStore<int, int>();
+		for (var i = 0; i < 10; i++)
+			cache.AddOrUpdate(i, (k, _) => k, (_, old, _) => old, default(object));
+
+		// Act
+		var evenCount = cache.CountValues(static v => v % 2 == 0);
+
+		// Assert - must be the matched count alone, not total + matched
+		Assert.That(evenCount, Is.EqualTo(5));
+	}
+
+	[Test]
+	public void CountValues_WithNoMatches_ReturnsZero() {
+		// Arrange
+		var cache = new ConcurrentCacheStore<int, int>();
+		for (var i = 0; i < 10; i++)
+			cache.AddOrUpdate(i, (k, _) => k, (_, old, _) => old, default(object));
+
+		// Act & Assert
+		Assert.That(cache.CountValues(static v => v > 100), Is.EqualTo(0));
+	}
+
+	[Test]
+	public void CountValues_WithAllMatching_ReturnsTotalCount() {
+		// Arrange
+		var cache = new ConcurrentCacheStore<int, int>();
+		for (var i = 0; i < 10; i++)
+			cache.AddOrUpdate(i, (k, _) => k, (_, old, _) => old, default(object));
+
+		// Act & Assert
+		Assert.That(cache.CountValues(static _ => true), Is.EqualTo(10));
+	}
+
+	[Test]
+	public void CountValues_OnEmptyStore_ReturnsZero() {
+		// Arrange
+		var cache = new ConcurrentCacheStore<int, int>();
+
+		// Act & Assert
+		Assert.That(cache.CountValues(static _ => true), Is.EqualTo(0));
+	}
 }

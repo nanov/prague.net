@@ -3,7 +3,6 @@ namespace Prague.Core.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using Utils;
 
 [DebuggerTypeProxy(typeof(ConcurrentCacheStore<,>.IDictionaryDebugView))]
 [DebuggerDisplay("Count = {Count}")]
@@ -17,18 +16,14 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	private volatile Tables _tables;
 
 	public ConcurrentCacheStore()
-		: this(DefaultConcurrencyLevel, DefaultCapacity, true, null) {
+		: this(DefaultConcurrencyLevel, DefaultCapacity, true) {
 	}
 
 	public ConcurrentCacheStore(int concurrencyLevel, int capacity)
-		: this(concurrencyLevel, capacity, false, null) {
+		: this(concurrencyLevel, capacity, false) {
 	}
 
-	public ConcurrentCacheStore(int concurrencyLevel, int capacity, IEqualityComparer<TKey>? comparer)
-		: this(concurrencyLevel, capacity, false, comparer) {
-	}
-
-	private ConcurrentCacheStore(int concurrencyLevel, int capacity, bool growLockArray, IEqualityComparer<TKey>? comparer) {
+	private ConcurrentCacheStore(int concurrencyLevel, int capacity, bool growLockArray) {
 		if (capacity < concurrencyLevel)
 			capacity = concurrencyLevel;
 		capacity = HashHelpers.GetPrime(capacity);
@@ -38,15 +33,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 			locks[i] = new object();
 		var countPerLock = new int[locks.Length];
 		var buckets = new VolatileNode[capacity];
-		if (typeof(TKey).IsValueType) {
-			if (comparer is not null && ReferenceEquals(comparer, EqualityComparer<TKey>.Default))
-				comparer = null;
-		} else {
-			comparer ??= EqualityComparer<TKey>.Default;
-			comparer = HashCollectionsTools.GetEqualityComparer(comparer);
-		}
-
-		_tables = new Tables(buckets, locks, countPerLock, comparer);
+		_tables = new Tables(buckets, locks, countPerLock);
 		_growLockArray = growLockArray;
 		_initialCapacity = capacity;
 		_budget = buckets.Length / locks.Length;
@@ -56,8 +43,8 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		get {
 			var locksAcquired = 0;
 			try {
-				AcquireAllLocks(ref locksAcquired);
-				return GetCountNoLocks();
+				var tables = AcquireAllLocks(ref locksAcquired);
+				return GetCountNoLocks(tables);
 			} finally {
 				ReleaseLocks(locksAcquired);
 			}
@@ -66,18 +53,19 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 
 	private static int DefaultConcurrencyLevel => Environment.ProcessorCount;
 
-	// JIT-devirtualized hash/equals via DefaultKeyComparer<TKey>. The IEqualityComparer<TKey>?
-	// parameter is preserved for ABI compatibility with the many call sites but ignored —
-	// the comparer choice is now baked into the type (struct generic specialization). For
-	// value types implementing IEquatable<T>, EqualityComparer<T>.Default folds to a direct
-	// call; for string, DefaultKeyComparer special-cases via Unsafe.As<T,string>.
+	// JIT-devirtualized hash/equals via DefaultKeyComparer<TKey> — the comparer choice is baked
+	// into the type (struct generic specialization), the single hashing/equality authority for
+	// every path in this store. For value types implementing IEquatable<T>,
+	// EqualityComparer<T>.Default folds to a direct call; for string, DefaultKeyComparer
+	// special-cases via Unsafe.As<T,string>. A table swap can never change the hash function,
+	// so retry loops only re-read _tables and never rehash.
 	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-	private int GetHashCode(IEqualityComparer<TKey>? _, TKey key)
+	private static int GetHashCode(TKey key)
 		=> default(DefaultKeyComparer<TKey>).GetHashCode(key);
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-	private static bool NodeEqualsKey(IEqualityComparer<TKey>? _, Node node, TKey key)
-		=> default(DefaultKeyComparer<TKey>).Equals(node.Key, key);
+	private static bool KeyEquals(TKey x, TKey y)
+		=> default(DefaultKeyComparer<TKey>).Equals(x, y);
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool ContainsKey(TKey key) => TryGetValue(key, out _);
@@ -91,22 +79,17 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	private bool TryRemoveInternal(TKey key, [MaybeNullWhen(false)] out TValue value, bool matchValue, TValue? oldValue) {
 		var tables = _tables;
-		var comparer = tables.Comparer;
-		var hashCode = GetHashCode(comparer, key);
+		var hashCode = GetHashCode(key);
 		while (true) {
 			var locks = tables.Locks;
 			ref var local = ref GetBucketAndLock(tables, hashCode, out var lockNo);
 			lock (locks[(int)lockNo]) {
 				if (tables != _tables) {
 					tables = _tables;
-					if (!ReferenceEquals(comparer, tables.Comparer)) {
-						comparer = tables.Comparer;
-						hashCode = GetHashCode(comparer, key);
-					}
 				} else {
 					Node? prev = null;
 					for (var curr = local; curr is not null; curr = curr.Next) {
-						if (hashCode == curr.Hashcode && NodeEqualsKey(comparer, curr, key)) {
+						if (hashCode == curr.Hashcode && KeyEquals(curr.Key, key)) {
 							if (matchValue && !EqualityComparer<TValue>.Default.Equals(oldValue, curr.Value)) {
 								value = default;
 								return false;
@@ -136,37 +119,18 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value) {
 		var tables = _tables;
-		var comparer = tables.Comparer;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-			var bucket = GetBucket(tables, hashCode);
-			if (bucket is not null) {
-				if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-					value = bucket.Value;
-					return true;
-				}
-
-				for (var next = bucket.Next; next is not null; next = next.Next) {
-					if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-						value = next.Value;
-						return true;
-					}
-				}
+		var hashCode = GetHashCode(key);
+		var bucket = GetBucket(tables, hashCode);
+		if (bucket is not null) {
+			if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+				value = bucket.Value;
+				return true;
 			}
-		} else {
-			var hashCode = GetHashCode(comparer, key);
-			var bucket = GetBucket(tables, hashCode);
-			if (bucket is not null) {
-				if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-					value = bucket.Value;
-					return true;
-				}
 
-				for (var next = bucket.Next; next is not null; next = next.Next) {
-					if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-						value = next.Value;
-						return true;
-					}
+			for (var next = bucket.Next; next is not null; next = next.Next) {
+				if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+					value = next.Value;
+					return true;
 				}
 			}
 		}
@@ -182,62 +146,31 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Length == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var count = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			for (var index = 0; index < keys.Length; ++index) {
-				var key = keys[index];
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				var matched = false;
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						values[count++] = bucket.Value;
-						found[index] = true;
-						continue;
-					}
-
-					for (var next = bucket.Next; next is not null; next = next.Next) {
-						if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-							values[count++] = next.Value;
-							found[index] = true;
-							matched = true;
-							break;
-						}
-					}
+		for (var index = 0; index < keys.Length; ++index) {
+			var key = keys[index];
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			var matched = false;
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					values[count++] = bucket.Value;
+					found[index] = true;
+					continue;
 				}
 
-				if (!matched) {
-					values[index] = default!;
-					found[index] = false;
+				for (var next = bucket.Next; next is not null; next = next.Next) {
+					if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+						values[count++] = next.Value;
+						found[index] = true;
+						matched = true;
+						break;
+					}
 				}
 			}
-		} else {
-			for (var index = 0; index < keys.Length; ++index) {
-				var key = keys[index];
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				var matched = false;
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						values[count++] = bucket.Value;
-						found[index] = true;
-						continue;
-					}
 
-					for (var next = bucket.Next; next is not null; next = next.Next) {
-						if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-							values[count++] = next.Value;
-							found[index] = true;
-							matched = true;
-							break;
-						}
-					}
-				}
-
-				if (!matched)
-					found[index] = false;
-			}
+			if (!matched)
+				found[index] = false;
 		}
 
 		return count;
@@ -248,41 +181,18 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var count = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						values[count++] = bucket.Value;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								values[count++] = next.Value;
-								++count;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						values[count++] = bucket.Value;
-						++count;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								values[count++] = next.Value;
-								++count;
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					values[count++] = bucket.Value;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							values[count++] = next.Value;
+							break;
 						}
 					}
 				}
@@ -297,40 +207,18 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var count = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key) &&
-						predicate(bucket.Value)) {
-						values[count++] = bucket.Value;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key) &&
-								predicate(next.Value)) {
-								values[count++] = next.Value;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key) && predicate(bucket.Value)) {
-						values[count++] = bucket.Value;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key) && predicate(next.Value)) {
-								values[count++] = next.Value;
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key) && predicate(bucket.Value)) {
+					values[count++] = bucket.Value;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key) && predicate(next.Value)) {
+							values[count++] = next.Value;
+							break;
 						}
 					}
 				}
@@ -345,38 +233,18 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var count = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						++count;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								++count;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						++count;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								++count;
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					++count;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							++count;
+							break;
 						}
 					}
 				}
@@ -391,40 +259,18 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var count = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key) &&
-						predicate(bucket.Value)) {
-						++count;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key) &&
-								predicate(next.Value)) {
-								++count;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key) && predicate(bucket.Value)) {
-						++count;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key) && predicate(next.Value)) {
-								++count;
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key) && predicate(bucket.Value)) {
+					++count;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key) && predicate(next.Value)) {
+							++count;
+							break;
 						}
 					}
 				}
@@ -440,42 +286,20 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						container.Add(key, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								container.Add(key, next.Value);
-								++values;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						container.Add(key, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								container.Add(key, next.Value);
-								++values;
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					container.Add(key, bucket.Value);
+					++values;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							container.Add(key, next.Value);
+							++values;
+							break;
 						}
 					}
 				}
@@ -494,44 +318,20 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key) &&
-						predicate(bucket.Value)) {
-						container.Add(key, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key) &&
-								predicate(next.Value)) {
-								container.Add(key, next.Value);
-								++values;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key) && predicate(bucket.Value)) {
-						container.Add(key, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key) && predicate(next.Value)) {
-								container.Add(key, next.Value);
-								++values;
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key) && predicate(bucket.Value)) {
+					container.Add(key, bucket.Value);
+					++values;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key) && predicate(next.Value)) {
+							container.Add(key, next.Value);
+							++values;
+							break;
 						}
 					}
 				}
@@ -551,56 +351,27 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var count = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						var result = mapper.MapOrFilter(bucket.Value);
-						if (result.Include) {
-							container.Add(key, result.Value);
-							++count;
-						}
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								var result = mapper.MapOrFilter(next.Value);
-								if (result.Include) {
-									container.Add(key, result.Value);
-									++count;
-								}
-
-								break;
-							}
-						}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					var result = mapper.MapOrFilter(bucket.Value);
+					if (result.Include) {
+						container.Add(key, result.Value);
+						++count;
 					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						var result = mapper.MapOrFilter(bucket.Value);
-						if (result.Include) {
-							container.Add(key, result.Value);
-							++count;
-						}
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								var result = mapper.MapOrFilter(next.Value);
-								if (result.Include) {
-									container.Add(key, result.Value);
-									++count;
-								}
-
-								break;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							var result = mapper.MapOrFilter(next.Value);
+							if (result.Include) {
+								container.Add(key, result.Value);
+								++count;
 							}
+
+							break;
 						}
 					}
 				}
@@ -619,44 +390,21 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var pair in keys) {
-				var key = pair.Key;
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						container.Add(pair.JoinedKey, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								container.Add(pair.JoinedKey, next.Value);
-								++values;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var pair in keys) {
-				var key = pair.Key;
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						container.Add(pair.JoinedKey, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								container.Add(pair.JoinedKey, next.Value);
-								++values;
-								break;
-							}
+		foreach (var pair in keys) {
+			var key = pair.Key;
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					container.Add(pair.JoinedKey, bucket.Value);
+					++values;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							container.Add(pair.JoinedKey, next.Value);
+							++values;
+							break;
 						}
 					}
 				}
@@ -676,54 +424,26 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var pair in keys) {
-				var key = pair.Key;
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						if (predicate(bucket.Value)) {
-							container.Add(pair.JoinedKey, bucket.Value);
-							++values;
-						}
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								if (predicate(next.Value)) {
-									container.Add(pair.JoinedKey, next.Value);
-									++values;
-								}
-
-								break;
-							}
-						}
+		foreach (var pair in keys) {
+			var key = pair.Key;
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					if (predicate(bucket.Value)) {
+						container.Add(pair.JoinedKey, bucket.Value);
+						++values;
 					}
-				}
-			}
-		} else {
-			foreach (var pair in keys) {
-				var key = pair.Key;
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						if (predicate(bucket.Value)) {
-							container.Add(pair.JoinedKey, bucket.Value);
-							++values;
-						}
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								if (predicate(next.Value)) {
-									container.Add(pair.JoinedKey, next.Value);
-									++values;
-								}
-
-								break;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							if (predicate(next.Value)) {
+								container.Add(pair.JoinedKey, next.Value);
+								++values;
 							}
+
+							break;
 						}
 					}
 				}
@@ -742,44 +462,21 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var pair in keys) {
-				var key = pair.Key;
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						container.Add(pair.JoinedKey, pair.Key, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								container.Add(pair.JoinedKey, pair.Key, next.Value);
-								++values;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var pair in keys) {
-				var key = pair.Key;
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						container.Add(pair.JoinedKey, pair.Key, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								container.Add(pair.JoinedKey, pair.Key, next.Value);
-								++values;
-								break;
-							}
+		foreach (var pair in keys) {
+			var key = pair.Key;
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					container.Add(pair.JoinedKey, pair.Key, bucket.Value);
+					++values;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							container.Add(pair.JoinedKey, pair.Key, next.Value);
+							++values;
+							break;
 						}
 					}
 				}
@@ -799,54 +496,26 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var pair in keys) {
-				var key = pair.Key;
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						if (predicate(bucket.Value)) {
-							container.Add(pair.JoinedKey, pair.Key, bucket.Value);
-							++values;
-						}
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								if (predicate(next.Value)) {
-									container.Add(pair.JoinedKey, pair.Key, next.Value);
-									++values;
-								}
-
-								break;
-							}
-						}
+		foreach (var pair in keys) {
+			var key = pair.Key;
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					if (predicate(bucket.Value)) {
+						container.Add(pair.JoinedKey, pair.Key, bucket.Value);
+						++values;
 					}
-				}
-			}
-		} else {
-			foreach (var pair in keys) {
-				var key = pair.Key;
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						if (predicate(bucket.Value)) {
-							container.Add(pair.JoinedKey, pair.Key, bucket.Value);
-							++values;
-						}
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								if (predicate(next.Value)) {
-									container.Add(pair.JoinedKey, pair.Key, next.Value);
-									++values;
-								}
-
-								break;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							if (predicate(next.Value)) {
+								container.Add(pair.JoinedKey, pair.Key, next.Value);
+								++values;
 							}
+
+							break;
 						}
 					}
 				}
@@ -866,45 +535,23 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (sources.Length == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in sources) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is null)
-					continue;
-				if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-					container.Add(key, bucket.Value);
-					++values;
-					continue;
-				}
-				for (var next = bucket.Next; next is not null; next = next.Next) {
-					if (hashCode != next.Hashcode || !EqualityComparer<TKey>.Default.Equals(next.Key, key))
-						continue;
-					container.Add(key, next.Value);
-					++values;
-					break;
-				}
+		foreach (var key in sources) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is null)
+				continue;
+			if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+				container.Add(key, bucket.Value);
+				++values;
+				continue;
 			}
-		} else {
-			foreach (var key in sources) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is null)
+			for (var next = bucket.Next; next is not null; next = next.Next) {
+				if (hashCode != next.Hashcode || !KeyEquals(next.Key, key))
 					continue;
-				if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-					container.Add(key, bucket.Value);
-					++values;
-					continue;
-				}
-				for (var next = bucket.Next; next is not null; next = next.Next) {
-					if (hashCode != next.Hashcode || !comparer!.Equals(next.Key, key))
-						continue;
-					container.Add(key, next.Value);
-					++values;
-					break;
-				}
+				container.Add(key, next.Value);
+				++values;
+				break;
 			}
 		}
 
@@ -924,47 +571,24 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (sources.Length == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var source in sources) {
-				var key = keySelector(source);
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is null)
-					continue;
-				if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-					container.Add(source, bucket.Value);
-					++values;
-					continue;
-				}
-				for (var next = bucket.Next; next is not null; next = next.Next) {
-					if (hashCode != next.Hashcode || !EqualityComparer<TKey>.Default.Equals(next.Key, key))
-						continue;
-					container.Add(source, next.Value);
-					++values;
-					break;
-				}
+		foreach (var source in sources) {
+			var key = keySelector(source);
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is null)
+				continue;
+			if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+				container.Add(source, bucket.Value);
+				++values;
+				continue;
 			}
-		} else {
-			foreach (var source in sources) {
-				var key = keySelector(source);
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is null)
+			for (var next = bucket.Next; next is not null; next = next.Next) {
+				if (hashCode != next.Hashcode || !KeyEquals(next.Key, key))
 					continue;
-				if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-					container.Add(source, bucket.Value);
-					++values;
-					continue;
-				}
-				for (var next = bucket.Next; next is not null; next = next.Next) {
-					if (hashCode != next.Hashcode || !comparer!.Equals(next.Key, key))
-						continue;
-					container.Add(source, next.Value);
-					++values;
-					break;
-				}
+				container.Add(source, next.Value);
+				++values;
+				break;
 			}
 		}
 
@@ -985,44 +609,21 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (sources.Length == 0)
 			return 0;
 		var tables = _tables;
-		var comparer = tables.Comparer;
 		var values = 0;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var source in sources) {
-				var key = keySelector(source);
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						container.Add(key, source, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								container.Add(key, source, next.Value);
-								++values;
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var source in sources) {
-				var key = keySelector(source);
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						container.Add(key, source, bucket.Value);
-						++values;
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								container.Add(key, source, next.Value);
-								++values;
-								break;
-							}
+		foreach (var source in sources) {
+			var key = keySelector(source);
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					container.Add(key, source, bucket.Value);
+					++values;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							container.Add(key, source, next.Value);
+							++values;
+							break;
 						}
 					}
 				}
@@ -1038,37 +639,17 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return values;
 		var tables = _tables;
-		var comparer = tables.Comparer;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								values.Add(next.Value);
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								values.Add(next.Value);
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					values.Add(bucket.Value);
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							values.Add(next.Value);
+							break;
 						}
 					}
 				}
@@ -1084,39 +665,17 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return values;
 		var tables = _tables;
-		var comparer = tables.Comparer;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key) &&
-						predicate(bucket.Value)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key) &&
-								predicate(next.Value)) {
-								values.Add(next.Value);
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key) && predicate(bucket.Value)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key) && predicate(next.Value)) {
-								values.Add(next.Value);
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key) && predicate(bucket.Value)) {
+					values.Add(bucket.Value);
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key) && predicate(next.Value)) {
+							values.Add(next.Value);
+							break;
 						}
 					}
 				}
@@ -1132,37 +691,17 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return values;
 		var tables = _tables;
-		var comparer = tables.Comparer;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								values.Add(next.Value);
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								values.Add(next.Value);
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					values.Add(bucket.Value);
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							values.Add(next.Value);
+							break;
 						}
 					}
 				}
@@ -1178,39 +717,17 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Count == 0)
 			return values;
 		var tables = _tables;
-		var comparer = tables.Comparer;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			foreach (var key in keys) {
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key) &&
-						predicate(bucket.Value)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key) &&
-								predicate(next.Value)) {
-								values.Add(next.Value);
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			foreach (var key in keys) {
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key) && predicate(bucket.Value)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key) && predicate(next.Value)) {
-								values.Add(next.Value);
-								break;
-							}
+		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key) && predicate(bucket.Value)) {
+					values.Add(bucket.Value);
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key) && predicate(next.Value)) {
+							values.Add(next.Value);
+							break;
 						}
 					}
 				}
@@ -1226,39 +743,18 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		if (keys.Length == 0)
 			return values;
 		var tables = _tables;
-		var comparer = tables.Comparer;
-		if (typeof(TKey).IsValueType && comparer is null) {
-			for (var index = 0; index < keys.Length; ++index) {
-				var key = keys[index];
-				var hashCode = default(DefaultKeyComparer<TKey>).GetHashCode(key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && EqualityComparer<TKey>.Default.Equals(bucket.Key, key)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && EqualityComparer<TKey>.Default.Equals(next.Key, key)) {
-								values.Add(next.Value);
-								break;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			for (var index = 0; index < keys.Length; ++index) {
-				var key = keys[index];
-				var hashCode = GetHashCode(comparer, key);
-				var bucket = GetBucket(tables, hashCode);
-				if (bucket is not null) {
-					if (hashCode == bucket.Hashcode && comparer!.Equals(bucket.Key, key)) {
-						values.Add(bucket.Value);
-					} else {
-						for (var next = bucket.Next; next is not null; next = next.Next) {
-							if (hashCode == next.Hashcode && comparer!.Equals(next.Key, key)) {
-								values.Add(next.Value);
-								break;
-							}
+		for (var index = 0; index < keys.Length; ++index) {
+			var key = keys[index];
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					values.Add(bucket.Value);
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							values.Add(next.Value);
+							break;
 						}
 					}
 				}
@@ -1271,15 +767,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	public void Clear() {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			if (AreAllBucketsEmpty())
+			var tables = AcquireAllLocks(ref locksAcquired);
+			if (AreAllBucketsEmpty(tables))
 				return;
-			var tables = _tables;
 			var newTables = new Tables(
 				new VolatileNode[HashHelpers.GetPrime(_initialCapacity)],
 				tables.Locks,
-				new int[tables.CountPerLock.Length],
-				tables.Comparer);
+				new int[tables.CountPerLock.Length]);
 			_tables = newTables;
 			_budget = Math.Max(1, newTables.Buckets.Length / newTables.Locks.Length);
 		} finally {
@@ -1291,12 +785,10 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	private bool UpdateOrIgnoreInternal<TArgs>(
 		Tables tables,
 		TKey key,
-		int? nullableHashcode,
+		int hashcode,
 		Func<TKey, TValue, TArgs, TValue> updateOperation,
 		bool acquireLock,
 		TArgs args) {
-		var comparer = tables.Comparer;
-		var hashcode = nullableHashcode ?? GetHashCode(comparer, key);
 		while (true) {
 			var locks = tables.Locks;
 			ref var local = ref GetBucketAndLock(tables, hashcode, out var lockNo);
@@ -1306,14 +798,10 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 					Monitor.Enter(locks[(int)lockNo], ref lockTaken);
 				if (tables != _tables) {
 					tables = _tables;
-					if (!ReferenceEquals(comparer, tables.Comparer)) {
-						comparer = tables.Comparer;
-						hashcode = GetHashCode(comparer, key);
-					}
 				} else {
 					Node? prev = null;
 					for (var curr = local; curr is not null; curr = curr.Next) {
-						if (hashcode == curr.Hashcode && NodeEqualsKey(comparer, curr, key)) {
+						if (hashcode == curr.Hashcode && KeyEquals(curr.Key, key)) {
 							var oldValue = curr.Value;
 							if (oldValue is not null) {
 								var newValue = updateOperation(key, oldValue, args);
@@ -1347,37 +835,28 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	private UpdateResult TryAddOrUpdateInternal<TArgs>(
 		Tables tables,
 		TKey key,
-		int? nullableHashcode,
+		int hashcode,
 		Func<TKey, TArgs, TValue> valueFactory,
 		Func<TKey, TValue, TArgs, TValue> valueUpdater,
 		bool acquireLock,
 		TArgs args) {
-		var comparer = tables.Comparer;
-		var hashcode = nullableHashcode ?? GetHashCode(comparer, key);
 		var newValue = default(TValue);
 		bool resizeDesired;
-		bool forceRehashIfNonRandomized;
 		while (true) {
 			var locks = tables.Locks;
 			ref var local = ref GetBucketAndLock(tables, hashcode, out var lockNo);
 			resizeDesired = false;
-			forceRehashIfNonRandomized = false;
 			var lockTaken = false;
 			try {
 				if (acquireLock)
 					Monitor.Enter(locks[(int)lockNo], ref lockTaken);
 				if (tables != _tables) {
 					tables = _tables;
-					if (!ReferenceEquals(comparer, tables.Comparer)) {
-						comparer = tables.Comparer;
-						hashcode = GetHashCode(comparer, key);
-					}
 				} else {
 					var curr = local;
-					uint chainLength = 0;
 					Node? prev = null;
 					while (curr is not null) {
-						if (hashcode == curr.Hashcode && NodeEqualsKey(comparer, curr, key)) {
+						if (hashcode == curr.Hashcode && KeyEquals(curr.Key, key)) {
 							var oldValue = curr.Value;
 							if (oldValue is not null) {
 								var updated = valueUpdater(key, oldValue, args);
@@ -1397,8 +876,6 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 
 						prev = curr;
 						curr = curr.Next;
-						if (!typeof(TKey).IsValueType)
-							++chainLength;
 					}
 
 					newValue = valueFactory(key, args);
@@ -1406,9 +883,6 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 					Volatile.Write(ref local, added);
 					if (++tables.CountPerLock[(int)lockNo] > _budget)
 						resizeDesired = true;
-					if (!typeof(TKey).IsValueType && chainLength > 100U &&
-						comparer is NonRandomizedStringEqualityComparer)
-						forceRehashIfNonRandomized = true;
 					break;
 				}
 			} finally {
@@ -1417,8 +891,8 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 			}
 		}
 
-		if (resizeDesired | forceRehashIfNonRandomized)
-			GrowTable(tables, resizeDesired, forceRehashIfNonRandomized);
+		if (resizeDesired)
+			GrowTable(tables);
 		return new UpdateResult(AddOrUpdateOperation.Add, newValue!, default);
 	}
 
@@ -1426,36 +900,27 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	private AddOrUpdateOperation TryAddOrUpdateInternal(
 		Tables tables,
 		TKey key,
-		int? nullableHashcode,
+		int hashcode,
 		TValue value,
 		Func<TKey, TValue, TValue, bool> shouldAdd,
 		bool acquireLock,
 		out TValue? prevValue) {
-		var comparer = tables.Comparer;
-		var hashcode = nullableHashcode ?? GetHashCode(comparer, key);
 		bool resizeDesired;
-		bool forceRehashIfNonRandomized;
 		while (true) {
 			var locks = tables.Locks;
 			ref var local = ref GetBucketAndLock(tables, hashcode, out var lockNo);
 			resizeDesired = false;
-			forceRehashIfNonRandomized = false;
 			var lockTaken = false;
 			try {
 				if (acquireLock)
 					Monitor.Enter(locks[(int)lockNo], ref lockTaken);
 				if (tables != _tables) {
 					tables = _tables;
-					if (!ReferenceEquals(comparer, tables.Comparer)) {
-						comparer = tables.Comparer;
-						hashcode = GetHashCode(comparer, key);
-					}
 				} else {
 					var curr = local;
-					uint chainLength = 0;
 					Node? prev = null;
 					while (curr is not null) {
-						if (hashcode == curr.Hashcode && NodeEqualsKey(comparer, curr, key)) {
+						if (hashcode == curr.Hashcode && KeyEquals(curr.Key, key)) {
 							var oldValue = curr.Value;
 							if (oldValue is not null) {
 								if (shouldAdd(key, value, oldValue)) {
@@ -1480,17 +945,12 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 
 						prev = curr;
 						curr = curr.Next;
-						if (!typeof(TKey).IsValueType)
-							++chainLength;
 					}
 
 					var added = new Node(key, value, hashcode, local);
 					Volatile.Write(ref local, added);
 					if (++tables.CountPerLock[(int)lockNo] > _budget)
 						resizeDesired = true;
-					if (!typeof(TKey).IsValueType && chainLength > 100U &&
-						comparer is NonRandomizedStringEqualityComparer)
-						forceRehashIfNonRandomized = true;
 					break;
 				}
 			} finally {
@@ -1499,16 +959,16 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 			}
 		}
 
-		if (resizeDesired | forceRehashIfNonRandomized)
-			GrowTable(tables, resizeDesired, forceRehashIfNonRandomized);
+		if (resizeDesired)
+			GrowTable(tables);
 		prevValue = default;
 		return AddOrUpdateOperation.Add;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private int GetCountNoLocks() {
+	private static int GetCountNoLocks(Tables tables) {
 		var count = 0;
-		foreach (var perLock in _tables.CountPerLock)
+		foreach (var perLock in tables.CountPerLock)
 			count += perLock;
 		return count;
 	}
@@ -1520,14 +980,14 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		Func<TKey, TValue, TArgs, TValue> updater,
 		TArgs args) {
 		var tables = _tables;
-		var hashCode = GetHashCode(tables.Comparer, key);
+		var hashCode = GetHashCode(key);
 		return TryAddOrUpdateInternal(tables, key, hashCode, factory, updater, true, args);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public UpdateResult AddOrUpdate(TKey key, TValue newValue, Func<TKey, TValue, TValue, bool> shouldUpdate) {
 		var tables = _tables;
-		var hashCode = GetHashCode(tables.Comparer, key);
+		var hashCode = GetHashCode(key);
 		return TryAddOrUpdateInternal(tables, key, hashCode, newValue, shouldUpdate, true, out var prevValue) switch {
 			AddOrUpdateOperation.Add => new UpdateResult(AddOrUpdateOperation.Add, newValue, default),
 			AddOrUpdateOperation.Update => new UpdateResult(AddOrUpdateOperation.Update, newValue, prevValue),
@@ -1539,7 +999,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool UpdateOrIgnore<TArgs>(TKey key, Func<TKey, TValue, TArgs, TValue> updateOperation, TArgs args) {
 		var tables = _tables;
-		var hashCode = GetHashCode(tables.Comparer, key);
+		var hashCode = GetHashCode(key);
 		return UpdateOrIgnoreInternal(tables, key, hashCode, updateOperation, true, args);
 	}
 
@@ -1549,7 +1009,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		Func<TKey, TValue, TArgs, (bool Keep, TValue? NewValue)> updateOrRemove,
 		TArgs args) {
 		var tables = _tables;
-		var hashCode = GetHashCode(tables.Comparer, key);
+		var hashCode = GetHashCode(key);
 		return UpdateOrRemoveInternal(tables, key, hashCode, updateOrRemove, args);
 	}
 
@@ -1559,21 +1019,16 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		int hashcode,
 		Func<TKey, TValue, TArgs, (bool Keep, TValue? NewValue)> updateOrRemove,
 		TArgs args) {
-		var comparer = tables.Comparer;
 		while (true) {
 			var locks = tables.Locks;
 			ref var local = ref GetBucketAndLock(tables, hashcode, out var lockNo);
 			lock (locks[(int)lockNo]) {
 				if (tables != _tables) {
 					tables = _tables;
-					if (!ReferenceEquals(comparer, tables.Comparer)) {
-						comparer = tables.Comparer;
-						hashcode = GetHashCode(comparer, key);
-					}
 				} else {
 					Node? prev = null;
 					for (var curr = local; curr is not null; curr = curr.Next) {
-						if (hashcode == curr.Hashcode && NodeEqualsKey(comparer, curr, key)) {
+						if (hashcode == curr.Hashcode && KeyEquals(curr.Key, key)) {
 							var oldValue = curr.Value;
 							var (keep, newValue) = updateOrRemove(key, oldValue, args);
 							if (!keep) {
@@ -1610,16 +1065,16 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private bool AreAllBucketsEmpty() => !_tables.CountPerLock.AsSpan().ContainsAnyExcept(0);
+	private static bool AreAllBucketsEmpty(Tables tables) => !tables.CountPerLock.AsSpan().ContainsAnyExcept(0);
 
 	internal int CountValues(Predicate<TValue> predicate) {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
-			if (count == 0)
+			var tables = AcquireAllLocks(ref locksAcquired);
+			if (GetCountNoLocks(tables) == 0)
 				return 0;
-			foreach (var bucket in _tables.Buckets) {
+			var count = 0;
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value))
 						++count;
@@ -1635,13 +1090,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	internal ArraySegment<TValue> GetValues(Predicate<TValue> predicate) {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return Array.Empty<TValue>();
 			var array = new TValue[count];
 			var actualCount = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value))
 						array[actualCount++] = node.Value;
@@ -1658,13 +1113,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IResultContainerInitializer<TKey, TValue>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return;
 			container.Init(count);
 			var actualCount = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value)) {
 						container.Add(node.Key, node.Value);
@@ -1683,13 +1138,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IResultContainerInitializer<TKey, TValue>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return;
 			container.Init(count);
 			var actualCount = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					++actualCount;
 					container.Add(node.Key, node.Value);
@@ -1707,13 +1162,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IResultContainerInitializer<TKey, TMapped>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return;
 			container.Init(count);
 			var actualCount = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					var result = mapper.MapOrFilter(node.Value);
 					if (result.Include) {
@@ -1733,10 +1188,10 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IJoinedResultContainer<TKey, TValue>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			if (GetCountNoLocks() == 0)
+			var tables = AcquireAllLocks(ref locksAcquired);
+			if (GetCountNoLocks(tables) == 0)
 				return;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next)
 					container.Add(node.Key, node.Value);
 			}
@@ -1749,10 +1204,10 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		where TContainer : IJoinedResultContainer<TKey, TValue>, allows ref struct {
 		var locksAcquired = 0;
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			if (GetCountNoLocks() == 0)
+			var tables = AcquireAllLocks(ref locksAcquired);
+			if (GetCountNoLocks(tables) == 0)
 				return;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next) {
 					if (predicate(node.Value))
 						container.Add(node.Key, node.Value);
@@ -1767,13 +1222,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		var locksAcquired = 0;
 		var values = Array.Empty<TValue>();
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return values;
 			values = new TValue[count];
 			var index = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next)
 					values[index++] = node.Value;
 			}
@@ -1788,13 +1243,13 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		var locksAcquired = 0;
 		var items = Array.Empty<KeyValuePair<TKey, TValue>>();
 		try {
-			AcquireAllLocks(ref locksAcquired);
-			var count = GetCountNoLocks();
+			var tables = AcquireAllLocks(ref locksAcquired);
+			var count = GetCountNoLocks(tables);
 			if (count == 0)
 				return items;
 			items = new KeyValuePair<TKey, TValue>[count];
 			var index = 0;
-			foreach (var bucket in _tables.Buckets) {
+			foreach (var bucket in tables.Buckets) {
 				for (var node = bucket.Node; node is not null; node = node.Next)
 					items[index++] = new KeyValuePair<TKey, TValue>(node.Key, node.Value);
 			}
@@ -1805,29 +1260,24 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		return items;
 	}
 
-	private void GrowTable(Tables tables, bool resizeDesired, bool forceRehashIfNonRandomized) {
+	private void GrowTable(Tables tables) {
 		var locksAcquired = 0;
 		try {
 			AcquireFirstLock(out locksAcquired);
 			if (tables != _tables)
 				return;
-			var newLength = tables.Buckets.Length;
-			IEqualityComparer<TKey>? comparer = null;
-			if (forceRehashIfNonRandomized && tables.Comparer is NonRandomizedStringEqualityComparer nonRandomized)
-				comparer = (IEqualityComparer<TKey>)nonRandomized.GetUnderlyingEqualityComparer();
-			if (resizeDesired) {
-				if (comparer is null && GetCountNoLocks() < tables.Buckets.Length / 4) {
-					_budget = 2 * _budget;
-					if (_budget < 0)
-						_budget = int.MaxValue;
-					return;
-				}
-
-				int doubled;
-				if ((doubled = tables.Buckets.Length * 2) < 0 || (newLength = HashHelpers.GetPrime(doubled)) > Array.MaxLength) {
-					newLength = Array.MaxLength;
+			if (GetCountNoLocks(tables) < tables.Buckets.Length / 4) {
+				_budget = 2 * _budget;
+				if (_budget < 0)
 					_budget = int.MaxValue;
-				}
+				return;
+			}
+
+			int newLength;
+			var doubled = tables.Buckets.Length * 2;
+			if (doubled < 0 || (newLength = HashHelpers.GetPrime(doubled)) > Array.MaxLength) {
+				newLength = Array.MaxLength;
+				_budget = int.MaxValue;
 			}
 
 			var locks = tables.Locks;
@@ -1840,15 +1290,14 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 
 			var buckets = new VolatileNode[newLength];
 			var countPerLock = new int[locks.Length];
-			var newTables = new Tables(buckets, locks, countPerLock, comparer ?? tables.Comparer);
+			var newTables = new Tables(buckets, locks, countPerLock);
 			AcquirePostFirstLock(tables, ref locksAcquired);
 			foreach (var bucket in tables.Buckets) {
 				Node? next;
 				for (var node = bucket.Node; node is not null; node = next) {
 					next = node.Next;
-					var hashcode = comparer is null ? node.Hashcode : comparer.GetHashCode(node.Key);
-					ref var local = ref GetBucketAndLock(newTables, hashcode, out var lockNo);
-					local = new Node(node.Key, node.Value, hashcode, local);
+					ref var local = ref GetBucketAndLock(newTables, node.Hashcode, out var lockNo);
+					local = new Node(node.Key, node.Value, node.Hashcode, local);
 					++countPerLock[(int)lockNo];
 				}
 			}
@@ -1860,10 +1309,19 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		}
 	}
 
+	// Lock-array growth copies the old lock object references forward (Array.Copy in GrowTable),
+	// so element identity is stable across generations for every index a thread has entered.
+	// Two consequences these helpers rely on: entering Locks[0] through a fresh _tables read
+	// always targets the one true first lock, and once it is held _tables is pinned — GrowTable
+	// swaps it only while holding every lock. ReleaseLocks may therefore re-read _tables.Locks
+	// and still exit exactly the objects that were entered, even if the array was swapped or
+	// acquisition threw midway. Pinned by ConcurrentCacheStoreLockingTests.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void AcquireAllLocks(ref int locksAcquired) {
+	private Tables AcquireAllLocks(ref int locksAcquired) {
 		AcquireFirstLock(out locksAcquired);
-		AcquirePostFirstLock(_tables, ref locksAcquired);
+		var tables = _tables;
+		AcquirePostFirstLock(tables, ref locksAcquired);
+		return tables;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1941,16 +1399,14 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 
 	private sealed class Tables {
 		internal readonly VolatileNode[] Buckets;
-		internal readonly IEqualityComparer<TKey>? Comparer;
 		internal readonly int[] CountPerLock;
 		internal readonly ulong FastModBucketsMultiplier;
 		internal readonly object[] Locks;
 
-		internal Tables(VolatileNode[] buckets, object[] locks, int[] countPerLock, IEqualityComparer<TKey>? comparer) {
+		internal Tables(VolatileNode[] buckets, object[] locks, int[] countPerLock) {
 			Buckets = buckets;
 			Locks = locks;
 			CountPerLock = countPerLock;
-			Comparer = comparer;
 			if (IntPtr.Size == 8)
 				FastModBucketsMultiplier = HashHelpers.GetFastModMultiplier((uint)buckets.Length);
 		}
