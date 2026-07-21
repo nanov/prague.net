@@ -21,7 +21,8 @@ public static class ResultWriter {
 	public static string ToJson(BaselineResult result) => JsonSerializer.Serialize(result, Options);
 
 	public static void Write(string path, BaselineResult result) {
-		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+		var dir = Path.GetDirectoryName(path);
+		if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 		File.WriteAllText(path, ToJson(result));
 	}
 }

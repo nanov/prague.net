@@ -25,6 +25,7 @@ public static class EnvCapture {
 	}
 
 	private static string Slug(string s) {
+		if (s.Length > 256) s = s[..256];
 		Span<char> buf = stackalloc char[s.Length];
 		var n = 0;
 		foreach (var c in s) {
