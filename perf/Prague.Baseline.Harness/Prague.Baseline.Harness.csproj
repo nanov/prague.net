@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Optimize>true</Optimize>
+    <TieredCompilation>false</TieredCompilation>
+    <TieredPGO>false</TieredPGO>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <NoWarn>$(NoWarn);CS8618;CS8602;CS8600;CS8604;CS8625;CS8601;CS8603;CS1061;CS0436</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Testcontainers.Kafka + Microsoft.Extensions.Hosting are used by the scenario tests added in
+         later tasks. The Kafka client (Nanov.Confluent.Kafka, which exposes the Confluent.Kafka
+         namespace) arrives transitively through the Prague.Kafka ProjectReference — adding an explicit
+         Confluent.Kafka package would collide with it. -->
+    <PackageReference Include="HdrHistogram" Version="2.5.0" />
+    <PackageReference Include="Testcontainers.Kafka" Version="4.11.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="$(MicrosoftRuntimeVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Prague.Baseline.Scenario\Prague.Baseline.Scenario.csproj" />
+    <ProjectReference Include="..\..\src\Prague.Core\Prague.Core.csproj" />
+    <ProjectReference Include="..\..\src\Prague.Kafka\Prague.Kafka.csproj" />
+    <ProjectReference Include="..\..\src\Prague.Attributes\Prague.Attributes.csproj" />
+    <ProjectReference Include="..\..\src\Prague.Codegen\Prague.Codegen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

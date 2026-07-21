@@ -43,6 +43,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Prague.Baseline.Scenario", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Prague.Baseline.Bdn", "perf\Prague.Baseline.Bdn\Prague.Baseline.Bdn.csproj", "{0CCCF7CF-48DF-4D89-B770-5A121404C425}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Prague.Baseline.Harness", "perf\Prague.Baseline.Harness\Prague.Baseline.Harness.csproj", "{5C80D8BE-BED5-400D-BC60-A47D3916D798}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -245,6 +247,18 @@ Global
 		{0CCCF7CF-48DF-4D89-B770-5A121404C425}.Release|x64.Build.0 = Release|Any CPU
 		{0CCCF7CF-48DF-4D89-B770-5A121404C425}.Release|x86.ActiveCfg = Release|Any CPU
 		{0CCCF7CF-48DF-4D89-B770-5A121404C425}.Release|x86.Build.0 = Release|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Debug|x64.Build.0 = Debug|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Debug|x86.Build.0 = Debug|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Release|x64.ActiveCfg = Release|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Release|x64.Build.0 = Release|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Release|x86.ActiveCfg = Release|Any CPU
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -266,5 +280,6 @@ Global
 		{C79F9793-58E9-4BAC-BA40-B4EEEBEFF4CA} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{FF90269E-10CE-406B-A8F9-998535C0A9D9} = {5081215B-A8D2-606B-0497-D199D4ED2BF3}
 		{0CCCF7CF-48DF-4D89-B770-5A121404C425} = {5081215B-A8D2-606B-0497-D199D4ED2BF3}
+		{5C80D8BE-BED5-400D-BC60-A47D3916D798} = {5081215B-A8D2-606B-0497-D199D4ED2BF3}
 	EndGlobalSection
 EndGlobal
