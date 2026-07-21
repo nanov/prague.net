@@ -1,5 +1,5 @@
 # Prague performance baseline
-_Generated 2026-07-21T18:27:49Z_
+_Generated 2026-07-21T19:08:27Z_
 
 ## apple-m4pro-darwin
 
@@ -40,28 +40,37 @@ _Generated 2026-07-21T18:27:49Z_
 
 ## linux-x64-ci
 
-### core-only  
-`github-ubuntu` · `Ubuntu 24.04.4 LTS` · `.NET 9.0.18` · commit `1157a88`
+### concurrent  
+`github-ubuntu` · `Ubuntu 24.04.4 LTS` · `.NET 9.0.18` · commit `81013b8`
 | metric | value | unit |
 |---|---:|---|
-| ingest.throughput | 3571997.51 | ent/s |
+| read.throughput | 1798093.18 | reads/s |
+| query.multiJoin.p50 | 581535.00 | ns |
+| query.multiJoin.p99 | 13113343.00 | ns |
+| query.multiJoin.p999 | 15152639.00 | ns |
+
+### core-only  
+`github-ubuntu` · `Ubuntu 24.04.4 LTS` · `.NET 9.0.18` · commit `81013b8`
+| metric | value | unit |
+|---|---:|---|
+| ingest.throughput | 3733693.98 | ent/s |
 | ingest.alloc | 254.13 | bytes |
-| query.uniqueLookup.p50 | 380.39 | ns |
+| query.uniqueLookup.p50 | 383.69 | ns |
 | query.uniqueLookup.alloc | 0.00 | bytes |
-| query.rangeScan.p50 | 6313.04 | ns |
+| query.rangeScan.p50 | 6040.72 | ns |
 | query.rangeScan.alloc | 64.00 | bytes |
-| query.joinOne.p50 | 19033.55 | ns |
+| query.joinOne.p50 | 19709.36 | ns |
 | query.joinOne.alloc | 64.00 | bytes |
-| query.joinMany.p50 | 349199.58 | ns |
+| query.joinMany.p50 | 349655.63 | ns |
 | query.joinMany.alloc | 67.00 | bytes |
-| query.multiJoin.p50 | 367428.21 | ns |
+| query.multiJoin.p50 | 368968.39 | ns |
 | query.multiJoin.alloc | 67.00 | bytes |
 
 ### full-sim  
-`github-ubuntu` · `Ubuntu 24.04.4 LTS` · `.NET 9.0.18` · commit `1157a88`
+`github-ubuntu` · `Ubuntu 24.04.4 LTS` · `.NET 9.0.18` · commit `81013b8`
 | metric | value | unit |
 |---|---:|---|
-| ingest.throughput | 1091215.71 | ent/s |
-| query.multiJoin.p50 | 386975.00 | ns |
+| ingest.throughput | 953627.69 | ent/s |
+| query.multiJoin.p50 | 386031.00 | ns |
 | query.multiJoin.p99 | 825919.00 | ns |
-| query.multiJoin.p999 | 992095.00 | ns |
+| query.multiJoin.p999 | 1105727.00 | ns |
