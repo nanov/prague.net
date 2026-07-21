@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Prague.Core\Prague.Core.csproj"/>
+    <ProjectReference Include="..\..\perf\Prague.Baseline.Scenario\Prague.Baseline.Scenario.csproj"/>
   </ItemGroup>
 
 </Project>
