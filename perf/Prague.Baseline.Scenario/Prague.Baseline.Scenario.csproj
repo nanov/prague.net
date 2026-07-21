@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <NoWarn>$(NoWarn);CS8618;CS8602;CS8600;CS8604;CS8625;CS8601;CS8603;CS1061</NoWarn>
+    <NoWarn>$(NoWarn);CS8618;CS8602;CS8600;CS8604;CS8625;CS8601;CS8603;CS1061;CS0436</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Prague.Core\Prague.Core.csproj" />
