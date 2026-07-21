@@ -60,8 +60,14 @@ jobs:
           dotnet build perf/Prague.Baseline.Harness -c Release
 
       # Normal path (PRs + non-bless dispatch): run the tripwire and compare vs the committed baseline.
-      - name: Run core + sim tripwire
+      # ADVISORY: continue-on-error records the compare table (and any REGRESSED rows) in the logs
+      # without failing the PR, because GitHub-hosted runners are shared/unpinned and single-sample
+      # baselines false-trip on normal variance (observed: full-sim ingest.throughput swinging ~19%).
+      # Hard enforcement stays on stable/local machine classes. Flip continue-on-error to false (or
+      # move to a dedicated/self-hosted runner) to make CI blocking again.
+      - name: Run core + sim tripwire (advisory)
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.bless) }}
+        continue-on-error: true
         run: bash perf/run.sh all --machine linux-x64-ci
 
       # Bless path (manual dispatch with bless=true only): produce the baseline for this runner class.
