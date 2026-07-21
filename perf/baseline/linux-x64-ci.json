@@ -1,0 +1,124 @@
+{
+  "configs": {
+    "core-only": {
+      "env": {
+        "cpu": "github-ubuntu",
+        "os": "Ubuntu 24.04.4 LTS",
+        "dotnet": ".NET 9.0.18",
+        "coreCount": 4
+      },
+      "commit": "1157a88",
+      "timestampUtc": "2026-07-21T17:55:04.8455610Z",
+      "metrics": [
+        {
+          "id": "ingest.throughput",
+          "unit": "ent/s",
+          "value": 3571997.5063055833,
+          "higherIsBetter": true
+        },
+        {
+          "id": "ingest.alloc",
+          "unit": "bytes",
+          "value": 254.13145454545455,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.uniqueLookup.p50",
+          "unit": "ns",
+          "value": 380.3903209686279,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.uniqueLookup.alloc",
+          "unit": "bytes",
+          "value": 0,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.rangeScan.p50",
+          "unit": "ns",
+          "value": 6313.03804321289,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.rangeScan.alloc",
+          "unit": "bytes",
+          "value": 64,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.joinOne.p50",
+          "unit": "ns",
+          "value": 19033.554934692384,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.joinOne.alloc",
+          "unit": "bytes",
+          "value": 64,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.joinMany.p50",
+          "unit": "ns",
+          "value": 349199.5845703125,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.joinMany.alloc",
+          "unit": "bytes",
+          "value": 67,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.multiJoin.p50",
+          "unit": "ns",
+          "value": 367428.2090820313,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.multiJoin.alloc",
+          "unit": "bytes",
+          "value": 67,
+          "higherIsBetter": false
+        }
+      ]
+    },
+    "full-sim": {
+      "env": {
+        "cpu": "github-ubuntu",
+        "os": "Ubuntu 24.04.4 LTS",
+        "dotnet": ".NET 9.0.18",
+        "coreCount": 4
+      },
+      "commit": "1157a88",
+      "timestampUtc": "2026-07-21T17:59:01.6929507Z",
+      "metrics": [
+        {
+          "id": "ingest.throughput",
+          "unit": "ent/s",
+          "value": 1091215.7135062746,
+          "higherIsBetter": true
+        },
+        {
+          "id": "query.multiJoin.p50",
+          "unit": "ns",
+          "value": 386975,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.multiJoin.p99",
+          "unit": "ns",
+          "value": 825919,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.multiJoin.p999",
+          "unit": "ns",
+          "value": 992095,
+          "higherIsBetter": false
+        }
+      ]
+    }
+  }
+}
