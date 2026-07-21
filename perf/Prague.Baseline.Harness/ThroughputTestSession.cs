@@ -24,7 +24,11 @@ public sealed class ThroughputTestSession : IDisposable {
 		_resultDirectoryPath = resultDirectoryPath;
 	}
 
-	public void Execute() => Report(Run());
+	public List<ThroughputTestSessionResult> Execute() {
+		var results = Run();
+		Report(results);
+		return results;
+	}
 
 	private List<ThroughputTestSessionResult> Run() {
 		Console.WriteLine();

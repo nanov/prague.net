@@ -22,7 +22,11 @@ public sealed class LatencyTestSession : IDisposable {
 		_resultDirectoryPath = resultDirectoryPath;
 	}
 
-	public void Execute() => Report(Run());
+	public List<LatencyTestSessionResult> Execute() {
+		var results = Run();
+		Report(results);
+		return results;
+	}
 
 	private List<LatencyTestSessionResult> Run() {
 		Console.WriteLine();

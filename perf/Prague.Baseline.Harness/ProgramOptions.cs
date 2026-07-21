@@ -24,6 +24,9 @@ public sealed class ProgramOptions {
 	public bool OpenReport { get; private set; }
 	public bool IncludeLatency { get; private set; } = true;
 	public bool IncludeThroughput { get; private set; } = true;
+	public string Config { get; private set; } = "full-sim";
+	public string OutPath { get; private set; } = "perf/out";
+	public bool ConfigSpecified { get; private set; }
 
 	public int[] CpuSet {
 		get => _cpuSet;
@@ -47,6 +50,19 @@ public sealed class ProgramOptions {
 
 		for (var index = 0; index < args.Length; index++) {
 			var arg = args[index];
+
+			if (arg.Equals("--config", StringComparison.OrdinalIgnoreCase)) {
+				if (index + 1 == args.Length) return false;
+				options.Config = args[++index];
+				options.ConfigSpecified = true;
+				continue;
+			}
+
+			if (arg.Equals("--out", StringComparison.OrdinalIgnoreCase)) {
+				if (index + 1 == args.Length) return false;
+				options.OutPath = args[++index];
+				continue;
+			}
 
 			if (arg.Equals("--target", StringComparison.OrdinalIgnoreCase)) {
 				if (index + 1 == args.Length) return false;
@@ -139,6 +155,8 @@ public sealed class ProgramOptions {
 		Console.WriteLine($"  {AppDomain.CurrentDomain.FriendlyName} [options]");
 		Console.WriteLine();
 		Console.WriteLine("Options:");
+		Console.WriteLine($"  --config <full-sim|core-only|full-real>  Run a named config's tests and emit <config>.json. Default: {options.Config}.");
+		Console.WriteLine($"  --out <dir>                         Output directory for the common-schema result JSON. Default: {options.OutPath}.");
 		Console.WriteLine("  --target <name|all>                 Test name (substring match) or \"all\". Default: interactive selection.");
 		Console.WriteLine("  --from <name>                       First test to run when running all (alphabetical).");
 		Console.WriteLine($"  --runs <count>                      Runs per test. Default: {DefaultRunCountForThroughputTest} throughput / {DefaultRunCountForLatencyTest} latency.");
