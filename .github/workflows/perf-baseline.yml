@@ -5,12 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       bless:
-        description: "Seed/refresh the linux-x64-ci baseline: run --bless and upload the baseline as an artifact to download + commit."
+        description: "Seed/refresh the linux-x64-ci baseline: run --bless and COMMIT the baseline back to the dispatched branch."
         type: boolean
         default: false
 
+# Write access is needed only for the manual bless path (commit the baseline back).
+# PR runs never write — they only build, run, and compare.
 permissions:
-  contents: read
+  contents: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -23,10 +25,15 @@ jobs:
   # First-run seeding (maintainer, one-time): there is no perf/baseline/linux-x64-ci.json yet,
   # so on PR runs compare.py reports every metric as NEW and exits 0 (the job passes without
   # enforcing). To seed the baseline, trigger this workflow manually (Actions -> perf-baseline
-  # -> Run workflow) with `bless = true`: the job runs the tripwire with --bless on this exact
-  # runner class and uploads `linux-x64-ci.json` + `BASELINE.md` as the `perf-baseline` artifact.
-  # Download it and commit perf/baseline/linux-x64-ci.json (+ perf/BASELINE.md). From then on,
-  # PR runs enforce against that committed baseline.
+  # -> Run workflow) on the target branch with `bless = true`: the job runs the tripwire with
+  # --bless on this exact runner class and then COMMITS perf/baseline/linux-x64-ci.json (+
+  # perf/BASELINE.md) straight back to the dispatched branch. From then on, PR runs enforce
+  # against that committed baseline.
+  #   - Commit/push happens ONLY on manual workflow_dispatch + bless=true — never on PR runs.
+  #   - The commit uses [skip ci]; pushing with the default GITHUB_TOKEN also won't retrigger
+  #     the workflow, so there is no run loop.
+  #   - If the dispatched branch is protected against direct pushes, the push step will fail;
+  #     dispatch bless on an unprotected branch (e.g. a seeding branch) and open a PR from it.
   #
   # Runner-noise note: GitHub-hosted runners are shared/unpinned, so perf numbers vary run-to-run.
   # The perf/thresholds.json bands (throughput 10% / latency 8% / p999 15% / alloc 2%) absorb some
@@ -57,17 +64,21 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.bless) }}
         run: bash perf/run.sh all --machine linux-x64-ci
 
-      # Bless path (manual dispatch with bless=true): produce + record the baseline for this runner class.
+      # Bless path (manual dispatch with bless=true only): produce the baseline for this runner class.
       - name: Bless baseline
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.bless }}
         run: bash perf/run.sh all --bless --machine linux-x64-ci
 
-      - name: Upload baseline artifact
+      # ...and commit it straight back to the dispatched branch. Manual-bless-only.
+      - name: Commit baseline to branch
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.bless }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: perf-baseline
-          path: |
-            perf/baseline/linux-x64-ci.json
-            perf/BASELINE.md
-          if-no-files-found: error
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add perf/baseline/linux-x64-ci.json perf/BASELINE.md
+          if git diff --cached --quiet; then
+            echo "No baseline changes to commit."
+          else
+            git commit -m "perf: bless linux-x64-ci baseline [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
