@@ -5,8 +5,12 @@ def tolerance(mid, thr):
     for suf, t in thr.get("bySuffix", {}).items():
         if mid.endswith(suf): return t
     best = None
+    best_len = -1
     for pre, t in thr.get("byPrefix", {}).items():
-        if mid.startswith(pre.rstrip("*")): best = t
+        key = pre.rstrip("*")
+        if mid.startswith(key) and len(key) > best_len:
+            best = t
+            best_len = len(key)
     return best if best is not None else thr.get("default", 0.08)
 
 def load(path):
@@ -67,7 +71,7 @@ def main():
 
 def write_rollup(baseline_dir):
     lines = ["# Prague performance baseline\n",
-             f"_Generated {datetime.datetime.utcnow().isoformat()}Z_\n"]
+             f"_Generated {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z_\n"]
     for path in sorted(glob.glob(os.path.join(baseline_dir, "*.json"))):
         data = load(path)
         machine = os.path.splitext(os.path.basename(path))[0]

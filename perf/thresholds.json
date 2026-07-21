@@ -4,8 +4,7 @@
     "ingest.throughput": 0.10,
     "read.throughput": 0.10,
     "query.": 0.08,
-    "ingest.alloc": 0.02,
-    "query.*.alloc": 0.02
+    "ingest.alloc": 0.02
   },
   "bySuffix": {
     ".p999": 0.15,
