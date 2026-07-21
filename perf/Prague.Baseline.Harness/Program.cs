@@ -57,6 +57,7 @@ public static class Program {
 		["full-sim"] = ["SimIngestThroughputTest", "QueryMixLatencyTest"],
 		["core-only"] = ["CoreIngestThroughputTest", "QueryMixLatencyTest"],
 		["full-real"] = ["RealIngestThroughputTest", "QueryMixLatencyTest"],
+		["concurrent"] = ["ConcurrentReadThroughputTest", "ConcurrentQueryLatencyTest"],
 	};
 
 	private static void RunConfig(ProgramOptions options) {
@@ -113,7 +114,10 @@ public static class Program {
 			throw new NotSupportedException($"Invalid test type: {perfTestType.Name}");
 		}
 
-		HarnessResultExport.Emit(options.Config, options.OutPath, ingestOps, p50, p99, p999);
+		var (throughputMetricId, throughputUnit) = options.Config.Equals("concurrent", StringComparison.OrdinalIgnoreCase)
+			? ("read.throughput", "reads/s")
+			: ("ingest.throughput", "ent/s");
+		HarnessResultExport.Emit(options.Config, options.OutPath, throughputMetricId, throughputUnit, ingestOps, p50, p99, p999);
 	}
 
 	private static List<PerfTestType> Discover() =>
