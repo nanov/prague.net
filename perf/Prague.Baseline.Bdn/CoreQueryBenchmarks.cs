@@ -43,8 +43,11 @@ public class CoreQueryBenchmarks {
 	}
 
 	[Benchmark] public int UniqueLookup() {
-		_products.Cache.TryGet(NextId(), out var _);
-		return 1;
+		var sink = 0;
+		for (var i = 0; i < 64; i++) {
+			if (_products.Cache.TryGet(NextId(), out var doc)) sink += doc.Id;
+		}
+		return sink;
 	}
 
 	[Benchmark] public int RangeScan() {
