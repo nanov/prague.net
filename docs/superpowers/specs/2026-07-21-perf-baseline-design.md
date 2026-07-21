@@ -31,8 +31,11 @@ and fail past a tolerance band.
    numbers, rerun to catch regressions. (Not a general comparative A/B harness.)
 2. **Three configs, differing only in how ingest events arrive:**
    - `core-only` — direct `AddOrUpdate`, **no Kafka assemblies referenced**.
-   - `full-sim` — pre-encoded MessagePack payloads through the real `RawConsumer` /
-     `SpanMessagePackDeserializer` / ring-buffer worker → cache. No broker, no librdkafka,
+   - `full-sim` — pre-encoded MessagePack payloads fed through the real managed ingest tail:
+     `CacheSerde.DeserializeFromSpan` (`SpanMessagePackDeserializer`, zero-copy off a pinned native
+     span) → real `Enricher.Enrich` → real `AsyncValueBufferedWorker` ring-buffer → `cache.AddOrUpdate`
+     + indexing. Skips only librdkafka and the broker-bound topic-resolution loop (the `RawConsumer`
+     types live in the external `Nanov.Confluent.Kafka` package). No broker, no Docker,
      deterministic. **CI tripwire.**
    - `full-real` — same payloads produced to a Testcontainers broker, consumed through the real
      Prague consumer. **Opt-in** (local / nightly), noisier, needs Docker.
