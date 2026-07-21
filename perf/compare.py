@@ -17,7 +17,9 @@ def load(path):
     with open(path) as f: return json.load(f)
 
 def regressed(mid, cur, base, higher_is_better, tol):
-    if base == 0: return False, 0.0
+    if base == 0:
+        if not higher_is_better and cur > 1e-9: return True, float('inf')
+        return False, 0.0
     delta = (cur - base) / base
     signed = delta if higher_is_better else -delta   # positive = improvement
     return (signed < -tol), delta
@@ -60,7 +62,8 @@ def main():
             reg, delta = regressed(mid, m["value"], b["value"], m["higherIsBetter"], tol)
             status = "REGRESSED" if reg else "ok"
             if reg: any_regression = True
-            print(f"{mid:32} {b['value']:>14.2f} {m['value']:>14.2f} {delta*100:>8.1f}% {tol*100:>5.0f}% {status}")
+            dcol = "  NEW>0%" if delta == float('inf') else f"{delta*100:>8.1f}%"
+            print(f"{mid:32} {b['value']:>14.2f} {m['value']:>14.2f} {dcol} {tol*100:>5.0f}% {status}")
 
     if args.bless:
         os.makedirs(os.path.dirname(base_path) or ".", exist_ok=True)
