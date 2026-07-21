@@ -1041,7 +1041,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 								else
 									prev.Next = curr.Next;
 								--tables.CountPerLock[(int)lockNo];
-								return new UpdateOrRemoveResult<TValue>(UpdateOrRemoveOperation.Remove, oldValue, default);
+								return new UpdateOrRemoveResult<TValue>(UpdateOrRemoveOperation.Remove, oldValue, default, hashcode);
 							}
 
 							if (!typeof(TValue).IsValueType || ConcurrentDictionaryTypeProps<TValue>._isWriteAtomic) {
@@ -1054,7 +1054,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 									prev.Next = replacement;
 							}
 
-							return new UpdateOrRemoveResult<TValue>(UpdateOrRemoveOperation.Update, oldValue, newValue);
+							return new UpdateOrRemoveResult<TValue>(UpdateOrRemoveOperation.Update, oldValue, newValue, hashcode);
 						}
 
 						prev = curr;
@@ -1065,7 +1065,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 			}
 		}
 
-		return UpdateOrRemoveResult<TValue>.NotFound;
+		return UpdateOrRemoveResult<TValue>.NotFound(hashcode);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

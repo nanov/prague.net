@@ -839,15 +839,12 @@ public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey> {
 		if (result.Operation is UpdateOrRemoveOperation.NotFound)
 			return;
 
-		// UpdateOrRemove does not surface the store hash (unlike AddOrUpdate's UpdateResult.KeyHash),
-		// so recompute with the store's own comparer — same value the B-tree seam asserts against.
-		var keyHash = default(DefaultKeyComparer<TKey>).GetHashCode(key);
 		switch (result.Operation) {
 			case UpdateOrRemoveOperation.Update:
-				_rangeIndex.Update(key, keyHash, result.OldValue, result.NewValue, updateTimestampMs);
+				_rangeIndex.Update(key, result.KeyHash, result.OldValue, result.NewValue, updateTimestampMs);
 				break;
 			case UpdateOrRemoveOperation.Remove:
-				_rangeIndex.Remove(key, keyHash, result.OldValue, updateTimestampMs);
+				_rangeIndex.Remove(key, result.KeyHash, result.OldValue, updateTimestampMs);
 				break;
 		}
 	}
