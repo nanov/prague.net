@@ -8,9 +8,10 @@ using Prague.Baseline.Scenario;
 /// </summary>
 internal static class HarnessResultExport {
 	public static void Emit(string config, string outDir,
-		double ingestOpsPerSecMedian, long p50Ns, long p99Ns, long p999Ns) {
+		string throughputMetricId, string throughputUnit, double throughputMedian,
+		long p50Ns, long p99Ns, long p999Ns) {
 		var metrics = new List<Metric> {
-			new("ingest.throughput", "ent/s", ingestOpsPerSecMedian, true),
+			new(throughputMetricId, throughputUnit, throughputMedian, true),
 			new("query.multiJoin.p50", "ns", p50Ns, false),
 			new("query.multiJoin.p99", "ns", p99Ns, false),
 			new("query.multiJoin.p999", "ns", p999Ns, false),
