@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS8618;CS8602;CS8600;CS8604;CS8625;CS8601;CS8603;CS1061</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Prague.Core\Prague.Core.csproj" />
+    <ProjectReference Include="..\..\src\Prague.Kafka\Prague.Kafka.csproj" />
+    <ProjectReference Include="..\..\src\Prague.Attributes\Prague.Attributes.csproj" />
+    <ProjectReference Include="..\..\src\Prague.Codegen\Prague.Codegen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
