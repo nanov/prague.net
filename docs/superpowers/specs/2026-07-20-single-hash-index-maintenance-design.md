@@ -196,7 +196,11 @@ re-hashing entirely: composite-descent comparisons become array reads.
 - **Node-shell pooling through ReaderGate:** PooledBTree pools arrays but allocates
   LeafNode/InternalNode shells per split. The existing post-grace `ReclaimToPool` hook is the
   safe recycling point for the shells themselves (a bounded freelist per closed generic).
-  Benchmark-gated; touches the reclamation path hardened here. (Prompted by reviewing a
+  Benchmark-gated; touches the reclamation path hardened here. **Attempted and rejected
+  2026-07-21:** allocations dropped to 0 B/op on every BTreeChurn scenario, but batch-stamped
+  churn time regressed +5.7% (reproduced) — recycled scattered shells lose the Gen0 locality of
+  fresh allocations. Working patch preserved in the task-14 report; retry only with a
+  locality-aware design. (Prompted by reviewing a
   skip-list multimap alternative — rejected for lock-free-reader UAF on pooled nodes, mixed
   CAS/plain-write value chains, remove livelock after marking, no range API, O(run) duplicate
   removal, ~10x per-entry memory. Its optimistic lazy-locking recipe is only relevant if the
