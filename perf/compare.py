@@ -63,6 +63,7 @@ def main():
             print(f"{mid:32} {b['value']:>14.2f} {m['value']:>14.2f} {delta*100:>8.1f}% {tol*100:>5.0f}% {status}")
 
     if args.bless:
+        os.makedirs(os.path.dirname(base_path) or ".", exist_ok=True)
         with open(base_path, "w") as f: json.dump(baseline, f, indent=2)
         write_rollup(args.baseline_dir)
         print(f"[bless] wrote {base_path}")
@@ -83,7 +84,9 @@ def write_rollup(baseline_dir):
             lines.append("| metric | value | unit |\n|---|---:|---|\n")
             for m in block.get("metrics", []):
                 lines.append(f"| {m['id']} | {m['value']:.2f} | {m['unit']} |\n")
-    with open("perf/BASELINE.md", "w") as f: f.writelines(lines)
+    path = "perf/BASELINE.md"
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f: f.writelines(lines)
 
 if __name__ == "__main__":
     sys.exit(main())
