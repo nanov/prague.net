@@ -1,0 +1,41 @@
+name: perf-baseline
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Deterministic core + sim perf tripwire (no Docker; `real` is opt-in and not run here).
+  # Runs on a fixed runner class and compares against the committed linux-x64-ci baseline,
+  # failing the job on any regression reported by perf/compare.py.
+  #
+  # First-run seeding (maintainer, one-time): there is no perf/baseline/linux-x64-ci.json yet,
+  # so compare.py reports every metric as NEW and exits 0 (this job passes without blessing).
+  # To seed the baseline, a maintainer runs the tripwire once on this runner class with --bless
+  # (see perf/BASELINE.md) and commits perf/baseline/linux-x64-ci.json. This PR job never blesses.
+  tripwire:
+    runs-on: ubuntu-latest
+    env:
+      PRAGUE_PERF_MACHINE: linux-x64-ci
+      PRAGUE_PERF_CPU: github-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Build
+        run: dotnet build perf/Prague.Baseline.Bdn perf/Prague.Baseline.Harness -c Release
+
+      - name: Run core + sim tripwire
+        run: bash perf/run.sh all --machine linux-x64-ci
