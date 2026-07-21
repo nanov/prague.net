@@ -1,0 +1,73 @@
+name: perf-baseline
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bless:
+        description: "Seed/refresh the linux-x64-ci baseline: run --bless and upload the baseline as an artifact to download + commit."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Deterministic core + sim perf tripwire (no Docker; `real` is opt-in and not run here).
+  # Runs on a fixed runner class (linux-x64-ci) and compares against the committed baseline,
+  # failing the job on any regression reported by perf/compare.py.
+  #
+  # First-run seeding (maintainer, one-time): there is no perf/baseline/linux-x64-ci.json yet,
+  # so on PR runs compare.py reports every metric as NEW and exits 0 (the job passes without
+  # enforcing). To seed the baseline, trigger this workflow manually (Actions -> perf-baseline
+  # -> Run workflow) with `bless = true`: the job runs the tripwire with --bless on this exact
+  # runner class and uploads `linux-x64-ci.json` + `BASELINE.md` as the `perf-baseline` artifact.
+  # Download it and commit perf/baseline/linux-x64-ci.json (+ perf/BASELINE.md). From then on,
+  # PR runs enforce against that committed baseline.
+  #
+  # Runner-noise note: GitHub-hosted runners are shared/unpinned, so perf numbers vary run-to-run.
+  # The perf/thresholds.json bands (throughput 10% / latency 8% / p999 15% / alloc 2%) absorb some
+  # of this. If the seeded PR job proves flaky, either move it to a dedicated/self-hosted runner or
+  # make it advisory by adding `continue-on-error: true` to the "Run core + sim tripwire" step.
+  tripwire:
+    runs-on: ubuntu-latest
+    env:
+      PRAGUE_PERF_MACHINE: linux-x64-ci
+      PRAGUE_PERF_CPU: github-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Build
+        run: |
+          dotnet build perf/Prague.Baseline.Bdn -c Release
+          dotnet build perf/Prague.Baseline.Harness -c Release
+
+      # Normal path (PRs + non-bless dispatch): run the tripwire and compare vs the committed baseline.
+      - name: Run core + sim tripwire
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.bless) }}
+        run: bash perf/run.sh all --machine linux-x64-ci
+
+      # Bless path (manual dispatch with bless=true): produce + record the baseline for this runner class.
+      - name: Bless baseline
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bless }}
+        run: bash perf/run.sh all --bless --machine linux-x64-ci
+
+      - name: Upload baseline artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bless }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-baseline
+          path: |
+            perf/baseline/linux-x64-ci.json
+            perf/BASELINE.md
+          if-no-files-found: error

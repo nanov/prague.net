@@ -40,6 +40,8 @@ src/
 tests/        NUnit projects per layer (Core, DI, Generated, Kafka, Kafka.IntegrationTests); Tests.Models = fixtures lib
 benchmarks/   Prague.Benchmarks (BenchmarkDotNet)
 www/ docs/    Public docs site + superpowers specs/plans
+perf/         Regression-tripwire baseline: core-only (BDN) + full-sim/full-real (harness),
+              compare.py auto-diff vs perf/baseline/<machine-class>.json → perf/README.md
 ```
 
 **Data flow:** `[DataCache]` POCO → codegen emits `XxxCache` partial + index storage + fluent `Query()` → at runtime `InMemoryDataCache` resolves the optimal index plan, intersects on a stackalloc bitmap (short-circuits on first empty set), returns allocating (`Execute()`) or pooled (`ExecutePooled()`, caller-`Dispose()`d) results.

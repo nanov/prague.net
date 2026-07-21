@@ -15,6 +15,9 @@
     <InternalsVisibleTo Include="Prague.Benchmarks"/>
     <InternalsVisibleTo Include="Prague.Kafka.IntegrationTests"/>
     <InternalsVisibleTo Include="Prague.Kafka.Tests"/>
+    <InternalsVisibleTo Include="Prague.Baseline.Scenario" />
+    <InternalsVisibleTo Include="Prague.Baseline.Bdn" />
+    <InternalsVisibleTo Include="Prague.Baseline.Harness" />
   </ItemGroup>
 
   <ItemGroup>
