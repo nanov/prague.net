@@ -189,3 +189,16 @@ percentile computation or the schema normalizer), following the repo's NUnit con
 - Exact Phase-B reader/writer thread counts and writer update rate (start from
   `JoinCacheBenchmarks`' 16 readers / 500ms writer, tune for a stable signal).
 - CI runner machine-class string + seeding its committed baseline (first green CI run blesses it).
+
+## Follow-ups (deferred)
+
+- **Concurrent Phase B (read-under-write) — NOT YET implemented.** The design's
+  Phase B calls for `ScenarioSpec.ReaderThreads` reader threads running the query
+  mix while 1 writer applies updates at `ScenarioSpec.WriterUpdatesPerSecond` over
+  `ScenarioSpec.SteadyStateSeconds`, emitting `read.throughput` plus contended
+  query-latency percentiles. The **current** Phase B is instead a single-threaded
+  `multiJoin` latency loop (`query.multiJoin.p50/.p99/.p999`), with no writer and no
+  `read.throughput`. The `ScenarioSpec.ReaderThreads` / `WriterUpdatesPerSecond` /
+  `SteadyStateSeconds` constants are reserved for this scenario, not dead code.
+  Keeping Phase B single-threaded for now is a **user-approved deferral**; the
+  concurrent version is a tracked follow-up.

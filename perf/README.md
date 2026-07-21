@@ -70,6 +70,20 @@ Which config emits which:
 - **full-sim / full-real** — `ingest.throughput` plus `query.multiJoin.p50`,
   `.p99`, `.p999` (the tail of the heaviest query shape under a live ingest ring).
 
+Note on `query.<type>.p50` across configs (same id, different statistic): for
+**core-only** (BDN) the `.p50` value carries **BenchmarkDotNet's Mean** as a stable
+per-op proxy — BDN does not emit a true percentile. The harness
+`query.multiJoin.p50` / `.p99` / `.p999` are **true HdrHistogram percentiles**.
+
+## Follow-ups
+
+- **Concurrent read-under-write Phase B + `read.throughput` — deferred (not yet
+  implemented).** The current Phase B is a single-threaded `multiJoin` latency loop.
+  The designed concurrent version (`ScenarioSpec.ReaderThreads` readers running the
+  query mix + 1 writer at `WriterUpdatesPerSecond` over `SteadyStateSeconds`, emitting
+  `read.throughput` and contended latency percentiles) is a tracked, user-approved
+  follow-up; those `ScenarioSpec` constants are reserved for it.
+
 ## Tolerance bands
 
 From `perf/thresholds.json`. A metric regresses when it moves against its

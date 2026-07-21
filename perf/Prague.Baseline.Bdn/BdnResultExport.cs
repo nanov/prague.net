@@ -25,6 +25,8 @@ internal static class BdnResultExport {
 						allocBytes / ScenarioSpec.TotalEntities, false));
 				} else {
 					var type = MapQueryType(name);
+					// core-only (BDN) has no percentile: `.p50` carries BDN's Mean as a
+					// stable per-op proxy; true percentiles come from the harness config.
 					metrics.Add(new Metric($"query.{type}.p50", "ns", meanNs, false));
 					metrics.Add(new Metric($"query.{type}.alloc", "bytes", allocBytes, false));
 				}
