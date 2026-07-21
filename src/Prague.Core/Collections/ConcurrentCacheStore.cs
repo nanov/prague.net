@@ -71,15 +71,19 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	public bool ContainsKey(TKey key) => TryGetValue(key, out _);
 
 	public bool TryRemove(TKey key, [MaybeNullWhen(false)] out TValue value)
-		=> TryRemoveInternal(key, out value, false, default);
+		=> TryRemoveInternal(key, GetHashCode(key), out value, false, default);
+
+	public bool TryRemove(TKey key, [MaybeNullWhen(false)] out TValue value, out int keyHash) {
+		keyHash = GetHashCode(key);
+		return TryRemoveInternal(key, keyHash, out value, false, default);
+	}
 
 	public bool TryRemove(KeyValuePair<TKey, TValue> item)
-		=> TryRemoveInternal(item.Key, out _, true, item.Value);
+		=> TryRemoveInternal(item.Key, GetHashCode(item.Key), out _, true, item.Value);
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
-	private bool TryRemoveInternal(TKey key, [MaybeNullWhen(false)] out TValue value, bool matchValue, TValue? oldValue) {
+	private bool TryRemoveInternal(TKey key, int hashCode, [MaybeNullWhen(false)] out TValue value, bool matchValue, TValue? oldValue) {
 		var tables = _tables;
-		var hashCode = GetHashCode(key);
 		while (true) {
 			var locks = tables.Locks;
 			ref var local = ref GetBucketAndLock(tables, hashCode, out var lockNo);
@@ -870,7 +874,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 										prev.Next = replacement;
 								}
 
-								return new UpdateResult(AddOrUpdateOperation.Update, updated, oldValue);
+								return new UpdateResult(AddOrUpdateOperation.Update, updated, oldValue, hashcode);
 							}
 						}
 
@@ -893,7 +897,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 
 		if (resizeDesired)
 			GrowTable(tables);
-		return new UpdateResult(AddOrUpdateOperation.Add, newValue!, default);
+		return new UpdateResult(AddOrUpdateOperation.Add, newValue!, default, hashcode);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -989,9 +993,9 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		var tables = _tables;
 		var hashCode = GetHashCode(key);
 		return TryAddOrUpdateInternal(tables, key, hashCode, newValue, shouldUpdate, true, out var prevValue) switch {
-			AddOrUpdateOperation.Add => new UpdateResult(AddOrUpdateOperation.Add, newValue, default),
-			AddOrUpdateOperation.Update => new UpdateResult(AddOrUpdateOperation.Update, newValue, prevValue),
-			AddOrUpdateOperation.Same => new UpdateResult(AddOrUpdateOperation.Same, prevValue!, default),
+			AddOrUpdateOperation.Add => new UpdateResult(AddOrUpdateOperation.Add, newValue, default, hashCode),
+			AddOrUpdateOperation.Update => new UpdateResult(AddOrUpdateOperation.Update, newValue, prevValue, hashCode),
+			AddOrUpdateOperation.Same => new UpdateResult(AddOrUpdateOperation.Same, prevValue!, default, hashCode),
 			_ => throw new UnreachableException(),
 		};
 	}
@@ -1037,7 +1041,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 								else
 									prev.Next = curr.Next;
 								--tables.CountPerLock[(int)lockNo];
-								return new UpdateOrRemoveResult<TValue>(UpdateOrRemoveOperation.Remove, oldValue, default);
+								return new UpdateOrRemoveResult<TValue>(UpdateOrRemoveOperation.Remove, oldValue, default, hashcode);
 							}
 
 							if (!typeof(TValue).IsValueType || ConcurrentDictionaryTypeProps<TValue>._isWriteAtomic) {
@@ -1050,7 +1054,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 									prev.Next = replacement;
 							}
 
-							return new UpdateOrRemoveResult<TValue>(UpdateOrRemoveOperation.Update, oldValue, newValue);
+							return new UpdateOrRemoveResult<TValue>(UpdateOrRemoveOperation.Update, oldValue, newValue, hashcode);
 						}
 
 						prev = curr;
@@ -1061,7 +1065,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 			}
 		}
 
-		return UpdateOrRemoveResult<TValue>.NotFound;
+		return UpdateOrRemoveResult<TValue>.NotFound(hashcode);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1369,12 +1373,14 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		public readonly AddOrUpdateOperation Operation;
 		public readonly TValue Value;
 		public readonly TValue? OldValue;
+		public readonly int KeyHash;
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public UpdateResult(AddOrUpdateOperation operation, TValue newValue, TValue? oldValue) {
+		public UpdateResult(AddOrUpdateOperation operation, TValue newValue, TValue? oldValue, int keyHash) {
 			Operation = operation;
 			Value = newValue;
 			OldValue = oldValue;
+			KeyHash = keyHash;
 		}
 	}
 

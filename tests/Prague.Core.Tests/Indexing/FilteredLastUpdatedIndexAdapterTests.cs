@@ -1,6 +1,7 @@
 namespace Prague.Core.Tests.Indexing;
 
 using Prague.Core;
+using Prague.Core.Collections;
 using NUnit.Framework;
 
 [TestFixture]
@@ -18,6 +19,10 @@ public class FilteredLastUpdatedIndexAdapterTests {
 
 	private static long T(int minutes) => minutes * 60 * 1000L;
 
+	// The ICacheIndex maintenance members take the store-computed main-key hash; direct calls
+	// supply the same DefaultKeyComparer value the fan-out would have threaded through.
+	private static int Hash(int key) => default(DefaultKeyComparer<int>).GetHashCode(key);
+
 	private static TestEntity Entity(int groupId, bool enabled, int updatedMinutes = 0) =>
 		new() { GroupId = groupId, Enabled = enabled, UpdatedAt = T(updatedMinutes) };
 
@@ -33,7 +38,7 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	public void Add_EnabledEntity_IsTracked() {
 		var adapter = NewAdapter(out var index);
 
-		adapter.Add(1, Entity(100, true), T(10));
+		adapter.Add(1, Hash(1), Entity(100, true), T(10));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(1));
 		Assert.That(index.TryGetLastUpdated(100, out var ts), Is.True);
@@ -44,7 +49,7 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	public void Add_DisabledEntity_IsIgnored() {
 		var adapter = NewAdapter(out var index);
 
-		adapter.Add(1, Entity(100, false), T(10));
+		adapter.Add(1, Hash(1), Entity(100, false), T(10));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(0));
 		Assert.That(index.TryGetLastUpdated(100, out _), Is.False);
@@ -53,10 +58,10 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	[Test]
 	public void Remove_DisabledEntity_IsNoOp() {
 		var adapter = NewAdapter(out var index);
-		adapter.Add(1, Entity(100, true), T(10));
+		adapter.Add(1, Hash(1), Entity(100, true), T(10));
 
 		// Removing a disabled entity must not touch the count.
-		adapter.Remove(2, Entity(100, false), T(20));
+		adapter.Remove(2, Hash(2), Entity(100, false), T(20));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(1));
 	}
@@ -64,10 +69,10 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	[Test]
 	public void Remove_EnabledEntity_Decrements() {
 		var adapter = NewAdapter(out var index);
-		adapter.Add(1, Entity(100, true), T(10));
-		adapter.Add(2, Entity(100, true), T(20));
+		adapter.Add(1, Hash(1), Entity(100, true), T(10));
+		adapter.Add(2, Hash(2), Entity(100, true), T(20));
 
-		adapter.Remove(2, Entity(100, true), T(30));
+		adapter.Remove(2, Hash(2), Entity(100, true), T(30));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(1));
 	}
@@ -75,9 +80,9 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	[Test]
 	public void Update_EnabledToDisabled_RemovesFromIndex() {
 		var adapter = NewAdapter(out var index);
-		adapter.Add(1, Entity(100, true), T(10));
+		adapter.Add(1, Hash(1), Entity(100, true), T(10));
 
-		adapter.Update(1, Entity(100, true), Entity(100, false), T(20));
+		adapter.Update(1, Hash(1), Entity(100, true), Entity(100, false), T(20));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(0));
 	}
@@ -85,10 +90,10 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	[Test]
 	public void Update_DisabledToEnabled_AddsToIndex() {
 		var adapter = NewAdapter(out var index);
-		adapter.Add(1, Entity(100, false), T(10));
+		adapter.Add(1, Hash(1), Entity(100, false), T(10));
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(0));
 
-		adapter.Update(1, Entity(100, false), Entity(100, true), T(20));
+		adapter.Update(1, Hash(1), Entity(100, false), Entity(100, true), T(20));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(1));
 		Assert.That(index.TryGetLastUpdated(100, out var ts), Is.True);
@@ -98,9 +103,9 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	[Test]
 	public void Update_DisabledToDisabled_IsNoOp() {
 		var adapter = NewAdapter(out var index);
-		adapter.Add(1, Entity(100, false), T(10));
+		adapter.Add(1, Hash(1), Entity(100, false), T(10));
 
-		adapter.Update(1, Entity(100, false), Entity(100, false), T(20));
+		adapter.Update(1, Hash(1), Entity(100, false), Entity(100, false), T(20));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(0));
 	}
@@ -108,9 +113,9 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	[Test]
 	public void Update_EnabledSameGroup_UpdatesTimestamp() {
 		var adapter = NewAdapter(out var index);
-		adapter.Add(1, Entity(100, true), T(10));
+		adapter.Add(1, Hash(1), Entity(100, true), T(10));
 
-		adapter.Update(1, Entity(100, true), Entity(100, true), T(20));
+		adapter.Update(1, Hash(1), Entity(100, true), Entity(100, true), T(20));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(1));
 		Assert.That(index.TryGetLastUpdated(100, out var ts), Is.True);
@@ -120,9 +125,9 @@ public class FilteredLastUpdatedIndexAdapterTests {
 	[Test]
 	public void Update_EnabledGroupChanged_MovesBetweenGroups() {
 		var adapter = NewAdapter(out var index);
-		adapter.Add(1, Entity(100, true), T(10));
+		adapter.Add(1, Hash(1), Entity(100, true), T(10));
 
-		adapter.Update(1, Entity(100, true), Entity(200, true), T(20));
+		adapter.Update(1, Hash(1), Entity(100, true), Entity(200, true), T(20));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(0));
 		Assert.That(index.GetEntitiesCount(200), Is.EqualTo(1));
@@ -139,7 +144,7 @@ public class FilteredLastUpdatedIndexAdapterTests {
 			static (_, e) => e.UpdatedAt);
 
 		// AddOrUpdate timestamp (T(99)) must be ignored in favour of the entity's UpdatedAt.
-		adapter.Add(1, Entity(100, true, 10), T(99));
+		adapter.Add(1, Hash(1), Entity(100, true, 10), T(99));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(1));
 		Assert.That(index.TryGetLastUpdated(100, out var ts), Is.True);
@@ -153,9 +158,9 @@ public class FilteredLastUpdatedIndexAdapterTests {
 			index,
 			static (_, e) => e.GroupId,
 			static (_, e) => e.UpdatedAt);
-		adapter.Add(1, Entity(100, false, 10), T(99));
+		adapter.Add(1, Hash(1), Entity(100, false, 10), T(99));
 
-		adapter.Update(1, Entity(100, false, 10), Entity(100, true, 42), T(99));
+		adapter.Update(1, Hash(1), Entity(100, false, 10), Entity(100, true, 42), T(99));
 
 		Assert.That(index.GetEntitiesCount(100), Is.EqualTo(1));
 		Assert.That(index.TryGetLastUpdated(100, out var ts), Is.True);

@@ -10,9 +10,9 @@ public interface ICountableCacheIndex {
 }
 
 public interface ICacheIndex<in TKey, in TValue> {
-	internal void Add(TKey key, TValue value, long timestampMs);
-	internal void Remove(TKey key, TValue value, long timestampMs);
-	internal void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs);
+	internal void Add(TKey key, int keyHash, TValue value, long timestampMs);
+	internal void Remove(TKey key, int keyHash, TValue value, long timestampMs);
+	internal void Update(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs);
 }
 
 public abstract class CacheKeyValueIndex<TKey, TValue, TIndexKey>
@@ -402,7 +402,7 @@ public class CacheUniqueIndex<TKey, TValue, TIndexKey> : CacheKeyValueIndex<TKey
 	/// </summary>
 	public ulong ApproximateCount { get; private set; }
 
-	public void Update(TKey key, TValue orginialValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue orginialValue, TValue newValue, long timestampMs) {
 		var oldIndexKey = _keySelector(key, orginialValue);
 		var indexKey = _keySelector(key, newValue);
 		// same key, no work
@@ -411,7 +411,7 @@ public class CacheUniqueIndex<TKey, TValue, TIndexKey> : CacheKeyValueIndex<TKey
 
 		// Add to the new index first to ensure the key is always visible
 		var r = _cache.AddOrUpdate(indexKey, key, static (_, _, _) => true);
-		_cacheReverse?.Add(indexKey, key, timestampMs);
+		_cacheReverse?.Add(indexKey, keyHash, key, timestampMs);
 
 		var sizeDelta = 0UL;
 		if (r.Operation is AddOrUpdateOperation.Add)
@@ -426,10 +426,10 @@ public class CacheUniqueIndex<TKey, TValue, TIndexKey> : CacheKeyValueIndex<TKey
 		ApproximateCount += sizeDelta;
 	}
 
-	public void Add(TKey key, TValue value, long timestampMs) {
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) {
 		var indexKey = _keySelector(key, value);
 		var r = _cache.AddOrUpdate(indexKey, key, static (_, _, _) => true);
-		_cacheReverse?.Add(indexKey, key, timestampMs);
+		_cacheReverse?.Add(indexKey, keyHash, key, timestampMs);
 
 		var sizeDelta = 0UL;
 		if (r.Operation is AddOrUpdateOperation.Add)
@@ -438,9 +438,9 @@ public class CacheUniqueIndex<TKey, TValue, TIndexKey> : CacheKeyValueIndex<TKey
 		ApproximateCount += sizeDelta;
 	}
 
-	public void Remove(TKey key, TValue orginialValue, long timestampMs) {
+	public void Remove(TKey key, int keyHash, TValue orginialValue, long timestampMs) {
 		var indexKey = _keySelector(key, orginialValue);
-		_cacheReverse?.Remove(indexKey, key, timestampMs); //TryRemove(key, out _);
+		_cacheReverse?.Remove(indexKey, keyHash, key, timestampMs); //TryRemove(key, out _);
 		// Value-conditional: if another entity has meanwhile taken this index key
 		// (forward slot clobbered by its Add/Update), its live mapping must survive.
 		if (_cache.TryRemove(new KeyValuePair<TIndexKey, TKey>(indexKey, key)))
@@ -521,16 +521,16 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		_keySelector = keySelector;
 	}
 
-	public void Add(TKey key, TValue value, long timestampMs) {
-		_index.Add(_keySelector(key, value), key);
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) {
+		_index.Add(_keySelector(key, value), key, keyHash);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Remove(TKey key, TValue value, long timestamp) {
-		_index.Remove(_keySelector(key, value), key);
+	public void Remove(TKey key, int keyHash, TValue value, long timestamp) {
+		_index.Remove(_keySelector(key, value), key, keyHash);
 	}
 
-	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldIndexKey = _keySelector(key, originalValue);
 		var newIndexKey = _keySelector(key, newValue);
 		// EqualityComparer<T>.Default, not CompareTo: the raw CompareTo is culture-sensitive
@@ -543,7 +543,7 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 
 		// Single locked move (insert-before-remove inside): one write-lock round-trip
 		// instead of two. Size doesn't change on update (removing one, adding one).
-		_index.Update(oldIndexKey, newIndexKey, key);
+		_index.Update(oldIndexKey, newIndexKey, key, keyHash);
 	}
 
 	public ulong GetCounters(out ulong vlaues) {
@@ -723,24 +723,24 @@ public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, 
 		}
 	}
 
-	public void Add(TKey key, TValue value, long timestampMs) {
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) {
 		if (_predicate(key, value)) {
 			lock (_lock) {
-				_keys.Add(key);
+				_keys.Add(key, keyHash);
 			}
 		}
 	}
 
-	public void Remove(TKey key, TValue originalValue, long timestampMs) {
+	public void Remove(TKey key, int keyHash, TValue originalValue, long timestampMs) {
 		// Only remove if the predicate was true (key might be in the set)
 		if (_predicate(key, originalValue)) {
 			lock (_lock) {
-				_keys.Remove(key);
+				_keys.Remove(key, keyHash);
 			}
 		}
 	}
 
-	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs) {
 		var wasInSet = _predicate(key, originalValue);
 		var shouldBeInSet = _predicate(key, newValue);
 
@@ -749,9 +749,9 @@ public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, 
 
 		lock (_lock) {
 			if (shouldBeInSet)
-				_keys.Add(key);
+				_keys.Add(key, keyHash);
 			else
-				_keys.Remove(key);
+				_keys.Remove(key, keyHash);
 		}
 	}
 
@@ -794,10 +794,10 @@ public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey> {
 
 		switch (r.Operation) {
 			case AddOrUpdateOperation.Add:
-				_rangeIndex.Add(key, r.Value, timestampUpdateMs);
+				_rangeIndex.Add(key, r.KeyHash, r.Value, timestampUpdateMs);
 				return;
 			case AddOrUpdateOperation.Update:
-				_rangeIndex.Update(key, r.OldValue!, r.Value, timestampUpdateMs);
+				_rangeIndex.Update(key, r.KeyHash, r.OldValue!, r.Value, timestampUpdateMs);
 				return;
 			default:
 				return;
@@ -819,10 +819,10 @@ public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey> {
 
 		switch (r.Operation) {
 			case AddOrUpdateOperation.Add:
-				_rangeIndex.Add(key, r.Value, timestampUpdateMs);
+				_rangeIndex.Add(key, r.KeyHash, r.Value, timestampUpdateMs);
 				return;
 			case AddOrUpdateOperation.Update:
-				_rangeIndex.Update(key, r.OldValue!, r.Value, timestampUpdateMs);
+				_rangeIndex.Update(key, r.KeyHash, r.OldValue!, r.Value, timestampUpdateMs);
 				return;
 			default:
 				return;
@@ -836,12 +836,15 @@ public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey> {
 				: (false, default), // signal removal
 			updateTimestampMs);
 
+		if (result.Operation is UpdateOrRemoveOperation.NotFound)
+			return;
+
 		switch (result.Operation) {
 			case UpdateOrRemoveOperation.Update:
-				_rangeIndex.Update(key, result.OldValue, result.NewValue, updateTimestampMs);
+				_rangeIndex.Update(key, result.KeyHash, result.OldValue, result.NewValue, updateTimestampMs);
 				break;
 			case UpdateOrRemoveOperation.Remove:
-				_rangeIndex.Remove(key, result.OldValue, updateTimestampMs);
+				_rangeIndex.Remove(key, result.KeyHash, result.OldValue, updateTimestampMs);
 				break;
 		}
 	}
@@ -1028,18 +1031,18 @@ public sealed class LastUpdatedCustomTimeStampIndexAdapter<TKey, TValue, TGroupK
 		_timestampSelector = timestampSelector;
 	}
 
-	public void Add(TKey key, TValue value, long timestampMs) {
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) {
 		var groupKey = _groupKeySelector(key, value);
 		var timestamp = _timestampSelector(key, value);
 		_index.Add(groupKey, timestamp, timestamp);
 	}
 
-	public void Remove(TKey key, TValue value, long timestampMs) {
+	public void Remove(TKey key, int keyHash, TValue value, long timestampMs) {
 		var groupKey = _groupKeySelector(key, value);
 		_index.Remove(groupKey, timestampMs);
 	}
 
-	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldGroupKey = _groupKeySelector(key, originalValue);
 		var newGroupKey = _groupKeySelector(key, newValue);
 		var timestamp = _timestampSelector(key, newValue);
@@ -1069,17 +1072,17 @@ public sealed class LastUpdatedIndexAdapter<TKey, TValue, TGroupKey> : ICacheInd
 		_groupKeySelector = groupKeySelector;
 	}
 
-	public void Add(TKey key, TValue value, long timestampMs) {
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) {
 		var groupKey = _groupKeySelector(key, value);
 		_index.Add(groupKey, timestampMs, timestampMs);
 	}
 
-	public void Remove(TKey key, TValue value, long timestampMs) {
+	public void Remove(TKey key, int keyHash, TValue value, long timestampMs) {
 		var groupKey = _groupKeySelector(key, value);
 		_index.Remove(groupKey, timestampMs);
 	}
 
-	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldGroupKey = _groupKeySelector(key, originalValue);
 		var newGroupKey = _groupKeySelector(key, newValue);
 
@@ -1116,21 +1119,21 @@ public sealed class LastUpdatedFilteredIndexAdapter<TKey, TValue, TGroupKey, TFi
 		_groupKeySelector = groupKeySelector;
 	}
 
-	public void Add(TKey key, TValue value, long timestampMs) {
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) {
 		if (!TFilter.Include(value))
 			return;
 		var groupKey = _groupKeySelector(key, value);
 		_index.Add(groupKey, timestampMs, timestampMs);
 	}
 
-	public void Remove(TKey key, TValue value, long timestampMs) {
+	public void Remove(TKey key, int keyHash, TValue value, long timestampMs) {
 		if (!TFilter.Include(value))
 			return;
 		var groupKey = _groupKeySelector(key, value);
 		_index.Remove(groupKey, timestampMs);
 	}
 
-	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldIncluded = TFilter.Include(originalValue);
 		var newIncluded = TFilter.Include(newValue);
 
@@ -1188,7 +1191,7 @@ public sealed class LastUpdatedFilteredCustomTimeStampIndexAdapter<TKey, TValue,
 		_timestampSelector = timestampSelector;
 	}
 
-	public void Add(TKey key, TValue value, long timestampMs) {
+	public void Add(TKey key, int keyHash, TValue value, long timestampMs) {
 		if (!TFilter.Include(value))
 			return;
 		var groupKey = _groupKeySelector(key, value);
@@ -1196,14 +1199,14 @@ public sealed class LastUpdatedFilteredCustomTimeStampIndexAdapter<TKey, TValue,
 		_index.Add(groupKey, timestamp, timestamp);
 	}
 
-	public void Remove(TKey key, TValue value, long timestampMs) {
+	public void Remove(TKey key, int keyHash, TValue value, long timestampMs) {
 		if (!TFilter.Include(value))
 			return;
 		var groupKey = _groupKeySelector(key, value);
 		_index.Remove(groupKey, timestampMs);
 	}
 
-	public void Update(TKey key, TValue originalValue, TValue newValue, long timestampMs) {
+	public void Update(TKey key, int keyHash, TValue originalValue, TValue newValue, long timestampMs) {
 		var oldIncluded = TFilter.Include(originalValue);
 		var newIncluded = TFilter.Include(newValue);
 
@@ -1401,12 +1404,12 @@ public sealed class InMemoryDataCache<TKey, TValue>
 			if (r.Operation is AddOrUpdateOperation.Update) {
 				// Only update if OldValue is not null
 				if (r.OldValue is not null)
-					index.Update(key, r.OldValue, r.Value, timestamp);
+					index.Update(key, r.KeyHash, r.OldValue, r.Value, timestamp);
 				else
-					index.Add(key, r.Value, timestamp);
+					index.Add(key, r.KeyHash, r.Value, timestamp);
 			}
 			else {
-				index.Add(key, r.Value, timestamp);
+				index.Add(key, r.KeyHash, r.Value, timestamp);
 			}
 
 		oldValue = r.OldValue;
@@ -1433,12 +1436,12 @@ public sealed class InMemoryDataCache<TKey, TValue>
 			if (r.Operation is AddOrUpdateOperation.Update) {
 				// Only update if OldValue is not null
 				if (r.OldValue is not null)
-					index.Update(key, r.OldValue, r.Value, timestamp);
+					index.Update(key, r.KeyHash, r.OldValue, r.Value, timestamp);
 				else
-					index.Add(key, r.Value, timestamp);
+					index.Add(key, r.KeyHash, r.Value, timestamp);
 			}
 			else {
-				index.Add(key, r.Value, timestamp);
+				index.Add(key, r.KeyHash, r.Value, timestamp);
 			}
 
 		return true;
@@ -1461,11 +1464,11 @@ public sealed class InMemoryDataCache<TKey, TValue>
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Remove(TKey key, long timestampMs, [MaybeNullWhen(false)] out TValue value) {
-		if (!_cache.TryRemove(key, out value))
+		if (!_cache.TryRemove(key, out value, out var keyHash))
 			return false;
 
 		foreach (var index in _indeces)
-			index.Remove(key, value, timestampMs);
+			index.Remove(key, keyHash, value, timestampMs);
 
 		StatisticsCollector.Removed();
 
