@@ -222,7 +222,7 @@ git commit -m "perf: baseline Product/Info/Offer entities"
 
 **Interfaces:**
 - Produces:
-  - `ScenarioSpec` static: `const int ProductCount = 500;`, `const int OffersPerProduct = 20;`, `const int TotalOffers = 10_000;`, `const int TotalEntities = 10_500;`, `const int Seed = 42;`, `const int ReaderThreads = 16;`, `const int WriterUpdatesPerSecond = 2;`, `const int SteadyStateSeconds = 5;`.
+  - `ScenarioSpec` static: `const int ProductCount = 500;`, `const int OffersPerProduct = 20;`, `const int TotalOffers = 10_000;`, `const int TotalEntities = 11_000; // 500 products + 500 infos + 10000 offers`, `const int Seed = 42;`, `const int ReaderThreads = 16;`, `const int WriterUpdatesPerSecond = 2;`, `const int SteadyStateSeconds = 5;`.
   - `DatasetFactory.Build() -> Dataset` where `readonly record struct Dataset(BaselineProduct[] Products, BaselineProductInfo[] Infos, BaselineOffer[] Offers)`.
 
 - [ ] **Step 1: Write the failing determinism test**
@@ -1320,7 +1320,7 @@ git commit -m "perf: full-real Testcontainers broker ingest test"
 - [ ] **Step 1: Run once against a live broker**
 
 Run: `dotnet run -c Release --project perf/Prague.Baseline.Harness --framework net9.0 -- --config full-real --runs 1`
-Expected: broker starts, payloads produced, consumer loads 10,500 entities, `perf/out/full-real.json` written. (Skip if Docker unavailable — this config is opt-in.)
+Expected: broker starts, payloads produced, consumer loads 11,000 entities, `perf/out/full-real.json` written. (Skip if Docker unavailable — this config is opt-in.)
 
 - [ ] **Step 2: Commit any fixups**
 

@@ -16,6 +16,7 @@ public class BaselineDatasetTests {
 
 		// Determinism: same seed -> identical field values.
 		Assert.That(a.Products[0].Range, Is.EqualTo(b.Products[0].Range));
-		Assert.That(a.Offers[^1].BasePrice, Is.EqualTo(b.Offers[^1].BasePrice));
+		Assert.That(a.Infos[^1].StockCount, Is.EqualTo(b.Infos[^1].StockCount));
+		Assert.That(a.Products[^1].PrimaryValue, Is.EqualTo(b.Products[^1].PrimaryValue));
 	}
 }

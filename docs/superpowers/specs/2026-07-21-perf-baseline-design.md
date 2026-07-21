@@ -90,7 +90,7 @@ comparable. The **only** difference between configs is how Phase A entities arri
 - 10,000 `BaselineOffer` (1:N FK → Product, 20/product).
 Shape reuses the established `JoinCacheBenchmarks` domain so the numbers connect to prior work.
 
-**Phase A — Ingest (throughput):** apply all 10,500 entities into an empty cache until fully
+**Phase A — Ingest (throughput):** apply all 11,000 entities into an empty cache until fully
 indexed and queryable.
 - Metrics: `ingest.throughput` (entities/s, higher-better); `ingest.latency.p50` /
   `ingest.latency.p99` (ns/entity, lower-better); `ingest.alloc` (bytes/entity, lower-better).
