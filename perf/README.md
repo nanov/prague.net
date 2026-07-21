@@ -77,12 +77,13 @@ per-op proxy — BDN does not emit a true percentile. The harness
 
 ## Follow-ups
 
-- **Concurrent read-under-write Phase B + `read.throughput` — deferred (not yet
-  implemented).** The current Phase B is a single-threaded `multiJoin` latency loop.
-  The designed concurrent version (`ScenarioSpec.ReaderThreads` readers running the
-  query mix + 1 writer at `WriterUpdatesPerSecond` over `SteadyStateSeconds`, emitting
-  `read.throughput` and contended latency percentiles) is a tracked, user-approved
-  follow-up; those `ScenarioSpec` constants are reserved for it.
+- **Concurrent read-under-write Phase B + `read.throughput` — implemented** (config
+  `concurrent`). `ScenarioSpec.ReaderThreads` readers run the pooled `multiJoin` in a loop
+  while 1 writer applies `ProductInfo`/`Offer` updates at `ScenarioSpec.WriterUpdatesPerSecond`
+  over `ScenarioSpec.SteadyStateSeconds`, emitting `read.throughput` (result-rows/s) plus
+  contended `query.multiJoin.p50/.p99/.p999` (per-reader histograms merged after join). Runs
+  via `run.sh concurrent`; included in `run.sh all`. The single-threaded `QueryMixLatencyTest`
+  is retained as the isolated (uncontended) latency signal.
 
 ## Tolerance bands
 
