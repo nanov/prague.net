@@ -1,0 +1,124 @@
+{
+  "configs": {
+    "core-only": {
+      "env": {
+        "cpu": "Apple M4 Pro",
+        "os": "Darwin 25.2.0 Darwin Kernel Version 25.2.0: Tue Nov 18 21:09:56 PST 2025; root:xnu-12377.61.12~1/RELEASE_ARM64_T6041",
+        "dotnet": ".NET 9.0.17",
+        "coreCount": 12
+      },
+      "commit": "a20ccd5",
+      "timestampUtc": "2026-07-21T16:39:23.0377800Z",
+      "metrics": [
+        {
+          "id": "ingest.throughput",
+          "unit": "ent/s",
+          "value": 8047942.55118535,
+          "higherIsBetter": true
+        },
+        {
+          "id": "ingest.alloc",
+          "unit": "bytes",
+          "value": 265.84181818181816,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.uniqueLookup.p50",
+          "unit": "ns",
+          "value": 215.3140685558319,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.uniqueLookup.alloc",
+          "unit": "bytes",
+          "value": 0,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.rangeScan.p50",
+          "unit": "ns",
+          "value": 3002.1097175598143,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.rangeScan.alloc",
+          "unit": "bytes",
+          "value": 64,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.joinOne.p50",
+          "unit": "ns",
+          "value": 8717.219540405273,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.joinOne.alloc",
+          "unit": "bytes",
+          "value": 64,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.joinMany.p50",
+          "unit": "ns",
+          "value": 104260.24755859375,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.joinMany.alloc",
+          "unit": "bytes",
+          "value": 64,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.multiJoin.p50",
+          "unit": "ns",
+          "value": 110658.9924560547,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.multiJoin.alloc",
+          "unit": "bytes",
+          "value": 65,
+          "higherIsBetter": false
+        }
+      ]
+    },
+    "full-sim": {
+      "env": {
+        "cpu": "Apple M4 Pro",
+        "os": "Darwin 25.2.0 Darwin Kernel Version 25.2.0: Tue Nov 18 21:09:56 PST 2025; root:xnu-12377.61.12~1/RELEASE_ARM64_T6041",
+        "dotnet": ".NET 9.0.17",
+        "coreCount": 12
+      },
+      "commit": "a20ccd5",
+      "timestampUtc": "2026-07-21T16:40:40.9169810Z",
+      "metrics": [
+        {
+          "id": "ingest.throughput",
+          "unit": "ent/s",
+          "value": 1461211.477151966,
+          "higherIsBetter": true
+        },
+        {
+          "id": "query.multiJoin.p50",
+          "unit": "ns",
+          "value": 121503,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.multiJoin.p99",
+          "unit": "ns",
+          "value": 317807,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.multiJoin.p999",
+          "unit": "ns",
+          "value": 531135,
+          "higherIsBetter": false
+        }
+      ]
+    }
+  }
+}
