@@ -7,6 +7,13 @@ using Prague.Core.Utils;
 
 public interface ICountableCacheIndex {
 	public ulong GetCounters(out ulong values);
+
+	/// <summary>
+	///   Slots currently rented by the index's backing collections (live generations
+	///   only, retired-awaiting-reclaim excluded). Utilization = values / capacity.
+	///   Defaults to 0 for index kinds that do not track slot capacity.
+	/// </summary>
+	public ulong GetCapacitySlots() => 0;
 }
 
 public interface ICacheIndex<in TKey, in TValue> {
@@ -665,6 +672,10 @@ public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, 
 	///   Gets the approximate count of keys in this index.
 	/// </summary>
 	public ulong ApproximateCount => (ulong)_keys.Count;
+
+	// A single backing set — report its live generation directly (the "real value,
+	// not a maintained counter" convention, same as CacheRangeIndex.GetCounters).
+	public ulong GetCapacitySlots() => (ulong)_keys.CapacitySlots;
 
 	/// <summary>
 	///   Checks if the given key is in the index (i.e., satisfies the predicate).

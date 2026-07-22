@@ -53,6 +53,7 @@ Seven instruments. All are observable. Tag keys are stable; tag values come from
 | Metric | Kind | Unit | Source |
 |---|---|---|---|
 | `{prefix}prague.kafka.cache.index.size` | ObservableUpDownCounter\<long\> | `{item}` | `DataCacheIndexStatistics.LiveKeysSize` (when `kind=keys`) / `LiveValuesSize` (when `kind=values`) |
+| `{prefix}prague.kafka.cache.index.capacity` | ObservableUpDownCounter\<long\> | `{slot}` | `DataCacheIndexStatistics.LiveCapacitySlots` — slots currently rented by the index's backing sets, maintained from PooledSet cold paths (first allocation / Grow / Dispose; zero hot-path cost). No `kind` tag — capacity is one number per index. Utilization = `size{kind=values}` / `capacity`; a persistently low ratio on a large index is the slack alarm that previously required a memory dump to see. Reports 0 for index kinds that do not track slot capacity (range/unique). |
 
 ### Health semantics
 

@@ -302,6 +302,10 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	private readonly TKeyComparer _comparer;
 
+	// Optional capacity sink for index-level metrics; notified only from cold paths
+	// (construction, Grow, Dispose) so the hot paths stay untouched.
+	private readonly IPooledSetCapacityListener? _capacityListener;
+
 	private Tables _tables;
 
 	private int _count;
@@ -331,13 +335,18 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	public PooledSet(TKeyComparer comparer) : this(comparer, DataCacheIndexAttribute.NonSetCapacity) { }
 
-	internal PooledSet(TKeyComparer comparer, int initialCapacity) {
+	internal PooledSet(TKeyComparer comparer, int initialCapacity) : this(comparer, null, initialCapacity) {
+	}
+
+	internal PooledSet(TKeyComparer comparer, IPooledSetCapacityListener? capacityListener, int initialCapacity) {
 		_freeList = -1;
 		_comparer = comparer;
+		_capacityListener = capacityListener;
 		// A sizing hint, not a limit: NonSetCapacity resolves to the library default,
 		// anything else is rounded up to a prime; the set still grows on demand.
 		var capacity = initialCapacity == DataCacheIndexAttribute.NonSetCapacity ? DefaultInitialCapacity : initialCapacity;
 		_tables = new Tables(HashHelpers.GetPrime(capacity), 0);
+		_capacityListener?.OnPooledSetCapacityChanged(_tables.Size);
 	}
 
 	/// <summary>
@@ -561,6 +570,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		// sentinel and can never capture the retiring generation.
 		Volatile.Write(ref _tables, DisposedTables);
 		tables.Retire();
+		_capacityListener?.OnPooledSetCapacityChanged(-tables.Size);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -606,6 +616,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		// escaping pin releases and the scoped-reader grace period passes. (This also
 		// fixes the pre-fix leak where grow-rented arrays were never returned at all.)
 		oldTables.Retire();
+		_capacityListener?.OnPooledSetCapacityChanged(newTables.Size - oldTables.Size);
 		return newTables;
 	}
 }
