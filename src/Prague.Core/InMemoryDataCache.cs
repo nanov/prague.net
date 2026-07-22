@@ -1494,9 +1494,9 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	}
 
 	public CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheSymmetricKeyValueListIndex<TIndexKey>(
-		Func<TKey, TValue, TIndexKey> indexer)
+		Func<TKey, TValue, TIndexKey> indexer, int initialBucketCapacity = 0)
 		where TIndexKey : notnull {
-		var index = new CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey>(indexer);
+		var index = new CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey>(indexer, initialBucketCapacity);
 		var len = _indeces.Length;
 		Array.Resize(ref _indeces, len + 1);
 		_indeces[len] = index;
@@ -1504,9 +1504,9 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	}
 
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheKeyValueListIndex<TIndexKey>(
-		Func<TKey, TValue, TIndexKey> indexer)
+		Func<TKey, TValue, TIndexKey> indexer, int initialBucketCapacity = 0)
 		where TIndexKey : notnull {
-		var index = new CacheKeyValueListIndex<TKey, TValue, TIndexKey>(indexer);
+		var index = new CacheKeyValueListIndex<TKey, TValue, TIndexKey>(indexer, initialBucketCapacity);
 		var len = _indeces.Length;
 		Array.Resize(ref _indeces, len + 1);
 		_indeces[len] = index;
@@ -1520,9 +1520,9 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	///   the existing query (<c>UseIndex</c>) and <c>JoinMany</c> machinery unchanged.
 	/// </summary>
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionKeyValueListIndex<TIndexKey>(
-		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
+		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector, int initialBucketCapacity = 0)
 		where TIndexKey : notnull {
-		var index = new CacheKeyValueListIndex<TKey, TValue, TIndexKey>(collectionSelector);
+		var index = new CacheKeyValueListIndex<TKey, TValue, TIndexKey>(collectionSelector, initialBucketCapacity);
 		var len = _indeces.Length;
 		Array.Resize(ref _indeces, len + 1);
 		_indeces[len] = index;
@@ -1534,9 +1534,9 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	///   The reverse half lets the M:N collection-join resolver fan a single right value out to its many lefts.
 	/// </summary>
 	public CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionSymmetricKeyValueListIndex<TIndexKey>(
-		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
+		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector, int initialBucketCapacity = 0)
 		where TIndexKey : notnull {
-		var index = new CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey>(collectionSelector);
+		var index = new CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey>(collectionSelector, initialBucketCapacity);
 		var len = _indeces.Length;
 		Array.Resize(ref _indeces, len + 1);
 		_indeces[len] = index;

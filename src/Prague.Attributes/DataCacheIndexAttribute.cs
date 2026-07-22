@@ -65,4 +65,13 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	///   index-driven joins like <c>JoinOne(leftIndex, rightCache)</c>.
 	/// </summary>
 	public bool Symmetric { get; set; } = false;
+
+	/// <summary>
+	///   Initial capacity of each per-key value collection of a
+	///   <see cref="DataCacheIndexType.Many"/> index. A hint, not a limit — collections
+	///   grow on demand. Set a small value for indexes where a key maps to only a few
+	///   values to avoid over-allocation; leave unset for the default. Ignored by other
+	///   index types.
+	/// </summary>
+	public int InitialCapacity { get; set; } = 0;
 }
