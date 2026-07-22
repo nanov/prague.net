@@ -1,10 +1,9 @@
 namespace Prague.Core.Collections;
 
-	using System.Buffers;
-	using System.Collections;
-	using System.Runtime.CompilerServices;
-	using System.Runtime.InteropServices;
-	using Prague.Core.Utils;
+using System.Collections;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Prague.Core.Utils;
 
 /// <summary>
 ///   Freelist-chained hash set used as an index bucket. Single writer, lock-free readers.
@@ -27,7 +26,7 @@ namespace Prague.Core.Collections;
 ///   Performance notes:
 ///   - Allocations: steady-state zero on Add/Remove/Contains/enumeration. Construction
 ///     eagerly rents the first generation (initialCapacity slots, rounded up to a
-///     prime; <see cref="Constants.DefaultInitialCapacity" /> when not specified), so
+///     prime; <see cref="DefaultInitialCapacity" /> when not specified), so
 ///     table sizing is decided up front and no operation carries a lazy-init branch.
 ///     Per bucket lifecycle: one PooledSet + one Tables object
 ///     per generation (arrays are pool round-trips). The ref struct enumerator is
@@ -309,6 +308,12 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	private int _freeList;
 
+	/// <summary>
+	///   Default initial capacity of index buckets — a prime that still fits a
+	///   64-slot pooled array.
+	/// </summary>
+	private const int DefaultInitialCapacity = 59;
+
 	public static readonly PooledSet<T, TKeyComparer> Empty = new();
 
 	// Shared, never-retired sentinel published by Dispose BEFORE retiring the live
@@ -324,14 +329,14 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	public PooledSet() : this(default) { }
 
-	public PooledSet(TKeyComparer comparer) : this(comparer, Constants.NonSetCapacity) { }
+	public PooledSet(TKeyComparer comparer) : this(comparer, DataCacheIndexAttribute.NonSetCapacity) { }
 
 	internal PooledSet(TKeyComparer comparer, int initialCapacity) {
 		_freeList = -1;
 		_comparer = comparer;
 		// A sizing hint, not a limit: NonSetCapacity resolves to the library default,
 		// anything else is rounded up to a prime; the set still grows on demand.
-		var capacity = initialCapacity == Constants.NonSetCapacity ? Constants.DefaultInitialCapacity : initialCapacity;
+		var capacity = initialCapacity == DataCacheIndexAttribute.NonSetCapacity ? DefaultInitialCapacity : initialCapacity;
 		_tables = new Tables(HashHelpers.GetPrime(capacity), 0);
 	}
 

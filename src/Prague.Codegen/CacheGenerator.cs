@@ -2640,7 +2640,7 @@ public class CacheGenerator : IIncrementalGenerator {
 		// argument (index types are enum-typed, names are strings). Negative values —
 		// including the attribute's own NonSetCapacity (-1) default — mean "not set";
 		// 0 is a legal explicit minimal capacity.
-		const int nonSetCapacity = -1; // mirrors Prague.Core Constants.NonSetCapacity
+		const int nonSetCapacity = -1; // mirrors DataCacheIndexAttribute.NonSetCapacity
 		var ctorArgs = indexAttribute.ConstructorArguments;
 		if (ctorArgs.Length > 0) {
 			var last = ctorArgs[ctorArgs.Length - 1];

@@ -27,12 +27,12 @@ public class InitialCapacityTests {
 		var hinted = BucketCapacity(cache.GroupIdIndex.GetValues(10));
 		var plain = BucketCapacity(cache.PlainGroupIdIndex.GetValues(10));
 
-		Assert.That(plain, Is.EqualTo(107),
+		Assert.That(plain, Is.EqualTo(59),
 			"an unhinted index must keep the default bucket geometry");
 		Assert.That(hinted, Is.GreaterThanOrEqualTo(64),
 			"the hinted bucket must rent at least InitialCapacity slots");
-		Assert.That(hinted, Is.LessThan(plain),
-			"the hint must shrink the first generation below the default");
+		Assert.That(hinted, Is.GreaterThan(plain),
+			"a hint above the default must size the first generation past it");
 	}
 
 	[Test]
@@ -47,12 +47,12 @@ public class InitialCapacityTests {
 
 		Assert.That(ctorHinted, Is.GreaterThanOrEqualTo(8),
 			"[DataCacheIndex(8)] must rent at least the requested slots");
-		Assert.That(ctorHinted, Is.LessThan(107),
+		Assert.That(ctorHinted, Is.LessThan(59),
 			"the constructor-spelled hint must shrink the first generation below the default");
 
 		Assert.That(typedCtorHinted, Is.GreaterThanOrEqualTo(16),
 			"[DataCacheIndex(DataCacheIndexType.Many, 16)] must rent at least the requested slots");
-		Assert.That(typedCtorHinted, Is.LessThan(107),
+		Assert.That(typedCtorHinted, Is.LessThan(59),
 			"the typed constructor-spelled hint must shrink the first generation below the default");
 	}
 
@@ -66,9 +66,9 @@ public class InitialCapacityTests {
 		var customer = BucketCapacity(cache.CustomerIdIndex.GetValues("c-1"));
 		var status = BucketCapacity(cache.StatusIndex.GetValues("new"));
 
-		Assert.That(customer, Is.EqualTo(107),
+		Assert.That(customer, Is.EqualTo(59),
 			"an unhinted class-level index must keep the default bucket geometry");
-		Assert.That(status, Is.GreaterThanOrEqualTo(8).And.LessThan(107),
+		Assert.That(status, Is.GreaterThanOrEqualTo(8).And.LessThan(59),
 			"the (propertyName, indexName, indexType, capacity) spelling must reach the bucket");
 	}
 

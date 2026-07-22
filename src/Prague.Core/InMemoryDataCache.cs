@@ -1496,7 +1496,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheSymmetricKeyValueListIndex<TIndexKey>(
 		Func<TKey, TValue, TIndexKey> indexer)
 		where TIndexKey : notnull {
-		return CacheSymmetricKeyValueListIndex(indexer, Constants.NonSetCapacity);
+		return CacheSymmetricKeyValueListIndex(indexer, DataCacheIndexAttribute.NonSetCapacity);
 	}
 
 	public CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheSymmetricKeyValueListIndex<TIndexKey>(
@@ -1512,7 +1512,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheKeyValueListIndex<TIndexKey>(
 		Func<TKey, TValue, TIndexKey> indexer)
 		where TIndexKey : notnull {
-		return CacheKeyValueListIndex(indexer, Constants.NonSetCapacity);
+		return CacheKeyValueListIndex(indexer, DataCacheIndexAttribute.NonSetCapacity);
 	}
 
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheKeyValueListIndex<TIndexKey>(
@@ -1534,7 +1534,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionKeyValueListIndex<TIndexKey>(
 		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
 		where TIndexKey : notnull {
-		return CacheCollectionKeyValueListIndex(collectionSelector, Constants.NonSetCapacity);
+		return CacheCollectionKeyValueListIndex(collectionSelector, DataCacheIndexAttribute.NonSetCapacity);
 	}
 
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionKeyValueListIndex<TIndexKey>(
@@ -1554,7 +1554,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionSymmetricKeyValueListIndex<TIndexKey>(
 		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
 		where TIndexKey : notnull {
-		return CacheCollectionSymmetricKeyValueListIndex(collectionSelector, Constants.NonSetCapacity);
+		return CacheCollectionSymmetricKeyValueListIndex(collectionSelector, DataCacheIndexAttribute.NonSetCapacity);
 	}
 
 	public CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionSymmetricKeyValueListIndex<TIndexKey>(

@@ -8,6 +8,13 @@ namespace Prague.Core;
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Class, AllowMultiple = true)]
 public sealed class DataCacheIndexAttribute : Attribute {
 	/// <summary>
+	///   "<see cref="InitialCapacity"/> not specified" sentinel. Carried through the
+	///   index plumbing as-is and resolved to the library default in one place — the
+	///   collection constructor.
+	/// </summary>
+	public const int NonSetCapacity = -1;
+
+	/// <summary>
 	///   Creates an index on the property this attribute is attached to.
 	/// </summary>
 	public DataCacheIndexAttribute() {
@@ -71,7 +78,7 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	///   Initial capacity of each per-key value collection. See <see cref="InitialCapacity"/>.
 	/// </param>
 	public DataCacheIndexAttribute(string propertyName, DataCacheIndexType indexType,
-		int initialCapacity = -1) {
+		int initialCapacity = NonSetCapacity) {
 		PropertyName = propertyName;
 		IndexType = indexType;
 		InitialCapacity = initialCapacity;
@@ -103,7 +110,7 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	///   Initial capacity of each per-key value collection. See <see cref="InitialCapacity"/>.
 	/// </param>
 	public DataCacheIndexAttribute(string propertyName, string indexName, DataCacheIndexType indexType,
-		int initialCapacity = -1) {
+		int initialCapacity = NonSetCapacity) {
 		PropertyName = propertyName;
 		IndexName = indexName;
 		IndexType = indexType;
@@ -139,5 +146,5 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	///   grow on demand. Set a small value for indexes where a key maps to only a few
 	///   values to avoid over-allocation; leave unset for the library default.
 	/// </summary>
-	public int InitialCapacity { get; set; } = -1; // mirrors Prague.Core Constants.NonSetCapacity
+	public int InitialCapacity { get; set; } = NonSetCapacity;
 }

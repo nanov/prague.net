@@ -13,7 +13,7 @@ public sealed class
 	public CacheUniqueIndex<TIndexKey, TKey, TKey> Reverse => _cacheReverse;
 
 	public CacheSymmetricKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector)
-		: this(keySelector, Constants.NonSetCapacity) {
+		: this(keySelector, DataCacheIndexAttribute.NonSetCapacity) {
 	}
 
 	public CacheSymmetricKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector, int initialBucketCapacity)
@@ -217,7 +217,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 
 	// First-generation slot capacity for new per-key buckets. Plumbed from
 	// [DataCacheIndex(InitialCapacity = ...)] via the cache factory;
-	// Constants.NonSetCapacity when no hint is given — PooledSet's constructor
+	// DataCacheIndexAttribute.NonSetCapacity when no hint is given — PooledSet's constructor
 	// resolves the sentinel to the library default.
 	private readonly int _bucketInitialCapacity;
 
@@ -237,7 +237,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector)
-		: this(keySelector, false, Constants.NonSetCapacity) {
+		: this(keySelector, false, DataCacheIndexAttribute.NonSetCapacity) {
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector, int initialBucketCapacity)
@@ -245,7 +245,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
-		: this(collectionSelector, Constants.NonSetCapacity) {
+		: this(collectionSelector, DataCacheIndexAttribute.NonSetCapacity) {
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector,
@@ -258,7 +258,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	// Raw storage with no selector: never registered for cache maintenance (Add/Remove/Update are not
 	// called via ICacheIndex); populated externally through AddUnderKey/RemoveUnderKey. Used as the
 	// forward/reverse half of a CacheCollectionSymmetricKeyValueListIndex.
-	internal CacheKeyValueListIndex() : this(Constants.NonSetCapacity) {
+	internal CacheKeyValueListIndex() : this(DataCacheIndexAttribute.NonSetCapacity) {
 	}
 
 	internal CacheKeyValueListIndex(int initialBucketCapacity) {
@@ -773,7 +773,7 @@ public sealed class CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TInd
 	public CacheKeyValueListIndex<TIndexKey, TValue, TKey> Reverse { get; }
 
 	public CacheCollectionSymmetricKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
-		: this(collectionSelector, Constants.NonSetCapacity) {
+		: this(collectionSelector, DataCacheIndexAttribute.NonSetCapacity) {
 	}
 
 	public CacheCollectionSymmetricKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector,

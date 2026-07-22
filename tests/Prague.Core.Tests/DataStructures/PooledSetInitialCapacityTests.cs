@@ -2,7 +2,6 @@ namespace Prague.Core.Tests.DataStructures;
 
 	using Prague.Core.Collections;
 	using Prague.Core.Tests.Infrastructure;
-	using Prague.Core.Utils;
 	using NUnit.Framework;
 
 /// <summary>
@@ -16,8 +15,8 @@ public class PooledSetInitialCapacityTests {
 	public void Constructor_RentsTheDefaultFirstGeneration_Eagerly() {
 		var set = new PooledSet<long, DefaultKeyComparer<long>>();
 
-		Assert.That(set.CapacitySlots, Is.EqualTo(107),
-			"unhinted sets must rent the default table geometry up front (a table prime that still fits the historic 128-slot pooled array)");
+		Assert.That(set.CapacitySlots, Is.EqualTo(59),
+			"unhinted sets must rent the default table geometry up front (a table prime that still fits a 64-slot pooled array)");
 		set.Dispose();
 	}
 
@@ -45,7 +44,7 @@ public class PooledSetInitialCapacityTests {
 		set.GetSnapshot(out var firstGenSlots, out _, out _);
 
 		// The first generation serves up to its full capacity without a swap.
-		for (long i = 1; i <= 107; i++) {
+		for (long i = 1; i <= 59; i++) {
 			Assert.That(set.Add(i), Is.True);
 		}
 
@@ -53,12 +52,12 @@ public class PooledSetInitialCapacityTests {
 		Assert.That(ReferenceEquals(firstGenSlots, fullSlots), Is.True,
 			"the first generation must hold its full capacity without a swap");
 
-		Assert.That(set.Add(108), Is.True); // exceeds the first generation -> grow
+		Assert.That(set.Add(60), Is.True); // exceeds the first generation -> grow
 		set.GetSnapshot(out var grownSlots, out _, out _);
 		Assert.That(ReferenceEquals(fullSlots, grownSlots), Is.False, "growth past the first generation must swap tables");
 
-		Assert.That(set.Count, Is.EqualTo(108));
-		for (long i = 1; i <= 108; i++) {
+		Assert.That(set.Count, Is.EqualTo(60));
+		for (long i = 1; i <= 60; i++) {
 			Assert.That(set.Contains(i), Is.True, $"key {i} lost across the growth ladder");
 		}
 
@@ -69,9 +68,10 @@ public class PooledSetInitialCapacityTests {
 	public void NonSetCapacitySentinel_ResolvesToTheLibraryDefault() {
 		// The "not specified" sentinel travels through the attribute/index plumbing
 		// as-is and is resolved in exactly one place — this constructor.
-		var set = new PooledSet<long, DefaultKeyComparer<long>>(default, Constants.NonSetCapacity);
+		var set = new PooledSet<long, DefaultKeyComparer<long>>(default, DataCacheIndexAttribute.NonSetCapacity);
 
-		Assert.That(set.CapacitySlots, Is.EqualTo(Constants.DefaultInitialCapacity));
+		Assert.That(set.CapacitySlots, Is.EqualTo(59),
+			"the sentinel must resolve to the library default geometry");
 		set.Dispose();
 	}
 
@@ -98,7 +98,7 @@ public class PooledSetInitialCapacityTests {
 		var set = new PooledSet<long, DefaultKeyComparer<long>>(default, initialCapacity: 8);
 		Assert.That(set.CapacitySlots, Is.GreaterThanOrEqualTo(8),
 			"the hinted first generation must be rented up front");
-		Assert.That(set.CapacitySlots, Is.LessThan(107),
+		Assert.That(set.CapacitySlots, Is.LessThan(59),
 			"the hint must shrink the first generation below the default");
 
 		for (long i = 1; i <= 300; i++) {
