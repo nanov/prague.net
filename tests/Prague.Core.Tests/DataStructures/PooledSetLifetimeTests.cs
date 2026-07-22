@@ -61,7 +61,7 @@ public class PooledSetLifetimeTests {
 			Assert.That(enumerator.MoveNext(), Is.True);
 			seen.Add(enumerator.Current);
 
-			// Writer grows the set past the initial 127-slot capacity mid-enumeration
+			// Writer grows the set past the default first-generation capacity mid-enumeration
 			for (long i = 100; i < 400; i++) {
 				set.Add(i);
 			}

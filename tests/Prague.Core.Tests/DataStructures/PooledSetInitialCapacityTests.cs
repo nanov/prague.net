@@ -55,6 +55,8 @@ public class PooledSetInitialCapacityTests {
 		Assert.That(set.Add(60), Is.True); // exceeds the first generation -> grow
 		set.GetSnapshot(out var grownSlots, out _, out _);
 		Assert.That(ReferenceEquals(fullSlots, grownSlots), Is.False, "growth past the first generation must swap tables");
+		Assert.That(set.CapacitySlots, Is.EqualTo(127),
+			"the second generation must land on the 127 table prime, which still fits a 128-slot pooled array");
 
 		Assert.That(set.Count, Is.EqualTo(60));
 		for (long i = 1; i <= 60; i++) {
