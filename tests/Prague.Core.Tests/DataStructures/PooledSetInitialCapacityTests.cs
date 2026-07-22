@@ -2,6 +2,7 @@ namespace Prague.Core.Tests.DataStructures;
 
 	using Prague.Core.Collections;
 	using Prague.Core.Tests.Infrastructure;
+	using Prague.Core.Utils;
 	using NUnit.Framework;
 
 /// <summary>
@@ -61,6 +62,31 @@ public class PooledSetInitialCapacityTests {
 			Assert.That(set.Contains(i), Is.True, $"key {i} lost across the growth ladder");
 		}
 
+		set.Dispose();
+	}
+
+	[Test]
+	public void NonSetCapacitySentinel_ResolvesToTheLibraryDefault() {
+		// The "not specified" sentinel travels through the attribute/index plumbing
+		// as-is and is resolved in exactly one place — this constructor.
+		var set = new PooledSet<long, DefaultKeyComparer<long>>(default, Constants.NonSetCapacity);
+
+		Assert.That(set.CapacitySlots, Is.EqualTo(Constants.DefaultInitialCapacity));
+		set.Dispose();
+	}
+
+	[Test]
+	public void ExplicitZeroCapacity_IsAMinimalHint_NotTheDefault() {
+		// 0 is a legal explicit value (the smallest prime geometry), distinct from
+		// "not specified".
+		var set = new PooledSet<long, DefaultKeyComparer<long>>(default, initialCapacity: 0);
+
+		Assert.That(set.CapacitySlots, Is.EqualTo(3), "GetPrime(0) is the smallest table prime");
+		set.Add(1);
+		set.Add(2);
+		set.Add(3);
+		set.Add(4); // grows past the minimal first generation
+		Assert.That(set.Count, Is.EqualTo(4));
 		set.Dispose();
 	}
 

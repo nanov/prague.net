@@ -3,7 +3,7 @@ namespace Prague.Core;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Collections;
-
+using Prague.Core.Utils;
 
 public sealed class
 	CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> : CacheKeyValueListIndex<TKey, TValue, TIndexKey>
@@ -13,7 +13,7 @@ public sealed class
 	public CacheUniqueIndex<TIndexKey, TKey, TKey> Reverse => _cacheReverse;
 
 	public CacheSymmetricKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector)
-		: this(keySelector, DataCacheConstants.DefaultInitialCapacity) {
+		: this(keySelector, Constants.NonSetCapacity) {
 	}
 
 	public CacheSymmetricKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector, int initialBucketCapacity)
@@ -217,7 +217,8 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 
 	// First-generation slot capacity for new per-key buckets. Plumbed from
 	// [DataCacheIndex(InitialCapacity = ...)] via the cache factory;
-	// DataCacheConstants.DefaultInitialCapacity when no hint is given.
+	// Constants.NonSetCapacity when no hint is given — PooledSet's constructor
+	// resolves the sentinel to the library default.
 	private readonly int _bucketInitialCapacity;
 
 	internal readonly CacheUniqueIndex<TIndexKey, TKey, TKey> _cacheReverse = null!;
@@ -236,7 +237,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector)
-		: this(keySelector, false, DataCacheConstants.DefaultInitialCapacity) {
+		: this(keySelector, false, Constants.NonSetCapacity) {
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, TIndexKey> keySelector, int initialBucketCapacity)
@@ -244,7 +245,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
-		: this(collectionSelector, DataCacheConstants.DefaultInitialCapacity) {
+		: this(collectionSelector, Constants.NonSetCapacity) {
 	}
 
 	public CacheKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector,
@@ -257,7 +258,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	// Raw storage with no selector: never registered for cache maintenance (Add/Remove/Update are not
 	// called via ICacheIndex); populated externally through AddUnderKey/RemoveUnderKey. Used as the
 	// forward/reverse half of a CacheCollectionSymmetricKeyValueListIndex.
-	internal CacheKeyValueListIndex() : this(DataCacheConstants.DefaultInitialCapacity) {
+	internal CacheKeyValueListIndex() : this(Constants.NonSetCapacity) {
 	}
 
 	internal CacheKeyValueListIndex(int initialBucketCapacity) {
@@ -296,11 +297,12 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		// This ensures the key is always visible (may temporarily duplicate, but won't disappear)
 		var r = _cache.AddOrUpdate(newIndexKey,
 			static (_, a) => {
-				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Owner._bucketInitialCapacity);
+				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Capacity);
 				s.Add(a.Key, a.Hash);
 				return s;
 			},
-			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; }, (Key: key, Hash: keyHash, Owner: this));
+			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; },
+			(Key: key, Hash: keyHash, Capacity: _bucketInitialCapacity));
 
 		var sizeDelta = (ulong)r.Value.Count;
 		if (r.OldValue is not null)
@@ -366,11 +368,12 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	internal void AddUnderKey(TIndexKey indexKey, TKey key, int keyHash, long timestampMs) {
 		var r = _cache.AddOrUpdate(indexKey,
 			static (_, a) => {
-				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Owner._bucketInitialCapacity);
+				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Capacity);
 				s.Add(a.Key, a.Hash);
 				return s;
 			},
-			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; }, (Key: key, Hash: keyHash, Owner: this));
+			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; },
+			(Key: key, Hash: keyHash, Capacity: _bucketInitialCapacity));
 
 		var sizeDelta = (ulong)r.Value.Count;
 		var keyDelta = 1UL;
@@ -770,7 +773,7 @@ public sealed class CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TInd
 	public CacheKeyValueListIndex<TIndexKey, TValue, TKey> Reverse { get; }
 
 	public CacheCollectionSymmetricKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
-		: this(collectionSelector, DataCacheConstants.DefaultInitialCapacity) {
+		: this(collectionSelector, Constants.NonSetCapacity) {
 	}
 
 	public CacheCollectionSymmetricKeyValueListIndex(Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector,

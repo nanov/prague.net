@@ -68,11 +68,10 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	///   a capacity hint; other index types produce a compile-time error.
 	/// </param>
 	/// <param name="initialCapacity">
-	///   Initial capacity of each per-key value collection; defaults to
-	///   <see cref="DataCacheConstants.DefaultInitialCapacity"/>. See <see cref="InitialCapacity"/>.
+	///   Initial capacity of each per-key value collection. See <see cref="InitialCapacity"/>.
 	/// </param>
 	public DataCacheIndexAttribute(string propertyName, DataCacheIndexType indexType,
-		int initialCapacity = DataCacheConstants.DefaultInitialCapacity) {
+		int initialCapacity = -1) {
 		PropertyName = propertyName;
 		IndexType = indexType;
 		InitialCapacity = initialCapacity;
@@ -101,11 +100,10 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	///   a capacity hint; other index types produce a compile-time error.
 	/// </param>
 	/// <param name="initialCapacity">
-	///   Initial capacity of each per-key value collection; defaults to
-	///   <see cref="DataCacheConstants.DefaultInitialCapacity"/>. See <see cref="InitialCapacity"/>.
+	///   Initial capacity of each per-key value collection. See <see cref="InitialCapacity"/>.
 	/// </param>
 	public DataCacheIndexAttribute(string propertyName, string indexName, DataCacheIndexType indexType,
-		int initialCapacity = DataCacheConstants.DefaultInitialCapacity) {
+		int initialCapacity = -1) {
 		PropertyName = propertyName;
 		IndexName = indexName;
 		IndexType = indexType;
@@ -139,9 +137,7 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	///   Initial capacity of each per-key value collection of a
 	///   <see cref="DataCacheIndexType.Many"/> index. A hint, not a limit — collections
 	///   grow on demand. Set a small value for indexes where a key maps to only a few
-	///   values to avoid over-allocation; leave unset for
-	///   <see cref="DataCacheConstants.DefaultInitialCapacity"/>. Specifying it for any other index type
-	///   produces a compile-time error.
+	///   values to avoid over-allocation; leave unset for the library default.
 	/// </summary>
-	public int InitialCapacity { get; set; } = DataCacheConstants.DefaultInitialCapacity;
+	public int InitialCapacity { get; set; } = -1; // mirrors Prague.Core Constants.NonSetCapacity
 }

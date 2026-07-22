@@ -490,7 +490,7 @@ public class CacheGenerator : IIncrementalGenerator {
 
 			// InitialCapacity sizes the per-key value collections of a Many index; on any
 			// other index type it would be silently ignored — reject it instead.
-			if (indexType != "Many" && GetIndexInitialCapacity(indexed.IndexAttribute!) > 0) {
+			if (indexType != "Many" && GetIndexInitialCapacity(indexed.IndexAttribute!) >= 0) {
 				var diagnostic = Diagnostic.Create(
 					new DiagnosticDescriptor(
 						"CACHE051",
@@ -2095,7 +2095,7 @@ public class CacheGenerator : IIncrementalGenerator {
 
 			// InitialCapacity sizes the per-key value collections of a Many index; on any
 			// other index type it would be silently ignored — reject it instead.
-			if (indexType != "Many" && initialBucketCapacity > 0)
+			if (indexType != "Many" && initialBucketCapacity >= 0)
 				context.ReportDiagnostic(Diagnostic.Create(
 					new DiagnosticDescriptor(
 						"CACHE051",
@@ -2637,27 +2637,28 @@ public class CacheGenerator : IIncrementalGenerator {
 	/// </summary>
 	private static int GetIndexInitialCapacity(AttributeData indexAttribute) {
 		// Every constructor spelling carries the hint as the trailing plain-Int32
-		// argument (index types are enum-typed, names are strings), and Roslyn
-		// materializes omitted optional arguments with their defaults — so 0 always
-		// means "no hint", never "absent".
+		// argument (index types are enum-typed, names are strings). Negative values —
+		// including the attribute's own NonSetCapacity (-1) default — mean "not set";
+		// 0 is a legal explicit minimal capacity.
+		const int nonSetCapacity = -1; // mirrors Prague.Core Constants.NonSetCapacity
 		var ctorArgs = indexAttribute.ConstructorArguments;
 		if (ctorArgs.Length > 0) {
 			var last = ctorArgs[ctorArgs.Length - 1];
-			if (last.Type?.SpecialType == SpecialType.System_Int32 && last.Value is int fromCtor and > 0)
+			if (last.Type?.SpecialType == SpecialType.System_Int32 && last.Value is int fromCtor and >= 0)
 				return fromCtor;
 		}
 
 		var arg = indexAttribute.NamedArguments.FirstOrDefault(kvp => kvp.Key == "InitialCapacity");
-		return arg.Value.Value is int named and > 0 ? named : 0;
+		return arg.Value.Value is int named and >= 0 ? named : nonSetCapacity;
 	}
 
 	/// <summary>
 	///   Renders the optional second factory argument for list indexes:
-	///   ", initialBucketCapacity: N" when a hint is set, empty otherwise (so unhinted
-	///   indexes emit exactly the same call as before).
+	///   ", initialBucketCapacity: N" when a hint is set (N >= 0), empty otherwise (so
+	///   unhinted indexes emit exactly the same call as before).
 	/// </summary>
 	private static string RenderInitialCapacityArgument(int initialBucketCapacity) =>
-		initialBucketCapacity > 0 ? $", initialBucketCapacity: {initialBucketCapacity}" : string.Empty;
+		initialBucketCapacity >= 0 ? $", initialBucketCapacity: {initialBucketCapacity}" : string.Empty;
 
 	/// <summary>
 	///   Gets the JoinType from a DataCacheForeignKeyAttribute.

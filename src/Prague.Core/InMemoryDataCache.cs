@@ -3,7 +3,7 @@ namespace Prague.Core;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Collections;
-using TypeSystem;
+using Prague.Core.Utils;
 
 public interface ICountableCacheIndex {
 	public ulong GetCounters(out ulong values);
@@ -1496,7 +1496,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheSymmetricKeyValueListIndex<TIndexKey>(
 		Func<TKey, TValue, TIndexKey> indexer)
 		where TIndexKey : notnull {
-		return CacheSymmetricKeyValueListIndex(indexer, DataCacheConstants.DefaultInitialCapacity);
+		return CacheSymmetricKeyValueListIndex(indexer, Constants.NonSetCapacity);
 	}
 
 	public CacheSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheSymmetricKeyValueListIndex<TIndexKey>(
@@ -1512,7 +1512,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheKeyValueListIndex<TIndexKey>(
 		Func<TKey, TValue, TIndexKey> indexer)
 		where TIndexKey : notnull {
-		return CacheKeyValueListIndex(indexer, DataCacheConstants.DefaultInitialCapacity);
+		return CacheKeyValueListIndex(indexer, Constants.NonSetCapacity);
 	}
 
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheKeyValueListIndex<TIndexKey>(
@@ -1534,7 +1534,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionKeyValueListIndex<TIndexKey>(
 		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
 		where TIndexKey : notnull {
-		return CacheCollectionKeyValueListIndex(collectionSelector, DataCacheConstants.DefaultInitialCapacity);
+		return CacheCollectionKeyValueListIndex(collectionSelector, Constants.NonSetCapacity);
 	}
 
 	public CacheKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionKeyValueListIndex<TIndexKey>(
@@ -1554,7 +1554,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	public CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionSymmetricKeyValueListIndex<TIndexKey>(
 		Func<TKey, TValue, IReadOnlyList<TIndexKey>> collectionSelector)
 		where TIndexKey : notnull {
-		return CacheCollectionSymmetricKeyValueListIndex(collectionSelector, DataCacheConstants.DefaultInitialCapacity);
+		return CacheCollectionSymmetricKeyValueListIndex(collectionSelector, Constants.NonSetCapacity);
 	}
 
 	public CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TIndexKey> CacheCollectionSymmetricKeyValueListIndex<TIndexKey>(
