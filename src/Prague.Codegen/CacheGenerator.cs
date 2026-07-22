@@ -487,6 +487,22 @@ public class CacheGenerator : IIncrementalGenerator {
 					context.ReportDiagnostic(diagnostic);
 				}
 			}
+
+			// InitialCapacity sizes the per-key value collections of a Many index; on any
+			// other index type it would be silently ignored — reject it instead.
+			if (indexType != "Many" && GetIndexInitialCapacity(indexed.IndexAttribute!) > 0) {
+				var diagnostic = Diagnostic.Create(
+					new DiagnosticDescriptor(
+						"CACHE051",
+						"InitialCapacity is only applicable to Many indexes",
+						"Property '{0}' specifies InitialCapacity on a DataCacheIndexType.{1} index. The capacity hint sizes the per-key value collections of a Many index and has no effect on other index types; remove it or use DataCacheIndexType.Many.",
+						"CacheGenerator",
+						DiagnosticSeverity.Error,
+						true),
+					indexed.Property.Locations.FirstOrDefault(),
+					indexed.Property.Name, indexType);
+				context.ReportDiagnostic(diagnostic);
+			}
 		}
 
 		// Find and validate properties with [DataCacheForeignKey<T>] attribute using helper.
@@ -2039,36 +2055,32 @@ public class CacheGenerator : IIncrementalGenerator {
 			var indexType = "Many";
 			var isSymmetric = false;
 
-			// Parse constructor arguments based on overload:
-			// (propertyName, indexType) or (propertyName, indexName, indexType)
-			if (indexAttr.ConstructorArguments.Length >= 2) {
-				propName = indexAttr.ConstructorArguments[0].Value as string;
-
-				if (indexAttr.ConstructorArguments.Length == 2) {
-					// (propertyName, indexType)
-					if (indexAttr.ConstructorArguments[1].Value is int indexTypeValue)
-						indexType = indexTypeValue switch {
-							0 => "Many",
-							1 => "Unique",
-							2 => "Range",
-							_ => "Many"
-						};
+			// Parse constructor arguments type-keyed rather than by position, so every
+			// overload is covered — the class-level (propertyName[, indexName], indexType
+			// [, initialCapacity]) spellings as well as the property-level
+			// (indexType[, initialCapacity]) / (initialCapacity) ones combined with a
+			// PropertyName named argument. The first string is the property name, a second
+			// string is the index name, the enum-typed argument is the index type; the
+			// trailing plain-Int32 capacity hint is read type-based via
+			// GetIndexInitialCapacity.
+			foreach (var ctorArg in indexAttr.ConstructorArguments) {
+				if (ctorArg.Value is string s) {
+					if (propName is null)
+						propName = s;
+					else
+						indexName = s;
 				}
-				else if (indexAttr.ConstructorArguments.Length == 3) {
-					// (propertyName, indexName, indexType)
-					indexName = indexAttr.ConstructorArguments[1].Value as string;
-					if (indexAttr.ConstructorArguments[2].Value is int indexTypeValue)
-						indexType = indexTypeValue switch {
-							0 => "Many",
-							1 => "Unique",
-							2 => "Range",
-							_ => "Many"
-						};
+				else if (ctorArg.Type?.TypeKind == TypeKind.Enum && ctorArg.Value is int indexTypeValue) {
+					indexType = indexTypeValue switch {
+						0 => "Many",
+						1 => "Unique",
+						2 => "Range",
+						_ => "Many"
+					};
 				}
 			}
 
 			// Also check named arguments
-			var initialBucketCapacity = 0;
 			foreach (var namedArg in indexAttr.NamedArguments)
 				if (namedArg.Key == "PropertyName" && namedArg.Value.Value is string pn)
 					propName = pn;
@@ -2078,8 +2090,22 @@ public class CacheGenerator : IIncrementalGenerator {
 					indexType = it switch { 0 => "Many", 1 => "Unique", 2 => "Range", _ => "Many" };
 				else if (namedArg.Key == "Symmetric" && namedArg.Value.Value is bool sym)
 					isSymmetric = sym;
-				else if (namedArg.Key == "InitialCapacity" && namedArg.Value.Value is int evpk and > 0)
-					initialBucketCapacity = evpk;
+
+			var initialBucketCapacity = GetIndexInitialCapacity(indexAttr);
+
+			// InitialCapacity sizes the per-key value collections of a Many index; on any
+			// other index type it would be silently ignored — reject it instead.
+			if (indexType != "Many" && initialBucketCapacity > 0)
+				context.ReportDiagnostic(Diagnostic.Create(
+					new DiagnosticDescriptor(
+						"CACHE051",
+						"InitialCapacity is only applicable to Many indexes",
+						"Property '{0}' specifies InitialCapacity on a DataCacheIndexType.{1} index. The capacity hint sizes the per-key value collections of a Many index and has no effect on other index types; remove it or use DataCacheIndexType.Many.",
+						"CacheGenerator",
+						DiagnosticSeverity.Error,
+						true),
+					cacheClassSymbol.Locations.FirstOrDefault(),
+					propName ?? "?", indexType));
 
 			if (string.IsNullOrEmpty(propName)) {
 				context.ReportDiagnostic(Diagnostic.Create(
@@ -2567,10 +2593,12 @@ public class CacheGenerator : IIncrementalGenerator {
 	}
 
 	private static string GetIndexType(AttributeData indexAttribute) {
-		// Check constructor argument first
+		// Check constructor argument first. Only an enum-typed argument selects the
+		// index type — the (int initialCapacity) constructor also has a single
+		// argument, but it is a plain Int32.
 		if (indexAttribute.ConstructorArguments.Length > 0) {
 			var arg = indexAttribute.ConstructorArguments[0];
-			if (arg.Value is int indexTypeValue)
+			if (arg.Type?.TypeKind == TypeKind.Enum && arg.Value is int indexTypeValue)
 				return indexTypeValue switch {
 					0 => "Many",
 					1 => "Unique",
@@ -2608,8 +2636,19 @@ public class CacheGenerator : IIncrementalGenerator {
 	///   use PooledSet's own default first capacity).
 	/// </summary>
 	private static int GetIndexInitialCapacity(AttributeData indexAttribute) {
+		// Every constructor spelling carries the hint as the trailing plain-Int32
+		// argument (index types are enum-typed, names are strings), and Roslyn
+		// materializes omitted optional arguments with their defaults — so 0 always
+		// means "no hint", never "absent".
+		var ctorArgs = indexAttribute.ConstructorArguments;
+		if (ctorArgs.Length > 0) {
+			var last = ctorArgs[ctorArgs.Length - 1];
+			if (last.Type?.SpecialType == SpecialType.System_Int32 && last.Value is int fromCtor and > 0)
+				return fromCtor;
+		}
+
 		var arg = indexAttribute.NamedArguments.FirstOrDefault(kvp => kvp.Key == "InitialCapacity");
-		return arg.Value.Value is int n and > 0 ? n : 0;
+		return arg.Value.Value is int named and > 0 ? named : 0;
 	}
 
 	/// <summary>
@@ -5668,7 +5707,9 @@ public class CacheGenerator : IIncrementalGenerator {
 			var indexType = "Many";
 			if (indexAttr.ConstructorArguments.Length > 0) {
 				var arg = indexAttr.ConstructorArguments[0];
-				if (arg.Value is int intValue)
+				// Only an enum-typed argument selects the index type; the
+				// (int initialCapacity) constructor argument is a plain Int32.
+				if (arg.Type?.TypeKind == TypeKind.Enum && arg.Value is int intValue)
 					indexType = intValue switch {
 						0 => "Unique",
 						1 => "Many",

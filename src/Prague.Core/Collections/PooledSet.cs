@@ -26,10 +26,11 @@ namespace Prague.Core.Collections;
 ///
 ///   Performance notes:
 ///   - Allocations: steady-state zero on Add/Remove/Contains/enumeration. Construction
-///     rents nothing — a shared unallocated sentinel is installed and the first real
-///     generation (DefaultInitialCapacity slots by default) is rented by the first Add via Grow's cold
-///     path, so empty and tiny index buckets (the dominant population) never pay for
-///     a full-size table. Per used bucket lifecycle: one PooledSet + one Tables object
+///     eagerly rents the first generation (initialCapacity slots, rounded up to a
+///     prime; <see cref="DataCacheConstants.DefaultInitialCapacity" /> when not
+///     specified), so
+///     table sizing is decided up front and no operation carries a lazy-init branch.
+///     Per bucket lifecycle: one PooledSet + one Tables object
 ///     per generation (arrays are pool round-trips). The ref struct enumerator is
 ///     stack-only and pin-free on shared state; the boxed enumerator allocates (it
 ///     must escape) and carries a Tables pin.
@@ -299,11 +300,6 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		}
 	}
 
-	// Default initial capacity; override per index via [DataCacheIndex(InitialCapacity = ...)].
-	private const int DefaultInitialCapacity = 107;
-
-	private readonly int _initialCapacity;
-
 	private readonly bool _clearOnFree = RuntimeHelpers.IsReferenceOrContainsReferences<T>();
 
 	private readonly TKeyComparer _comparer;
@@ -323,48 +319,29 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	// its tiny arrays live for the process.
 	private static readonly Tables DisposedTables = new(1, 0);
 
-	// Shared, never-retired sentinel installed by the constructor so creating a set
-	// rents nothing. It reads as empty everywhere (bucket heads are cleared; its one
-	// slot is sealed dead below) and reports LastIndex == Size, so the first Add
-	// falls into Grow's existing full-table cold path, which swaps in the first real
-	// generation — the Add/Remove/Contains hot paths carry no lazy-init branch.
-	private static readonly Tables UnallocatedTables = CreateUnallocatedSentinel();
-
-	private static Tables CreateUnallocatedSentinel() {
-		var tables = new Tables(1, 1);
-		// The rented slot array is not cleared by the ctor; seal the single in-range
-		// slot as dead so enumerators (which scan [0, LastIndex)) skip it.
-		tables.Slots[0].HashCode = -1;
-		return tables;
-	}
-
 	public int Count => _count;
 
 	public bool IsEmpty => _count == 0;
 
 	public PooledSet() : this(default) { }
 
-	public PooledSet(TKeyComparer comparer) : this(comparer, 0) { }
+	public PooledSet(TKeyComparer comparer) : this(comparer, DataCacheConstants.DefaultInitialCapacity) { }
 
-	internal PooledSet(TKeyComparer comparer, int initialCapacity = 0) {
-		_tables = UnallocatedTables;
+	internal PooledSet(TKeyComparer comparer, int initialCapacity) {
 		_freeList = -1;
 		_comparer = comparer;
-		// A hint, not a contract: non-positive falls back to the default. Explicit
-		// hints are rounded up to a prime
-		_initialCapacity = initialCapacity > 0 ? HashHelpers.GetPrime(initialCapacity) : DefaultInitialCapacity;
+		// A sizing hint, not a limit: rounded up to a prime; the set still grows on demand.
+		_tables = new Tables(HashHelpers.GetPrime(initialCapacity), 0);
 	}
 
 	/// <summary>
-	///   Slots rented by the current live generation; 0 while lazily unallocated and
-	///   after Dispose. One volatile read — safe from any thread.
+	///   Slots rented by the current live generation; 0 after Dispose.
+	///   One volatile read — safe from any thread.
 	/// </summary>
 	internal int CapacitySlots {
 		get {
 			var tables = Volatile.Read(ref _tables);
-			return ReferenceEquals(tables, UnallocatedTables) || ReferenceEquals(tables, DisposedTables)
-				? 0
-				: tables.Size;
+			return ReferenceEquals(tables, DisposedTables) ? 0 : tables.Size;
 		}
 	}
 
@@ -577,8 +554,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		// precedes the gate's seal fence, so post-seal scoped readers land on the
 		// sentinel and can never capture the retiring generation.
 		Volatile.Write(ref _tables, DisposedTables);
-		if (!ReferenceEquals(tables, UnallocatedTables))
-			tables.Retire();
+		tables.Retire();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -600,14 +576,6 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		// path, zero hot-path cost).
 		if (ReferenceEquals(oldTables, DisposedTables))
 			throw new ObjectDisposedException(nameof(PooledSet<T, TKeyComparer>));
-
-		// First Add on a lazily-initialized set: there is nothing to copy, and the
-		// shared sentinel must never be retired — just publish the first generation.
-		if (ReferenceEquals(oldTables, UnallocatedTables)) {
-			var firstTables = new Tables(_initialCapacity, 0);
-			Volatile.Write(ref _tables, firstTables);
-			return firstTables;
-		}
 
 		var newTables = new Tables(HashHelpers.ExpandPrime(_count), oldTables.LastIndex);
 		if (oldTables.LastIndex > 0)

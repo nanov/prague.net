@@ -2,9 +2,10 @@ namespace Prague.Generated.Tests.Models;
 
 using Prague.Core;
 
-// Exercises [DataCacheIndex(InitialCapacity = ...)]: the hinted Many index must
-// hand the hint to its per-key bucket PooledSets as the first-generation capacity,
-// while the unhinted sibling keeps the default tiny start.
+// Exercises the InitialCapacity sizing hint in both spellings — the named property
+// and the constructor argument: the hinted Many index must hand the hint to its
+// per-key bucket PooledSets as the first-generation capacity, while the unhinted
+// sibling keeps the default start.
 [DataCache]
 [DataCacheTopic]
 public partial class CapacityHintedEvent {
@@ -12,6 +13,12 @@ public partial class CapacityHintedEvent {
 
 	[DataCacheIndex(InitialCapacity = 64)]
 	public long GroupId { get; set; }
+
+	[DataCacheIndex(8)]
+	public long CtorHintedGroupId { get; set; }
+
+	[DataCacheIndex(DataCacheIndexType.Many, 16)]
+	public long TypedCtorHintedGroupId { get; set; }
 
 	[DataCacheIndex]
 	public long PlainGroupId { get; set; }

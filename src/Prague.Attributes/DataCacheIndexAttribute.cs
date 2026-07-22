@@ -22,6 +22,33 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	}
 
 	/// <summary>
+	///   Creates an index on the property this attribute is attached to with the specified
+	///   index type and initial capacity of each per-key value collection.
+	/// </summary>
+	/// <param name="indexType">
+	///   The type of index to create. Only <see cref="DataCacheIndexType.Many"/> supports
+	///   a capacity hint; other index types produce a compile-time error.
+	/// </param>
+	/// <param name="initialCapacity">
+	///   Initial capacity of each per-key value collection. See <see cref="InitialCapacity"/>.
+	/// </param>
+	public DataCacheIndexAttribute(DataCacheIndexType indexType, int initialCapacity) {
+		IndexType = indexType;
+		InitialCapacity = initialCapacity;
+	}
+
+	/// <summary>
+	///   Creates a <see cref="DataCacheIndexType.Many"/> index on the property this attribute
+	///   is attached to with the specified initial capacity of each per-key value collection.
+	/// </summary>
+	/// <param name="initialCapacity">
+	///   Initial capacity of each per-key value collection. See <see cref="InitialCapacity"/>.
+	/// </param>
+	public DataCacheIndexAttribute(int initialCapacity) {
+		InitialCapacity = initialCapacity;
+	}
+
+	/// <summary>
 	///   Creates an index on a property of an external type (for use with DataCache&lt;T&gt;).
 	/// </summary>
 	/// <param name="propertyName">The name of the property to index. Use nameof() for compile-time safety.</param>
@@ -29,6 +56,26 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	public DataCacheIndexAttribute(string propertyName, DataCacheIndexType indexType) {
 		PropertyName = propertyName;
 		IndexType = indexType;
+	}
+
+	/// <summary>
+	///   Creates an index on a property of an external type (for use with DataCache&lt;T&gt;)
+	///   with the specified initial capacity of each per-key value collection.
+	/// </summary>
+	/// <param name="propertyName">The name of the property to index. Use nameof() for compile-time safety.</param>
+	/// <param name="indexType">
+	///   The type of index to create. Only <see cref="DataCacheIndexType.Many"/> supports
+	///   a capacity hint; other index types produce a compile-time error.
+	/// </param>
+	/// <param name="initialCapacity">
+	///   Initial capacity of each per-key value collection; defaults to
+	///   <see cref="DataCacheConstants.DefaultInitialCapacity"/>. See <see cref="InitialCapacity"/>.
+	/// </param>
+	public DataCacheIndexAttribute(string propertyName, DataCacheIndexType indexType,
+		int initialCapacity = DataCacheConstants.DefaultInitialCapacity) {
+		PropertyName = propertyName;
+		IndexType = indexType;
+		InitialCapacity = initialCapacity;
 	}
 
 	/// <summary>
@@ -41,6 +88,28 @@ public sealed class DataCacheIndexAttribute : Attribute {
 		PropertyName = propertyName;
 		IndexName = indexName;
 		IndexType = indexType;
+	}
+
+	/// <summary>
+	///   Creates a named index on a property of an external type (for use with DataCache&lt;T&gt;)
+	///   with the specified initial capacity of each per-key value collection.
+	/// </summary>
+	/// <param name="propertyName">The name of the property to index. Use nameof() for compile-time safety.</param>
+	/// <param name="indexName">The name of the index.</param>
+	/// <param name="indexType">
+	///   The type of index to create. Only <see cref="DataCacheIndexType.Many"/> supports
+	///   a capacity hint; other index types produce a compile-time error.
+	/// </param>
+	/// <param name="initialCapacity">
+	///   Initial capacity of each per-key value collection; defaults to
+	///   <see cref="DataCacheConstants.DefaultInitialCapacity"/>. See <see cref="InitialCapacity"/>.
+	/// </param>
+	public DataCacheIndexAttribute(string propertyName, string indexName, DataCacheIndexType indexType,
+		int initialCapacity = DataCacheConstants.DefaultInitialCapacity) {
+		PropertyName = propertyName;
+		IndexName = indexName;
+		IndexType = indexType;
+		InitialCapacity = initialCapacity;
 	}
 
 	/// <summary>
@@ -70,8 +139,9 @@ public sealed class DataCacheIndexAttribute : Attribute {
 	///   Initial capacity of each per-key value collection of a
 	///   <see cref="DataCacheIndexType.Many"/> index. A hint, not a limit — collections
 	///   grow on demand. Set a small value for indexes where a key maps to only a few
-	///   values to avoid over-allocation; leave unset for the default. Ignored by other
-	///   index types.
+	///   values to avoid over-allocation; leave unset for
+	///   <see cref="DataCacheConstants.DefaultInitialCapacity"/>. Specifying it for any other index type
+	///   produces a compile-time error.
 	/// </summary>
-	public int InitialCapacity { get; set; } = 0;
+	public int InitialCapacity { get; set; } = DataCacheConstants.DefaultInitialCapacity;
 }
