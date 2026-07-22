@@ -612,49 +612,36 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 
 	internal void IntersectValues(ReadOnlySpan<TIndexKey> keys, ref ValueSet<JoinedKeyPair<TIndexKey, TKey>, DefaultKeyComparer<JoinedKeyPair<TIndexKey, TKey>>> target,
 		bool add) {
-		var tempSet = new ValueSet<JoinedKeyPair<TIndexKey, TKey>, DefaultKeyComparer<JoinedKeyPair<TIndexKey, TKey>>>(keys.Length * 10);
-		try {
-			foreach (var key in keys)
-				if (_cache.TryGetValue(key, out var values))
-					tempSet.UnionWith(JoinedKeyPair<TIndexKey, TKey>.IntoKeyed(key), values);
-
-			if (add)
-				target.UnionWith(ref tempSet);
-			else
-				target.IntersectWith(ref tempSet);
-		}
-		finally {
-			tempSet.Dispose();
-		}
-	}
-
-	internal void IntersectValues(ICollection<TIndexKey> keys, ref ValueSet<TKey, DefaultKeyComparer<TKey>> target, bool add) {
 		if (add) {
+			// Union straight into the target: pairs deduplicate on insert, so the old
+			// intermediate set bought nothing here — it was a full extra copy of every
+			// bucket, sized by a keys*10 guess on top.
 			foreach (var key in keys)
-				if (_cache.TryGetValue(key, out var values))
-					target.UnionWith(values);
-		}
-		else {
-			using var intersecter =
-				new ValueSet<TKey, DefaultKeyComparer<TKey>>.IncrementalIntersecter(ref target, stackalloc int[ValueSet<TKey, DefaultKeyComparer<TKey>>.StackAllocThreshold]);
-			foreach (var key in keys)
-				if (_cache.TryGetValue(key, out var values))
-					intersecter.IntersectWith(values);
-		}
-	}
+				if (_cache.TryGetValue(key, out var values)) {
+					target.EnsureCapacity(target.Count + values.Count);
+					target.UnionWith(JoinedKeyPair<TIndexKey, TKey>.IntoKeyed(key), values);
+				}
 
-	internal void IntersectValues(ICollection<TIndexKey> keys, ref ValueSet<JoinedKeyPair<TIndexKey, TKey>, DefaultKeyComparer<JoinedKeyPair<TIndexKey, TKey>>> target,
-		bool add) {
-		var tempSet = new ValueSet<JoinedKeyPair<TIndexKey, TKey>, DefaultKeyComparer<JoinedKeyPair<TIndexKey, TKey>>>(keys.Count * 10); // avoid copies;
+			return;
+		}
+
+		// Intersect needs the full right-hand set up front; size it from the actual
+		// bucket counts (a cheap O(1) probe per key) instead of the keys*10 guess,
+		// which both over-allocated small lookups and under-allocated big buckets.
+		// Buckets may mutate concurrently, so the sum is a hint — the set still
+		// grows on demand.
+		var capacity = 0;
+		foreach (var key in keys)
+			if (_cache.TryGetValue(key, out var values))
+				capacity += values.Count;
+
+		var tempSet = new ValueSet<JoinedKeyPair<TIndexKey, TKey>, DefaultKeyComparer<JoinedKeyPair<TIndexKey, TKey>>>(capacity);
 		try {
 			foreach (var key in keys)
 				if (_cache.TryGetValue(key, out var values))
 					tempSet.UnionWith(JoinedKeyPair<TIndexKey, TKey>.IntoKeyed(key), values);
 
-			if (add)
-				target.UnionWith(ref tempSet);
-			else
-				target.IntersectWith(ref tempSet);
+			target.IntersectWith(ref tempSet);
 		}
 		finally {
 			tempSet.Dispose();
