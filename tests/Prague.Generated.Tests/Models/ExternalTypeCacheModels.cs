@@ -44,7 +44,7 @@ public partial class ProductCache {
 [DataCache<ThirdPartyOrder>(nameof(ThirdPartyOrder.OrderId))]
 [DataCacheTopic("ThirdParty.Orders.Cache")]
 [DataCacheIndex(nameof(ThirdPartyOrder.CustomerId), DataCacheIndexType.Many)]
-[DataCacheIndex(nameof(ThirdPartyOrder.Status), DataCacheIndexType.Many)]
+[DataCacheIndex(nameof(ThirdPartyOrder.Status), "Status", DataCacheIndexType.Many, 8)]
 [DataCacheIndex(nameof(ThirdPartyOrder.TotalAmount), "AmountIndex", DataCacheIndexType.Range)]
 public partial class ThirdPartyOrderCache {
 }

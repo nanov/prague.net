@@ -95,7 +95,7 @@ public class PooledSetTests {
 	public void Add_TriggersGrow_AllPresent() {
 		var set = new PooledSet<int, DefaultKeyComparer<int>>();
 
-		// Default capacity is 127, adding 200 must trigger grow
+		// Adding 200 exceeds the default first-generation capacity and must trigger grow
 		for (var i = 0; i < 200; i++)
 			set.Add(i);
 
