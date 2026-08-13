@@ -446,10 +446,23 @@ internal class KafkaCacheConsumer {
 		return Task.CompletedTask;
 	}
 
-	internal Task WaitForCompletionAsync() {
-		_cts.Cancel();
-		Task.WhenAll(_handlers.Values.Select(h => h.WaitForCompletionAsync()));
-		return _channelLoopTask ?? Task.CompletedTask;
+	/// <summary>
+	///   Cancel the consume loop and wait for it to unwind. Awaiting the loop first is load-bearing:
+	///   its <c>finally</c> disposes the per-handler live workers, which is what completes them.
+	///   A cancelled completion is a <i>finished</i> worker, not a shutdown failure — the live worker
+	///   ends its TCS with <c>TrySetCanceled</c> whenever the consume token is cancelled, i.e. on every
+	///   graceful stop. Anything else is a real anomaly and is left to propagate.
+	/// </summary>
+	internal async Task WaitForCompletionAsync() {
+		await _cts.CancelAsync();
+		try {
+			if (_channelLoopTask is not null)
+				await _channelLoopTask;
+
+			await Task.WhenAll(_handlers.Values.Select(h => h.WaitForCompletionAsync()));
+		}
+		catch (OperationCanceledException) {
+		}
 	}
 
 	private IRawConsumer BuildRawConsumer(IKafkaCacheBuilderProvider provider, ConsumerConfig config) {
