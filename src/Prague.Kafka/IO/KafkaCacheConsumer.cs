@@ -283,15 +283,20 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		_cache.Remove(key, timestampMs, out _);
 	}
 
+	/// <summary>
+	///   Drain the load-phase compaction buffer into the cache.
+	///   Cache mutation failures are deliberately NOT caught. Bad <i>input</i> is skippable and is
+	///   already handled upstream (a failed deserialization logs and drops that one message); a failed
+	///   <i>state mutation</i> is not: <c>InMemoryDataCache.AddOrUpdate</c> mutates the store before
+	///   walking the indexes, so a throw mid-walk leaves the store and the not-yet-visited indexes
+	///   permanently divergent. Continuing past that would go live on a knowingly corrupt cache, so the
+	///   exception is allowed to reach <c>ConsumeRawLoop</c>, which latches fatal and faults the load.
+	/// </summary>
 	private void FlushRawLoadBufferToCache() {
 		if (_rawLoadBuffer is null)
 			return;
 		foreach (var (value, ts) in _rawLoadBuffer)
-			try {
-				_cache.AddOrUpdate(value, ts);
-			} catch (Exception e) {
-				_logger.ErrorProcessingMessageDuringLoad(e, Name, 0);
-			}
+			_cache.AddOrUpdate(value, ts);
 
 		_rawLoadBuffer.Clear();
 	}
