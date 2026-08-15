@@ -209,16 +209,21 @@ public sealed class
 	}
 }
 
-public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey, TValue>, ICountableCacheIndex
+public class CacheKeyValueListIndex<TKey, TValue, TIndexKey>
+	: ICacheIndex<TKey, TValue>, ICountableCacheIndex, IPooledSetCapacityListener
 	where TIndexKey : notnull
 	where TKey : notnull {
 	private readonly ConcurrentCacheStore<TIndexKey, PooledSet<TKey, DefaultKeyComparer<TKey>>> _cache = new();
 	private ulong _keysSize;
 
+	// Live rented-slot capacity across all buckets, maintained from the buckets' cold
+	// paths (construction / Grow / Dispose) — see IPooledSetCapacityListener.
+	private long _capacitySlots;
+
 	// First-generation slot capacity for new per-key buckets. Plumbed from
 	// [DataCacheIndex(InitialCapacity = ...)] via the cache factory;
-	// DataCacheIndexAttribute.NonSetCapacity when no hint is given — PooledSet's constructor
-	// resolves the sentinel to the library default.
+	// DataCacheIndexAttribute.NonSetCapacity when no hint is given — PooledSet's
+	// constructor resolves the sentinel to the library default.
 	private readonly int _bucketInitialCapacity;
 
 	internal readonly CacheUniqueIndex<TIndexKey, TKey, TKey> _cacheReverse = null!;
@@ -297,12 +302,14 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		// This ensures the key is always visible (may temporarily duplicate, but won't disappear)
 		var r = _cache.AddOrUpdate(newIndexKey,
 			static (_, a) => {
-				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Capacity);
+				// The owner index rides along as the bucket's capacity listener; the
+				// hint itself is read through it to keep the args tuple to one reference.
+				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Owner, a.Owner._bucketInitialCapacity);
 				s.Add(a.Key, a.Hash);
 				return s;
 			},
 			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; },
-			(Key: key, Hash: keyHash, Capacity: _bucketInitialCapacity));
+			(Key: key, Hash: keyHash, Owner: this));
 
 		var sizeDelta = (ulong)r.Value.Count;
 		if (r.OldValue is not null)
@@ -368,12 +375,14 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 	internal void AddUnderKey(TIndexKey indexKey, TKey key, int keyHash, long timestampMs) {
 		var r = _cache.AddOrUpdate(indexKey,
 			static (_, a) => {
-				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Capacity);
+				// The owner index rides along as the bucket's capacity listener; the
+				// hint itself is read through it to keep the args tuple to one reference.
+				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Owner, a.Owner._bucketInitialCapacity);
 				s.Add(a.Key, a.Hash);
 				return s;
 			},
 			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; },
-			(Key: key, Hash: keyHash, Capacity: _bucketInitialCapacity));
+			(Key: key, Hash: keyHash, Owner: this));
 
 		var sizeDelta = (ulong)r.Value.Count;
 		var keyDelta = 1UL;
@@ -482,6 +491,11 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		values = ApproximateCount;
 		return _keysSize;
 	}
+
+	public ulong GetCapacitySlots() => (ulong)Volatile.Read(ref _capacitySlots);
+
+	void IPooledSetCapacityListener.OnPooledSetCapacityChanged(int deltaSlots) =>
+		Interlocked.Add(ref _capacitySlots, deltaSlots);
 
 	public IReadOnlyCollection<TKey> GetValues(TIndexKey key) {
 		if (_cache.TryGetValue(key, out var value))
@@ -784,6 +798,8 @@ public sealed class CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TInd
 	}
 
 	public ulong GetCounters(out ulong values) => Forward.GetCounters(out values);
+
+	public ulong GetCapacitySlots() => Forward.GetCapacitySlots() + Reverse.GetCapacitySlots();
 
 	public void Add(TKey key, int keyHash, TValue value, long timestampMs) =>
 		ApplyAll(_collectionSelector(key, value), key, keyHash, timestampMs, add: true);

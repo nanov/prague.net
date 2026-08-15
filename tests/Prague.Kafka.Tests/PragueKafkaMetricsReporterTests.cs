@@ -13,16 +13,20 @@ public sealed class PragueKafkaMetricsReporterTests {
 	private sealed class StubCountableCacheIndex : ICountableCacheIndex {
 		private readonly ulong _keys;
 		private readonly ulong _values;
+		private readonly ulong _capacity;
 
-		public StubCountableCacheIndex(ulong keys, ulong values) {
+		public StubCountableCacheIndex(ulong keys, ulong values, ulong capacity = 0) {
 			_keys = keys;
 			_values = values;
+			_capacity = capacity;
 		}
 
 		public ulong GetCounters(out ulong values) {
 			values = _values;
 			return _keys;
 		}
+
+		public ulong GetCapacitySlots() => _capacity;
 	}
 
 	private sealed class SizedCollector : DataCacheStatisticsCollector {
@@ -322,6 +326,42 @@ public sealed class PragueKafkaMetricsReporterTests {
 	}
 
 	[Test]
+	public void Cache_index_capacity_emits_one_measurement_per_index() {
+		var top = new KafkaCachesStatistics();
+		var c = top.GetOrAddConsumer("clusterA");
+		c.LastPollTimestamp = Stopwatch.GetTimestamp();
+		c.UpdateFromLibrdkafkaStats(new LibrdkafkaStatsSnapshot {
+			Brokers = new Dictionary<string, LibrdkafkaBrokerStats> { ["b1"] = new() { State = "UP" } }
+		});
+		var ds = new DataCacheStatistics(new SizedCollector(0));
+		DataCacheStatisticsMarshall.AddIndex(ds, "idxA", DataCacheIndexType.Many, new StubCountableCacheIndex(10, 15, capacity: 128));
+		DataCacheStatisticsMarshall.AddIndex(ds, "idxB", DataCacheIndexType.Range, new StubCountableCacheIndex(20, 25));
+		var kdc = new KafkaDataCacheStatistics("topic", ds);
+		c.AddCache("cacheX", kdc).AssignedPartitionCount = 1;
+		c.SetCachesLoadingCount(0);
+
+		using var reporter = new PragueKafkaMetricsReporter(top, new KafkaCachesHealthOptions(), prefix: "");
+		var (capture, listener) = StartListener(reporter);
+		using (listener) {
+			listener.RecordObservableInstruments();
+		}
+
+		var rows = capture.ByInstrument["prague.kafka.cache.index.capacity"];
+		Assert.That(rows, Has.Count.EqualTo(2), "one capacity measurement per index, no kind split");
+
+		var idxA = rows.Single(r => TagValue(r.Tags, "index") == "idxA");
+		var idxB = rows.Single(r => TagValue(r.Tags, "index") == "idxB");
+		Assert.That(idxA.Value, Is.EqualTo(128));
+		Assert.That(idxB.Value, Is.EqualTo(0), "non-tracking index kinds report zero capacity");
+
+		foreach (var row in rows) {
+			Assert.That(TagValue(row.Tags, "consumer"), Is.EqualTo("clusterA"));
+			Assert.That(TagValue(row.Tags, "cache"), Is.EqualTo("cacheX"));
+			Assert.That(row.Tags.Select(t => t.Key), Has.No.Member("kind"));
+		}
+	}
+
+	[Test]
 	public void Prefix_namespaces_all_instrument_names() {
 		var top = new KafkaCachesStatistics();
 		var c = top.GetOrAddConsumer("clusterA");
@@ -348,7 +388,7 @@ public sealed class PragueKafkaMetricsReporterTests {
 		listener.Start();
 		listener.RecordObservableInstruments();
 
-		Assert.That(seenNames, Has.Count.EqualTo(7));
+		Assert.That(seenNames, Has.Count.EqualTo(8));
 		foreach (var name in seenNames)
 			Assert.That(name, Does.StartWith("custom.prague.kafka."));
 	}
@@ -430,7 +470,7 @@ public sealed class PragueKafkaMetricsReporterTests {
 		};
 		listener.Start();
 
-		Assert.That(names, Has.Count.EqualTo(7), "all 7 Prague.Kafka instruments should be registered");
+		Assert.That(names, Has.Count.EqualTo(8), "all 8 Prague.Kafka instruments should be registered");
 		Assert.That(names, Is.All.StartWith("prague.kafka."));
 	}
 
@@ -452,7 +492,7 @@ public sealed class PragueKafkaMetricsReporterTests {
 		};
 		listener.Start();
 
-		Assert.That(names, Has.Count.EqualTo(7));
+		Assert.That(names, Has.Count.EqualTo(8));
 		Assert.That(names, Is.All.StartWith("prague.kafka."));
 		Assert.That(names, Has.None.StartWith("custom."));
 	}

@@ -33,6 +33,13 @@ internal sealed class PragueKafkaMetricsReporter : IDisposable {
 				new("index", k.Item3), new("kind", k.Item4 ? "keys" : "values")
 			};
 
+	// Capacity is one number per index (no keys/values split), so no "kind" tag.
+	private static readonly Func<(string, string, string), byte, KeyValuePair<string, object?>[]>
+		s_indexCapacityTagBuilder =
+			static (k, _) => new KeyValuePair<string, object?>[] {
+				new("consumer", k.Item1), new("cache", k.Item2), new("index", k.Item3)
+			};
+
 	private readonly KafkaCachesStatistics _statistics;
 	private readonly KafkaCachesHealthOptions _healthOptions;
 	private readonly Meter _meter;
@@ -41,6 +48,8 @@ internal sealed class PragueKafkaMetricsReporter : IDisposable {
 	private readonly QuickLookupCache<(string, string), KeyValuePair<string, object?>[]> _cacheTags = new();
 	private readonly QuickLookupCache<(string, string, string, bool), KeyValuePair<string, object?>[]>
 		_indexTags = new();
+	private readonly QuickLookupCache<(string, string, string), KeyValuePair<string, object?>[]>
+		_indexCapacityTags = new();
 
 	private readonly ReusableMeasurementSource<long> _consumerPartitions = new();
 	private readonly ReusableMeasurementSource<long> _consumerRtt = new();
@@ -49,6 +58,7 @@ internal sealed class PragueKafkaMetricsReporter : IDisposable {
 	private readonly ReusableMeasurementSource<long> _cacheMessages = new();
 	private readonly ReusableMeasurementSource<int> _cacheHealth = new();
 	private readonly ReusableMeasurementSource<long> _indexSize = new();
+	private readonly ReusableMeasurementSource<long> _indexCapacity = new();
 
 	internal Meter Meter => _meter;
 
@@ -91,6 +101,10 @@ internal sealed class PragueKafkaMetricsReporter : IDisposable {
 		_meter.CreateObservableUpDownCounter($"{prefix}prague.kafka.cache.index.size",
 			ObserveIndexSize, "{item}",
 			"Current key/value count of the index");
+
+		_meter.CreateObservableUpDownCounter($"{prefix}prague.kafka.cache.index.capacity",
+			ObserveIndexCapacity, "{slot}",
+			"Slots currently rented by the index's backing sets (utilization = size/capacity)");
 	}
 
 	private IEnumerable<Measurement<long>> ObserveConsumerPartitionsAssigned() {
@@ -196,6 +210,27 @@ internal sealed class PragueKafkaMetricsReporter : IDisposable {
 			}
 		}
 		return _indexSize;
+	}
+
+	private IEnumerable<Measurement<long>> ObserveIndexCapacity() {
+		var consumers = _statistics.Consumers;
+		var count = 0;
+		foreach (var (_, c) in consumers) {
+			foreach (var (_, k) in c.Caches)
+				count += k.Statistics.Indexes.Count;
+		}
+		var buffer = _indexCapacity.Prepare(count);
+		var i = 0;
+		foreach (var (cName, cStats) in consumers) {
+			foreach (var (kName, kStats) in cStats.Caches) {
+				foreach (var (iName, iStats) in kStats.Statistics.Indexes) {
+					var tags = _indexCapacityTags.GetOrAdd(
+						(cName, kName, iName), s_indexCapacityTagBuilder, default);
+					buffer[i++] = CreateMeasurement((long)iStats.LiveCapacitySlots, tags);
+				}
+			}
+		}
+		return _indexCapacity;
 	}
 
 	public void Dispose() => _meter.Dispose();
