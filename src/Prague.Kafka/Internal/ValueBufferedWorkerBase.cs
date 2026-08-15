@@ -14,6 +14,9 @@ using System.Runtime.CompilerServices;
 internal abstract class ValueBufferedWorkerBase<T> : IDisposable where T : struct {
 	private const int SpinThreshold = 200;
 
+	/// <summary>How long <see cref="Dispose"/> waits for the worker thread to leave <see cref="Loop"/>.</summary>
+	private const int DisposeJoinTimeoutMs = 1000;
+
 	internal readonly T[] _buffer;
 	internal readonly int _mask;
 	internal readonly AutoResetEvent _itemEvt = new(false);
@@ -25,6 +28,7 @@ internal abstract class ValueBufferedWorkerBase<T> : IDisposable where T : struc
 	private readonly Thread _thread;
 	private volatile bool _completed; // soft stop (TryComplete) — drain remaining
 	private volatile bool _stop; // hard stop (Dispose / cancel) — drop remaining
+	private volatile bool _started; // Start() called — distinguishes "no thread" from "thread won't exit"
 	private Exception? _completeException;
 	private CancellationToken _ct;
 	private CancellationTokenRegistration _ctRegistration;
@@ -56,6 +60,7 @@ internal abstract class ValueBufferedWorkerBase<T> : IDisposable where T : struc
 		_ct = ct;
 		if (ct.CanBeCanceled)
 			_ctRegistration = ct.Register(static s => ((ValueBufferedWorkerBase<T>)s!).OnCancel(), this);
+		_started = true;
 		_thread.Start();
 	}
 
@@ -159,17 +164,50 @@ internal abstract class ValueBufferedWorkerBase<T> : IDisposable where T : struc
 		}
 	}
 
+	/// <summary>
+	///   True once the worker thread has been observed leaving <see cref="Loop"/>. While it is false
+	///   after a <see cref="Dispose"/> attempt, the thread is still running and still owns the wait
+	///   handles, so no one may dispose them.
+	/// </summary>
+	protected bool WorkerThreadExited { get; private set; }
+
 	public virtual void Dispose() {
 		if (_stop)
 			return;
 		_stop = true;
+		if (!_started) {
+			// Never launched: no thread to abandon and nothing queued can ever be drained by one, so
+			// this is a clean close rather than an abandonment.
+			WorkerThreadExited = true;
+			_completionTcs.TrySetResult();
+			_itemEvt.Dispose();
+			_spaceEvt.Dispose();
+			GC.SuppressFinalize(this);
+			return;
+		}
+
 		_itemEvt.Set();
 		_spaceEvt.Set();
+		var exited = false;
 		try {
-			_thread.Join(1000);
+			exited = _thread.Join(DisposeJoinTimeoutMs);
 		}
 		catch {
 			// ignore
+		}
+
+		WorkerThreadExited = exited;
+		if (!exited) {
+			// The thread is still inside Loop: parked on a handle, or blocked in the user handler.
+			// Disposing the handles here throws ObjectDisposedException *on that thread*, from outside
+			// the per-item try, so it unwinds straight to Loop's finally and completes the TCS as
+			// success -- an abandoned worker reporting a clean drain, which is what let
+			// WaitForCompletionAsync claim a drain that never happened. Leave the handles to their
+			// finalizers (SafeHandle owns the kernel object) and fault the completion instead.
+			_completionTcs.TrySetException(new TimeoutException(
+				$"[Prague] Worker '{_thread.Name}' did not exit within {DisposeJoinTimeoutMs} ms. "
+				+ $"Approximately {QueuedApprox} queued item(s) were not drained."));
+			return;
 		}
 
 		_itemEvt.Dispose();

@@ -71,6 +71,10 @@ internal abstract class AsyncValueBufferedWorker<T> : ValueBufferedWorkerBase<T>
 
 	public override void Dispose() {
 		base.Dispose();
-		_processDoneEvt.Dispose();
+		// Only safe once the worker thread is gone: InvokeProcess parks on this handle while an async
+		// ValueTask continuation is in flight, so disposing it under a live thread is the same defect
+		// the base class avoids for its own two handles.
+		if (WorkerThreadExited)
+			_processDoneEvt.Dispose();
 	}
 }
