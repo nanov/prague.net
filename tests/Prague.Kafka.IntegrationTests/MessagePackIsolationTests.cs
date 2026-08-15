@@ -23,6 +23,29 @@ public class MessagePackIsolationTests {
 		PragueMessagePack.ResetForTests();
 	}
 
+	private readonly List<IServiceProvider> _providers = new();
+
+	/// <summary>
+	///   Runs whatever the test did. A failing test never reaches its own StopAsync call, and a consumer
+	///   left alive stays a member of the group — from then on every later test's join has to rebalance
+	///   around a zombie, which is what makes initial loads stall.
+	/// </summary>
+	[TearDown]
+	public async Task TearDownProviders() {
+		foreach (var provider in _providers)
+			try {
+				await provider.GetRequiredService<IHostedService>().StopAsync(CancellationToken.None);
+			}
+			catch {
+				// teardown must not mask the test's own failure
+			}
+			finally {
+				(provider as IDisposable)?.Dispose();
+			}
+
+		_providers.Clear();
+	}
+
 	[TearDown]
 	public void ResetAfter() => PragueMessagePack.ResetForTests();
 
@@ -60,6 +83,7 @@ public class MessagePackIsolationTests {
 		Assert.That(received.CorrelationId, Is.EqualTo(sent.CorrelationId));
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	[Test]
@@ -137,13 +161,17 @@ public class MessagePackIsolationTests {
 		Assert.That(received!.CreatedAt.ToUniversalTime(), Is.EqualTo(instantUtc));
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	private (IServiceProvider sp, IHostedService hosted) BuildServiceProvider() {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			}).Build();
 
 		services.AddSingleton<IConfiguration>(configuration);
@@ -153,6 +181,7 @@ public class MessagePackIsolationTests {
 		});
 
 		var sp = services.BuildServiceProvider();
+		_providers.Add(sp);
 		var hosted = sp.GetRequiredService<IHostedService>();
 		return (sp, hosted);
 	}

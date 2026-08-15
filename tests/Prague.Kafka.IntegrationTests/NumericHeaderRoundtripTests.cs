@@ -19,6 +19,29 @@ public class NumericHeaderRoundtripTests {
 		await DualKafkaClusterFixture.CreateTopicAsync(DualKafkaClusterFixture.BootstrapServersA, _topic);
 	}
 
+	private readonly List<IServiceProvider> _providers = new();
+
+	/// <summary>
+	///   Runs whatever the test did. A failing test never reaches its own StopAsync call, and a consumer
+	///   left alive stays a member of the group — from then on every later test's join has to rebalance
+	///   around a zombie, which is what makes initial loads stall.
+	/// </summary>
+	[TearDown]
+	public async Task TearDownProviders() {
+		foreach (var provider in _providers)
+			try {
+				await provider.GetRequiredService<IHostedService>().StopAsync(CancellationToken.None);
+			}
+			catch {
+				// teardown must not mask the test's own failure
+			}
+			finally {
+				(provider as IDisposable)?.Dispose();
+			}
+
+		_providers.Clear();
+	}
+
 	[Test]
 	public async Task IntAndLongHeaderProperties_RoundTrip_ViaCodegenDericherAndEnricher() {
 		// Produce: build entity, use codegen Derich(...) to populate headers, then write to real Kafka.
@@ -63,6 +86,7 @@ public class NumericHeaderRoundtripTests {
 		Assert.That(received.EventTimestamp, Is.EqualTo(long.MaxValue), "MessagePack-encoded long header round-trip");
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	[Test]
@@ -95,13 +119,17 @@ public class NumericHeaderRoundtripTests {
 		Assert.That(received.EventTimestamp, Is.EqualTo(9876543210L), "Legacy raw 8-byte long header must decode via fallback");
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	private (IServiceProvider sp, IHostedService hosted) BuildServiceProvider() {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			})
 			.Build();
 
@@ -112,6 +140,7 @@ public class NumericHeaderRoundtripTests {
 		});
 
 		var sp = services.BuildServiceProvider();
+		_providers.Add(sp);
 		var hosted = sp.GetRequiredService<IHostedService>();
 		return (sp, hosted);
 	}

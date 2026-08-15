@@ -49,7 +49,17 @@ internal class KafkaCachesLoader: IDisposable {
 			var now = Stopwatch.GetTimestamp();
 			foreach (var consumer in _consumers)
 				await consumer.ExecuteAsync(_stoppingCts.Token);
-			await Task.WhenAll(_consumers.Select(x => x.WaitForInitialLoadAsync()));
+			try {
+				await Task.WhenAll(_consumers.Select(x => x.WaitForInitialLoadAsync(_stoppingCts.Token)));
+			}
+			catch (OperationCanceledException) {
+				// Report unconditionally: the caller's own token firing IS the timeout case, and a bare
+				// TaskCanceledException here is what made stalled loads undiagnosable.
+				throw new TimeoutException(
+					$"[Prague] Initial cache load did not complete after "
+					+ $"{Stopwatch.GetElapsedTime(now).TotalSeconds:F1}s. Caches still awaiting partition EOF: ["
+					+ string.Join(", ", _consumers.SelectMany(c => c.PendingCaches)) + "]");
+			}
 			// TODO: source generated logs
 			_logger.LogInformation("[Prague] Kafka caches loaded in {ElapsedMilliseconds} ms", Stopwatch.GetElapsedTime(now).TotalMilliseconds);
 			DataCacheRegistryMarshall.SetLoaded(_registry, null);

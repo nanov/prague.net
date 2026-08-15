@@ -19,9 +19,33 @@ public class LifecycleTests {
 		await DualKafkaClusterFixture.CreateTopicAsync(DualKafkaClusterFixture.BootstrapServersA, _topic);
 	}
 
+	private readonly List<IServiceProvider> _providers = new();
+
+	/// <summary>
+	///   Runs whatever the test did. A failing test never reaches its own StopAsync call, and a consumer
+	///   left alive stays a member of the group — from then on every later test's join has to rebalance
+	///   around a zombie, which is what makes initial loads stall.
+	/// </summary>
+	[TearDown]
+	public async Task TearDownProviders() {
+		foreach (var provider in _providers)
+			try {
+				await provider.GetRequiredService<IHostedService>().StopAsync(CancellationToken.None);
+			}
+			catch {
+				// teardown must not mask the test's own failure
+			}
+			finally {
+				(provider as IDisposable)?.Dispose();
+			}
+
+		_providers.Clear();
+	}
+
 	[Test]
 	public async Task EmptyTopic_LoadsCleanly_AndCacheIsEmpty() {
-		var sp = BuildServices().BuildServiceProvider();
+		using var sp = BuildServices().BuildServiceProvider();
+		_providers.Add(sp);
 		var hosted = sp.GetRequiredService<IHostedService>();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
@@ -33,6 +57,7 @@ public class LifecycleTests {
 		Assert.That(cache.Cache.Count, Is.EqualTo(0), "Empty topic should load to an empty cache");
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	[Test]
@@ -47,7 +72,8 @@ public class LifecycleTests {
 			seeder.Flush(TimeSpan.FromSeconds(10));
 		}
 
-		var sp = BuildServices().BuildServiceProvider();
+		using var sp = BuildServices().BuildServiceProvider();
+		_providers.Add(sp);
 		var hosted = sp.GetRequiredService<IHostedService>();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
@@ -61,11 +87,13 @@ public class LifecycleTests {
 		Assert.That(e5!.Name, Is.EqualTo("e-5"));
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	[Test]
 	public async Task HostedService_StartStop_Completes() {
-		var sp = BuildServices().BuildServiceProvider();
+		using var sp = BuildServices().BuildServiceProvider();
+		_providers.Add(sp);
 		var hosted = sp.GetRequiredService<IHostedService>();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
@@ -81,7 +109,10 @@ public class LifecycleTests {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			})
 			.Build();
 
