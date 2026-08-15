@@ -135,6 +135,30 @@ public class LifecycleTests {
 		}
 	}
 
+	/// <summary>
+	///   #49: the token sources are disposed now, so every shutdown entry point has to tolerate running
+	///   after disposal. Stop, dispose, stop again, then let DI dispose — none of it may fault on a
+	///   released CancellationTokenSource.
+	/// </summary>
+	[Test]
+	public async Task StopAfterDispose_DoesNotFaultOnAReleasedTokenSource() {
+		var sp = BuildServices().BuildServiceProvider();
+		_providers.Add(sp);
+		var hosted = sp.GetRequiredService<IHostedService>();
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+		await hosted.StartAsync(cts.Token);
+		await sp.GetRequiredService<KafkaCachesLoader>().StartAsync(cts.Token);
+
+		await hosted.StopAsync(CancellationToken.None);
+		Assert.DoesNotThrow(() => (hosted as IDisposable)?.Dispose(),
+			"disposing the worker must release the loader and consumer sources without throwing");
+		Assert.DoesNotThrow(() => (hosted as IDisposable)?.Dispose(), "Dispose must be idempotent");
+		Assert.DoesNotThrowAsync(async () => await hosted.StopAsync(CancellationToken.None),
+			"a stop after disposal must not touch the released source");
+		Assert.DoesNotThrow(() => sp.Dispose(), "DI teardown after a manual dispose must be safe");
+	}
+
 	private void Produce(int id) {
 		using var producer = DualKafkaClusterFixture.NewProducer(DualKafkaClusterFixture.BootstrapServersA);
 		producer.Produce(_topic, new Message<byte[], byte[]> {
