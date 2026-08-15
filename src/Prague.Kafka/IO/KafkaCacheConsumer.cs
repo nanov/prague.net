@@ -48,6 +48,20 @@ internal abstract class KafkaCacheHandler {
 	internal abstract void StopRawWorker();
 
 	/// <summary>
+	///   Whether the live worker has finished. Drives the shutdown diagnostic: a cache reported here as
+	///   undrained is one whose after-handlers were still running when the host stopped waiting.
+	/// </summary>
+	internal bool IsDrained {
+		get {
+			var completion = WaitForCompletionAsync();
+			// Canceled is the normal graceful stop -- the worker's token *is* the shutdown token. Faulted
+			// is the abandonment TimeoutException from the worker's join deadline. Still pending means the
+			// host stopped waiting first. Only the first of those three is a drain.
+			return completion.IsCompleted && !completion.IsFaulted;
+		}
+	}
+
+	/// <summary>
 	///   Span-based header filtering for the raw path — producer-instance self-filter plus the handler's
 	///   configured header filters, evaluated against UTF-8 name/value spans with no allocation.
 	/// </summary>
@@ -453,8 +467,10 @@ internal class KafkaCacheConsumer : IDisposable {
 	}
 
 	/// <summary>Caches that have not yet observed partition EOF — what a stalled load is waiting on.</summary>
+	// Reports the cache name, not the topic key: the topic is runtime configuration (often generated),
+	// the cache name is what a reader maps back to code.
 	internal IEnumerable<string> PendingCaches
-		=> _handlers.Where(kv => !kv.Value.IsInitialConsumeDone).Select(kv => kv.Key);
+		=> _handlers.Where(kv => !kv.Value.IsInitialConsumeDone).Select(kv => kv.Value.Name);
 
 	internal Task ExecuteAsync(CancellationToken ct) {
 		var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct);
@@ -480,15 +496,31 @@ internal class KafkaCacheConsumer : IDisposable {
 		return Task.CompletedTask;
 	}
 
-	internal async Task WaitForCompletionAsync() {
+	/// <summary>Caches whose live worker has not finished — what a stalled shutdown is waiting on.</summary>
+	internal IEnumerable<string> DrainingCaches
+		=> _handlers.Where(kv => !kv.Value.IsDrained).Select(kv => kv.Value.Name);
+
+	/// <summary>
+	///   Stops the raw loop and drains the live workers.
+	///   <para>
+	///     <paramref name="cancellationToken" /> is the host's shutdown token: when it fires the host has
+	///     stopped waiting, which is not a Prague fault, so the wait is abandoned rather than thrown out
+	///     of <see cref="IHostedService.StopAsync" />. The caller reports what was still draining.
+	///   </para>
+	/// </summary>
+	internal async Task WaitForCompletionAsync(CancellationToken cancellationToken = default) {
 		if (!_disposed)
 			_cts.Cancel();
 		// Order matters: the raw loop's finally stops every handler worker and disposes the consumer
-		// (leave-group), so await the loop first, then drain the workers. Both complete as Canceled on a
-		// graceful stop -- SuppressThrowing keeps a normal shutdown from surfacing as a failed StopAsync.
+		// (leave-group), so await the loop first, then drain the workers. On a graceful stop both complete
+		// as Canceled, an abandoned worker faults with TimeoutException (#50), and WaitAsync throws
+		// OperationCanceledException once the host gives up -- SuppressThrowing folds all three into
+		// "stop waiting", leaving the diagnostic to the caller.
 		if (_channelLoopTask is not null)
-			await _channelLoopTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+			await _channelLoopTask.WaitAsync(cancellationToken)
+				.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 		await Task.WhenAll(_handlers.Values.Select(h => h.WaitForCompletionAsync()))
+			.WaitAsync(cancellationToken)
 			.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 	}
 
@@ -677,6 +709,11 @@ internal static partial class KafkaCacheConsumerLog {
 	[LoggerMessage(Level = LogLevel.Error,
 		Message = "[Prague] Error processing message {CacheName} - {Offset}")]
 	public static partial void ErrorProcessingMessage(this ILogger logger, Exception exception, string cacheName, long offset);
+
+	[LoggerMessage(Level = LogLevel.Warning,
+		Message = "[Prague] Shutdown stopped waiting after {ElapsedMs} ms. Caches still draining: [{DrainingCaches}]. "
+			+ "Their after-handlers were still running; in-flight work was abandoned.")]
+	public static partial void ShutdownDrainAbandoned(this ILogger logger, double elapsedMs, string drainingCaches);
 
 	[LoggerMessage(Level = LogLevel.Critical,
 		Message = "[Prague] {Handler} channel consumption error")]

@@ -39,10 +39,27 @@ internal class KafkaCachesLoader: IDisposable {
 		}
 	}
 
+	/// <summary>
+	///   Cancels the consume loops and waits for the live workers to drain.
+	///   <para>
+	///     <paramref name="cancellationToken" /> is the host's shutdown token. Honouring it is the
+	///     <see cref="IHostedService.StopAsync" /> contract, and it is the only bound on a third-party
+	///     after-handler that will not return. The host giving up is not a Prague fault, so the wait is
+	///     abandoned and reported rather than thrown -- but it is never silent: the caches still draining
+	///     are named, the same way #46 names the caches a stalled initial load is waiting on.
+	///   </para>
+	/// </summary>
 	public async Task StopAsync(CancellationToken cancellationToken) {
 		if (!_disposed)
 			_stoppingCts?.Cancel();
-		await Task.WhenAll(_consumers.Select(x => x.WaitForCompletionAsync()));
+		var now = Stopwatch.GetTimestamp();
+		await Task.WhenAll(_consumers.Select(x => x.WaitForCompletionAsync(cancellationToken)));
+		// Report on anything left undrained, not just on a cancelled token: a worker abandoned at its own
+		// join deadline also leaves in-flight work behind, and WaitForCompletionAsync suppresses that fault
+		// so shutdown does not throw. This is the only place it becomes visible.
+		var draining = string.Join(", ", _consumers.SelectMany(c => c.DrainingCaches));
+		if (draining.Length > 0)
+			_logger.ShutdownDrainAbandoned(Stopwatch.GetElapsedTime(now).TotalMilliseconds, draining);
 	}
 
 	private async Task StartLoadingAsync(CancellationToken cancellationToken) {
@@ -74,6 +91,12 @@ internal class KafkaCachesLoader: IDisposable {
 	/// <summary>
 	///   Cancels and releases the load/stop source, then the consumers' own sources. Cancelling before
 	///   releasing keeps a host that was disposed without a StopAsync from leaving raw loops running.
+	///   <para>
+	///     Deliberately does not await what it cancels. Dispose has no token to bound the wait with and
+	///     runs on paths that must not block (DI teardown, finalization order); the ordered, reportable
+	///     wait belongs to <see cref="StopAsync" />. A loop cancelled here exits on its own, and its
+	///     finally still closes the librdkafka consumer.
+	///   </para>
 	/// </summary>
 	public void Dispose() {
 		if (_disposed)

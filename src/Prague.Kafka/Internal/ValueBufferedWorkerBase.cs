@@ -29,6 +29,10 @@ internal abstract class ValueBufferedWorkerBase<T> : IDisposable where T : struc
 	private volatile bool _completed; // soft stop (TryComplete) — drain remaining
 	private volatile bool _stop; // hard stop (Dispose / cancel) — drop remaining
 	private volatile bool _started; // Start() called — distinguishes "no thread" from "thread won't exit"
+	// Dispose idempotence only. Must not be conflated with _stop: cancellation sets _stop too, and
+	// guarding Dispose on _stop meant a cancelled worker skipped its own join and abandonment report --
+	// i.e. exactly the shutdown path the report exists for.
+	private volatile bool _disposed;
 	private Exception? _completeException;
 	private CancellationToken _ct;
 	private CancellationTokenRegistration _ctRegistration;
@@ -172,8 +176,9 @@ internal abstract class ValueBufferedWorkerBase<T> : IDisposable where T : struc
 	protected bool WorkerThreadExited { get; private set; }
 
 	public virtual void Dispose() {
-		if (_stop)
+		if (_disposed)
 			return;
+		_disposed = true;
 		_stop = true;
 		if (!_started) {
 			// Never launched: no thread to abandon and nothing queued can ever be drained by one, so
