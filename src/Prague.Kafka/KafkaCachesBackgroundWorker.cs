@@ -17,6 +17,7 @@ internal class KafkaCachesLoader: IDisposable {
 	private readonly Lock _startLoadingLock = new();
 	private CancellationTokenSource? _stoppingCts;
 	private Task? _loadingTask;
+	private volatile bool _disposed;
 
 	public KafkaCachesLoader(IServiceProvider serviceProvider, IOptions<KafkaCachesGlobalOptions> globalOptions, IDataCacheRegistry registry, ILogger<KafkaCachesLoader> logger) {
 		_consumers = globalOptions.Value.ClusterNames
@@ -39,7 +40,8 @@ internal class KafkaCachesLoader: IDisposable {
 	}
 
 	public async Task StopAsync(CancellationToken cancellationToken) {
-		_stoppingCts?.Cancel();
+		if (!_disposed)
+			_stoppingCts?.Cancel();
 		await Task.WhenAll(_consumers.Select(x => x.WaitForCompletionAsync()));
 	}
 
@@ -69,8 +71,19 @@ internal class KafkaCachesLoader: IDisposable {
 		}
 	}
 
-	public void Dispose()
-		=> _stoppingCts?.Cancel();
+	/// <summary>
+	///   Cancels and releases the load/stop source, then the consumers' own sources. Cancelling before
+	///   releasing keeps a host that was disposed without a StopAsync from leaving raw loops running.
+	/// </summary>
+	public void Dispose() {
+		if (_disposed)
+			return;
+		_disposed = true;
+		_stoppingCts?.Cancel();
+		_stoppingCts?.Dispose();
+		foreach (var consumer in _consumers)
+			consumer.Dispose();
+	}
 }
 
 
@@ -97,6 +110,7 @@ public abstract class KafkaCachesBackgroundService: IHostedService, IDisposable 
 	private readonly IDataCacheRegistry _cacheRegistry;
 	private Task? _executeTask;
         private CancellationTokenSource? _stoppingCts;
+        private volatile bool _disposed;
         public virtual Task? ExecuteTask => _executeTask;
 
         public KafkaCachesBackgroundService(IDataCacheRegistry cacheRegistry) {
@@ -118,14 +132,21 @@ public abstract class KafkaCachesBackgroundService: IHostedService, IDisposable 
                 return;
 
             try {
-                _stoppingCts!.Cancel(); }
+	            if (!_disposed)
+		            _stoppingCts!.Cancel();
+            }
             finally {
                 await _executeTask.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
 
         }
 
-        public virtual void Dispose()
-					=> _stoppingCts?.Cancel();
+        public virtual void Dispose() {
+	        if (_disposed)
+		        return;
+	        _disposed = true;
+	        _stoppingCts?.Cancel();
+	        _stoppingCts?.Dispose();
+        }
 
 }

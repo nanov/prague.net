@@ -381,10 +381,14 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 
 }
 
-internal class KafkaCacheConsumer {
+internal class KafkaCacheConsumer : IDisposable {
 	private readonly IRawConsumer _rawConsumer;
 	private readonly FrozenDictionary<string, KafkaCacheHandler>.AlternateLookup<ReadOnlySpan<char>> _handlersByName;
 	private readonly CancellationTokenSource _cts = new();
+
+	// Set before _cts is released so a shutdown-path Cancel skips a source it no longer owns. Stop and
+	// Dispose are sequential on every path that reaches here (host shutdown, DI disposal, tests).
+	private volatile bool _disposed;
 
 	private readonly FrozenDictionary<string, KafkaCacheHandler> _handlers;
 	private readonly ILogger<KafkaCacheConsumer> _logger;
@@ -456,14 +460,29 @@ internal class KafkaCacheConsumer {
 		var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct);
 		// Dedicated thread — the raw loop is fully synchronous per message (no per-message await);
 		// per-handler ring-buffer workers start at each cache's partition EOF.
+		//
+		// The linked source is disposed by the delegate itself, the only place guaranteed to run after
+		// the loop has stopped reading its token. That is also why the task is scheduled with None
+		// rather than cts.Token: a token already cancelled at schedule time would leave the delegate
+		// unrun, leaking the linked registration and skipping the loop's finally, which is what closes
+		// the librdkafka consumer. The loop polls ct itself, so scheduling it unconditionally costs a
+		// single cancellation check and guarantees the consumer is always disposed.
 		_channelLoopTask = Task.Factory.StartNew(
-			() => ConsumeRawLoop(_rawConsumer, cts.Token),
-			cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+			() => {
+				try {
+					ConsumeRawLoop(_rawConsumer, cts.Token);
+				}
+				finally {
+					cts.Dispose();
+				}
+			},
+			CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 		return Task.CompletedTask;
 	}
 
 	internal async Task WaitForCompletionAsync() {
-		_cts.Cancel();
+		if (!_disposed)
+			_cts.Cancel();
 		// Order matters: the raw loop's finally stops every handler worker and disposes the consumer
 		// (leave-group), so await the loop first, then drain the workers. Both complete as Canceled on a
 		// graceful stop -- SuppressThrowing keeps a normal shutdown from surfacing as a failed StopAsync.
@@ -471,6 +490,18 @@ internal class KafkaCacheConsumer {
 			await _channelLoopTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 		await Task.WhenAll(_handlers.Values.Select(h => h.WaitForCompletionAsync()))
 			.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+	}
+
+	/// <summary>
+	///   Releases the loop token source. Cancelling first means a consumer disposed without a prior
+	///   StopAsync (DI teardown of a host that never stopped) still tears its raw loop down.
+	/// </summary>
+	public void Dispose() {
+		if (_disposed)
+			return;
+		_disposed = true;
+		_cts.Cancel();
+		_cts.Dispose();
 	}
 
 	private IRawConsumer BuildRawConsumer(IKafkaCacheBuilderProvider provider, ConsumerConfig config) {
