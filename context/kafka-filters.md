@@ -15,7 +15,7 @@ No-filter path is zero-alloc (inline `IsEmpty` check). A thrown predicate is cau
 `FilterDecision { Accept, Skip, Delete }` (`Filters/FilterDecision.cs`). Aggregates `KafkaKeyFilters<TKey>.Evaluate(key)` / `KafkaValueFilters<TValue>.Evaluate(value)` return it; each concrete filter carries `internal abstract bool TreatAsDelete`. **First-reject-wins** — the first rejecting filter's flag picks `Delete` vs `Skip`:
 
 - `Skip` → silent drop on load / live publishes `RAW_KIND_FILTERED` → after-handlers fire with `UpdateType.Filtered`.
-- `Delete` → live publishes `RAW_KIND_DELETE` → `HandleRawLiveDelete` (removes key, fires `UpdateType.Delete` with old value only if key was present) / on load removes the key from the `ValueCompactingBuffer` (no after-handler).
+- `Delete` → live publishes `RAW_KIND_DELETE` → `HandleRawLiveDelete` (removes key, fires `UpdateType.Delete` with old value only if key was present) / on load `RemoveDuringLoad` cancels any buffered value **and** removes the key from the cache (no after-handler). Buffer-only was #35: the compacting buffer is flushed mid-load, so once a key's value had reached the cache the delete was silently lost.
 
 **Caveat:** a key is immutable, so key-filter `treatAsDelete` only evicts when the predicate closes over mutable external state and a *new* message for that key arrives; for pure key predicates it is inert.
 

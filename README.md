@@ -64,6 +64,8 @@ results.Dispose();                               // Return to pool
 
 Kafka topic → consumer → typed `InMemoryDataCache` with secondary indices → pooled `QueryResults<T>`. After-handlers fire on the live phase only; conditional updates (`UpdateType.Same`) suppress phantom churn.
 
+> **Topic requirement — one partition per cache topic.** The initial-load handshake completes per cache on the first partition EOF, so a multi-partition cache topic both goes live before the load has finished *and* leaves readiness permanently reporting `InitialLoadIncomplete`. Prague never creates its own topics (`AllowAutoCreateTopics = false`), so provision them with `--partitions 1`.
+
 ![Prague data flow](www/docs/images/data-flow.png)
 
 Every `WithXxx` adds a candidate-narrowing lane. The runtime intersects them on a stackalloc bitmap and short-circuits on the first empty set — no further index walks, no allocations.
@@ -1333,7 +1335,7 @@ readinessProbe:
 
 | Predicate | Catches |
 |---|---|
-| `InitialLoadIncomplete` | At least one cache hasn't finished its initial load — queries would see partial data |
+| `InitialLoadIncomplete` | At least one cache hasn't finished its initial load — queries would see partial data. Also permanently true if a cache topic has more than one partition (see the topic requirement above) |
 | `NoPartitionAssigned` | A cache's topic has zero partitions assigned (rebalance stuck, ACL revoked, missing topic) |
 | `BrokersDown` | Fewer than `MinBrokersUp` brokers in `UP` state |
 | `PartitionsLost` | Last rebalance event was a partitions-lost (session timeout / broker death) and re-assignment hasn't happened |
