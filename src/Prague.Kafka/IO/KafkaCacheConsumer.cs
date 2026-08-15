@@ -463,7 +463,7 @@ internal class KafkaCacheConsumer {
 				var watermaker = c.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(10));
 				if (watermaker is null) {
 					_logger.NullWatermark(partition.Topic);
-					throw new Exception("Kafka returned null watermark for topic: {partition.Topic}");
+					throw new Exception($"Kafka returned null watermark for topic: {partition.Topic}");
 				}
 
 				if (!_handlers.TryGetValue(partition.Topic, out var handler))

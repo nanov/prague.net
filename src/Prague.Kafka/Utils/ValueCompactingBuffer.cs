@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 
 /// <summary>
 ///   Object-level last-write-wins compaction buffer for the raw consume path's loading phase.
-///   Unlike <see cref="CompactingBuffer{TKey}"/> (which held pooled value bytes), this holds the
+///   Unlike the byte-level compacting buffer it replaced (which held pooled value bytes), this holds the
 ///   already-deserialized + enriched <typeparamref name="TValue"/> — the raw path can't retain the
 ///   native value spans, and copying bytes back into a pool is exactly the allocation we're cutting.
 ///   Deduping the materialized object by key still skips the costly <c>AddOrUpdate</c>/index work for
