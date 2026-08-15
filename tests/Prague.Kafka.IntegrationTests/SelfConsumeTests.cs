@@ -25,7 +25,10 @@ public class SelfConsumeTests {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			})
 			.Build();
 
@@ -35,7 +38,7 @@ public class SelfConsumeTests {
 			b.AddCache<FilterEntityCache, int, FilterEntity>(_topic);
 		});
 
-		var sp = services.BuildServiceProvider();
+		using var sp = services.BuildServiceProvider();
 		var hosted = sp.GetRequiredService<IHostedService>();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 		await hosted.StartAsync(cts.Token);
@@ -67,6 +70,7 @@ public class SelfConsumeTests {
 		Assert.That(cache.Cache.TryGet(1, out _), Is.False, "Self-produced write must be filtered out");
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 15000) {

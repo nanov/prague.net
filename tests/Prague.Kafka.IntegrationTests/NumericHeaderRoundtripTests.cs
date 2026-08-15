@@ -63,6 +63,7 @@ public class NumericHeaderRoundtripTests {
 		Assert.That(received.EventTimestamp, Is.EqualTo(long.MaxValue), "MessagePack-encoded long header round-trip");
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	[Test]
@@ -95,13 +96,17 @@ public class NumericHeaderRoundtripTests {
 		Assert.That(received.EventTimestamp, Is.EqualTo(9876543210L), "Legacy raw 8-byte long header must decode via fallback");
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	private (IServiceProvider sp, IHostedService hosted) BuildServiceProvider() {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			})
 			.Build();
 

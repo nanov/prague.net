@@ -39,7 +39,10 @@ public class LoadFailureTests {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			})
 			.Build();
 
@@ -47,7 +50,7 @@ public class LoadFailureTests {
 		services.AddLogging();
 		services.AddKafkaCaches("KafkaConfig", b => b.AddCache<FilterEntityCache, int, FilterEntity>(_topic));
 
-		var sp = services.BuildServiceProvider();
+		using var sp = services.BuildServiceProvider();
 
 		// A secondary index whose selector throws is the only user code on the cache-mutation path,
 		// so it is how a mutation failure is provoked without a fake cache.

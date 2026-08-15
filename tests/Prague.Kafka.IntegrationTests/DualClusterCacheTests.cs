@@ -71,7 +71,13 @@ public class DualClusterCacheTests {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> {
                 { "ClusterA:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
-                { "ClusterB:BootstrapServers", DualKafkaClusterFixture.BootstrapServersB }
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "ClusterA:ClientSettings:group.id", Guid.NewGuid().ToString() },
+                { "ClusterB:BootstrapServers", DualKafkaClusterFixture.BootstrapServersB },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "ClusterB:ClientSettings:group.id", Guid.NewGuid().ToString() }
             })
             .Build();
 
@@ -92,7 +98,7 @@ public class DualClusterCacheTests {
             b.AddCache<OrderCache, int, Order>(_orderTopic);
         });
 
-        var sp = services.BuildServiceProvider();
+        using var sp = services.BuildServiceProvider();
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 

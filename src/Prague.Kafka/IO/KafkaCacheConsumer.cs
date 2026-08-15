@@ -414,13 +414,20 @@ internal class KafkaCacheConsumer {
 		_topics = _handlers.Keys.ToArray();
 		_manualReset = new AsyncCountdownEvent(_handlers.Count, statistics);
 
-		var config = new ConsumerConfig(configuration.ClientSettings.ToDictionary(kv => kv.Key, kv => kv.Value)) {
+		var clientSettings = configuration.ClientSettings.ToDictionary(kv => kv.Key, kv => kv.Value);
+		// A caller-supplied group.id must win. The initializer below is applied after the dictionary, so
+		// hardcoding InstanceId here silently discarded it and forced every consumer in the process into a
+		// single group -- where one member leaving triggers a rebalance that can stall another member's
+		// initial load indefinitely.
+		clientSettings.TryGetValue("group.id", out var configuredGroupId);
+
+		var config = new ConsumerConfig(clientSettings) {
 			BootstrapServers = configuration.BootstrapServers,
 			PartitionAssignmentStrategy = PartitionAssignmentStrategy.CooperativeSticky, // better safe then sorry
 			// TODO: add sensible conifg for fast consume, minumum latency
 			AllowAutoCreateTopics = false,
 			EnablePartitionEof = true,
-			GroupId = KafkaCaches.InstanceId.ToString(),
+			GroupId = string.IsNullOrWhiteSpace(configuredGroupId) ? KafkaCaches.InstanceId.ToString() : configuredGroupId,
 			AutoOffsetReset = AutoOffsetReset.Earliest,
 			EnableAutoCommit = false,
 			EnableAutoOffsetStore = false,
@@ -437,9 +444,13 @@ internal class KafkaCacheConsumer {
 		_rawConsumer = BuildRawConsumer(kafkaCacheBuilderProvider, config);
 	}
 
-	public Task WaitForInitialLoadAsync() {
-		return _manualReset.WaitAsync();
+	public Task WaitForInitialLoadAsync(CancellationToken ct = default) {
+		return _manualReset.WaitAsync(ct);
 	}
+
+	/// <summary>Caches that have not yet observed partition EOF — what a stalled load is waiting on.</summary>
+	internal IEnumerable<string> PendingCaches
+		=> _handlers.Where(kv => !kv.Value.IsInitialConsumeDone).Select(kv => kv.Key);
 
 	internal Task ExecuteAsync(CancellationToken ct) {
 		var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct);

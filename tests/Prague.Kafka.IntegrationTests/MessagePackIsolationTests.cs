@@ -60,6 +60,7 @@ public class MessagePackIsolationTests {
 		Assert.That(received.CorrelationId, Is.EqualTo(sent.CorrelationId));
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	[Test]
@@ -137,13 +138,17 @@ public class MessagePackIsolationTests {
 		Assert.That(received!.CreatedAt.ToUniversalTime(), Is.EqualTo(instantUtc));
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	private (IServiceProvider sp, IHostedService hosted) BuildServiceProvider() {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			}).Build();
 
 		services.AddSingleton<IConfiguration>(configuration);

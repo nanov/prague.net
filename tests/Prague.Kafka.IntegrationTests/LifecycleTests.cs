@@ -21,7 +21,7 @@ public class LifecycleTests {
 
 	[Test]
 	public async Task EmptyTopic_LoadsCleanly_AndCacheIsEmpty() {
-		var sp = BuildServices().BuildServiceProvider();
+		using var sp = BuildServices().BuildServiceProvider();
 		var hosted = sp.GetRequiredService<IHostedService>();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
@@ -33,6 +33,7 @@ public class LifecycleTests {
 		Assert.That(cache.Cache.Count, Is.EqualTo(0), "Empty topic should load to an empty cache");
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	[Test]
@@ -47,7 +48,7 @@ public class LifecycleTests {
 			seeder.Flush(TimeSpan.FromSeconds(10));
 		}
 
-		var sp = BuildServices().BuildServiceProvider();
+		using var sp = BuildServices().BuildServiceProvider();
 		var hosted = sp.GetRequiredService<IHostedService>();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
@@ -61,11 +62,12 @@ public class LifecycleTests {
 		Assert.That(e5!.Name, Is.EqualTo("e-5"));
 
 		await hosted.StopAsync(CancellationToken.None);
+		(sp as IDisposable)?.Dispose();
 	}
 
 	[Test]
 	public async Task HostedService_StartStop_Completes() {
-		var sp = BuildServices().BuildServiceProvider();
+		using var sp = BuildServices().BuildServiceProvider();
 		var hosted = sp.GetRequiredService<IHostedService>();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
@@ -81,7 +83,10 @@ public class LifecycleTests {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			})
 			.Build();
 

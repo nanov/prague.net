@@ -149,7 +149,10 @@ public class AfterHandlerTests {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
 			.AddInMemoryCollection(new Dictionary<string, string?> {
-				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA }
+				{ "KafkaConfig:BootstrapServers", DualKafkaClusterFixture.BootstrapServersA },
+				// Own group per provider: sharing one group.id across tests means each teardown
+				// rebalances the group and can stall a neighbouring test's initial load.
+				{ "KafkaConfig:ClientSettings:group.id", Guid.NewGuid().ToString() }
 			})
 			.Build();
 
@@ -172,6 +175,11 @@ public class AfterHandlerTests {
 	private static async Task StopAsync(IServiceProvider sp) {
 		var hosted = sp.GetRequiredService<IHostedService>();
 		await hosted.StopAsync(CancellationToken.None);
+		// Every cache in the process shares one group.id (KafkaCaches.InstanceId is static), so a consumer
+		// left alive here stays a group member: it delays the rebalance the next test's join triggers, and
+		// that test then waits on an initial load that cannot complete. Disposing cancels the consume loop,
+		// whose finally closes the consumer and leaves the group.
+		(sp as IDisposable)?.Dispose();
 	}
 
 	private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 15000) {
