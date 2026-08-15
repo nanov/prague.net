@@ -1,0 +1,25 @@
+<Project>
+
+	<!--
+	  Transitive pin, applied to every project that actually pulls Testcontainers.
+
+	  Every Testcontainers release through 4.13.0 pins SSH.NET 2025.1.0, which carries
+	  GHSA-q939-rpr3-3284 (high). NuGetAudit + TreatWarningsAsErrors turn that into NU1903 and fail
+	  restore. 2026.0.0 is the patched version. Remove once Testcontainers bumps its own pin.
+
+	  This lives in Directory.Build.targets, not Directory.Build.props, because only .targets is
+	  imported after the project body, so @(PackageReference) is populated and the pin can be scoped to
+	  the projects that need it instead of being repeated per project. Repeating it per project is how
+	  perf/Prague.Baseline.Harness was missed, which left the tripwire job red on every PR.
+
+	  The test must be an item function on the ItemGroup. A PropertyGroup cannot carry it: properties
+	  are evaluated before items, so @(PackageReference) reads as empty there.
+
+	  Scoped to non-packable projects too, so a shipped package never gains an SSH.NET dependency from
+	  a pin that exists only to satisfy the audit on test and perf harnesses.
+	-->
+	<ItemGroup Condition="'$(IsPackable)' == 'false' AND '@(PackageReference->WithMetadataValue('Identity','Testcontainers.Kafka'))' != ''">
+		<PackageReference Include="SSH.NET" Version="2026.0.0" />
+	</ItemGroup>
+
+</Project>
