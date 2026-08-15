@@ -21,6 +21,29 @@ public class ValueFilterTests {
 		await DualKafkaClusterFixture.CreateTopicAsync(DualKafkaClusterFixture.BootstrapServersA, _topic);
 	}
 
+	private readonly List<IServiceProvider> _providers = new();
+
+	/// <summary>
+	///   Runs whatever the test did. A failing test never reaches its own StopAsync call, and a consumer
+	///   left alive stays a member of the group — from then on every later test's join has to rebalance
+	///   around a zombie, which is what makes initial loads stall.
+	/// </summary>
+	[TearDown]
+	public async Task TearDownProviders() {
+		foreach (var provider in _providers)
+			try {
+				await provider.GetRequiredService<IHostedService>().StopAsync(CancellationToken.None);
+			}
+			catch {
+				// teardown must not mask the test's own failure
+			}
+			finally {
+				(provider as IDisposable)?.Dispose();
+			}
+
+		_providers.Clear();
+	}
+
 	[Test]
 	public async Task WithValueFilter_RejectsValuesFailingPredicate_DuringInitialLoad() {
 		using var producer = DualKafkaClusterFixture.NewProducer(DualKafkaClusterFixture.BootstrapServersA);
@@ -193,6 +216,7 @@ public class ValueFilterTests {
 		});
 
 		var sp = services.BuildServiceProvider();
+		_providers.Add(sp);
 		var hosted = sp.GetRequiredService<IHostedService>();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 		await hosted.StartAsync(cts.Token);
