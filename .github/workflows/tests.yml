@@ -1,0 +1,45 @@
+name: tests
+
+# PR gate. Runs the exact same three commands as release.yml's `test` job against the same
+# solution filter, so "green PR" means "releasable commit" -- there is no second-class gate
+# for the two to drift apart.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest   # has Docker preinstalled -> Testcontainers.Kafka integration tests run
+    timeout-minutes: 30      # the Kafka integration suite spins two brokers; ~5 min when healthy
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every project in Prague.Tests.slnf multi-targets net9.0;net10.0, so both SDKs are
+      # required to build and to run the test matrix. (release.yml requests only 9.0.x and
+      # gets away with it via the runner image's preinstalled 10 SDK -- see PR description.)
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore Prague.Tests.slnf
+
+      - name: Build
+        run: dotnet build Prague.Tests.slnf -c Release --no-restore
+
+      # Full suite: Core, DI, Generated, Kafka.Tests, Kafka.IntegrationTests -- x net9.0 + net10.0.
+      - name: Test
+        run: dotnet test Prague.Tests.slnf -c Release --no-build
