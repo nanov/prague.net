@@ -105,6 +105,46 @@ public class LifecycleTests {
 		Assert.DoesNotThrowAsync(async () => await hosted.StopAsync(CancellationToken.None));
 	}
 
+	/// <summary>
+	///   Regression for #43: StopAsync called the loader's StartAsync, so a graceful stop left the raw
+	///   consume loop polling and the live workers running. A stopped host must apply nothing more.
+	/// </summary>
+	[Test]
+	public async Task HostedService_Stop_HaltsLiveConsumption() {
+		Produce(1);
+
+		using var sp = BuildServices().BuildServiceProvider();
+		_providers.Add(sp);
+		var hosted = sp.GetRequiredService<IHostedService>();
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+		await hosted.StartAsync(cts.Token);
+		await sp.GetRequiredService<KafkaCachesLoader>().StartAsync(cts.Token);
+
+		var cache = sp.GetRequiredService<FilterEntityCache>();
+		Assert.That(cache.Cache.Count, Is.EqualTo(1), "Seeded record must be loaded before the stop");
+
+		await hosted.StopAsync(CancellationToken.None);
+
+		// Published strictly after the stop returned: a stopped consumer must never observe it.
+		Produce(2);
+		for (var i = 0; i < 20; i++) {
+			Assert.That(cache.Cache.TryGet(2, out _), Is.False,
+				"Stopped consumer applied a record published after StopAsync returned");
+			await Task.Delay(100);
+		}
+	}
+
+	private void Produce(int id) {
+		using var producer = DualKafkaClusterFixture.NewProducer(DualKafkaClusterFixture.BootstrapServersA);
+		producer.Produce(_topic, new Message<byte[], byte[]> {
+			Key = MessagePackSerializer.Serialize(id),
+			Value = MessagePackSerializer.Serialize(new FilterEntity { Id = id, Name = $"e-{id}", Value = id }),
+			Headers = new Headers()
+		});
+		producer.Flush(TimeSpan.FromSeconds(10));
+	}
+
 	private ServiceCollection BuildServices() {
 		var services = new ServiceCollection();
 		var configuration = new ConfigurationBuilder()
