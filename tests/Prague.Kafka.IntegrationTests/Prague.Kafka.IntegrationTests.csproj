@@ -22,11 +22,7 @@
     </PackageReference>
     <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
     <PackageReference Include="Testcontainers.Kafka" Version="4.11.0" />
-    <!-- Transitive pin: every Testcontainers release through 4.13.0 pins SSH.NET 2025.1.0,
-         which carries GHSA-q939-rpr3-3284 (high). NuGetAudit + TreatWarningsAsErrors turn that
-         into NU1903 and fail restore. 2026.0.0 is the patched version. Remove once
-         Testcontainers bumps its own pin. -->
-    <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <!-- The SSH.NET transitive pin Testcontainers requires is applied by Directory.Build.targets. -->
   </ItemGroup>
 
   <ItemGroup>
