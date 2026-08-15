@@ -462,10 +462,15 @@ internal class KafkaCacheConsumer {
 		return Task.CompletedTask;
 	}
 
-	internal Task WaitForCompletionAsync() {
+	internal async Task WaitForCompletionAsync() {
 		_cts.Cancel();
-		Task.WhenAll(_handlers.Values.Select(h => h.WaitForCompletionAsync()));
-		return _channelLoopTask ?? Task.CompletedTask;
+		// Order matters: the raw loop's finally stops every handler worker and disposes the consumer
+		// (leave-group), so await the loop first, then drain the workers. Both complete as Canceled on a
+		// graceful stop -- SuppressThrowing keeps a normal shutdown from surfacing as a failed StopAsync.
+		if (_channelLoopTask is not null)
+			await _channelLoopTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+		await Task.WhenAll(_handlers.Values.Select(h => h.WaitForCompletionAsync()))
+			.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 	}
 
 	private IRawConsumer BuildRawConsumer(IKafkaCacheBuilderProvider provider, ConsumerConfig config) {
