@@ -248,6 +248,112 @@ public class JoinManyFanOutTests {
 			}
 		});
 
+	// RecordBucket is the per-pair hot loop: it runs chain-free until the first shared right rents the
+	// chains, then switches loops for the rest of that bucket. A right recorded after the switch must
+	// still get an empty chain head, or Delivery would read pool garbage for its slot.
+	[Test]
+	public void RecordBucket_FirstSharedRightMidBucket_LaterNewRightsGetEmptyHeads() {
+		var fanOut = new JoinManyFanOut<int, int>(4);
+		using var first = new PooledSet<int, DefaultKeyComparer<int>>();
+		using var second = new PooledSet<int, DefaultKeyComparer<int>>();
+		first.Add(100);
+		first.Add(101);
+		second.Add(100);
+		second.Add(200);
+		second.Add(201);
+		try {
+			Assert.That(fanOut.RecordBucket(1, first), Is.EqualTo(2));
+			Assert.That(fanOut.HasChains, Is.False, "one left per right so far");
+
+			Assert.That(fanOut.RecordBucket(2, second), Is.EqualTo(3), "one shared right and two new ones");
+			Assert.That(fanOut.HasChains, Is.True);
+			Assert.That(fanOut.DistinctRights, Is.EqualTo(4));
+			Assert.That(fanOut.PairCount, Is.EqualTo(5));
+
+			var log = new List<(int Left, string Value)>();
+			var delivery = DeliveryOver(ref fanOut, log);
+			delivery.Add(2, SlotOf(ref fanOut, 200), "x");
+			Assert.That(log.Select(e => e.Left), Is.EqualTo(new[] { 2 }), "recorded after the switch: an empty chain");
+			log.Clear();
+			delivery.Add(2, SlotOf(ref fanOut, 201), "x");
+			Assert.That(log.Select(e => e.Left), Is.EqualTo(new[] { 2 }));
+			log.Clear();
+			delivery.Add(1, SlotOf(ref fanOut, 100), "y");
+			Assert.That(log.Select(e => e.Left), Is.EquivalentTo(new[] { 1, 2 }), "the right that rented the chains");
+			log.Clear();
+			delivery.Add(1, SlotOf(ref fanOut, 101), "z");
+			Assert.That(log.Select(e => e.Left), Is.EqualTo(new[] { 1 }), "recorded before the chains existed");
+		} finally {
+			fanOut.Dispose();
+		}
+	}
+
+	// A bucket walked while no right is shared costs exactly the pairs it holds and rents nothing.
+	[Test]
+	public void RecordBucket_Unshared_CountsEveryRightAndRentsNoChains() {
+		var fanOut = new JoinManyFanOut<int, int>(4);
+		using var bucket = new PooledSet<int, DefaultKeyComparer<int>>();
+		for (var right = 100; right < 160; right++) {
+			bucket.Add(right);
+		}
+
+		try {
+			Assert.That(fanOut.RecordBucket(1, bucket), Is.EqualTo(60));
+			Assert.That(fanOut.DistinctRights, Is.EqualTo(60));
+			Assert.That(fanOut.PairCount, Is.EqualTo(60));
+			Assert.That(fanOut.SingleLeftPerRight, Is.True);
+			Assert.That(fanOut.HasChains, Is.False);
+		} finally {
+			fanOut.Dispose();
+		}
+	}
+
+	// Once chains exist a repeat sighting is recognised through the chain head, not the pair's first
+	// left: the latest recorder of the right is the current left, so nothing is added.
+	[Test]
+	public void Record_RepeatSightingAfterChainsExist_IsIgnored() {
+		var fanOut = new JoinManyFanOut<int, int>(4);
+		try {
+			Assert.That(fanOut.Record(1, 100), Is.True);
+			Assert.That(fanOut.Record(2, 100), Is.True, "rents the chains");
+			Assert.That(fanOut.Record(2, 100), Is.False, "a repeat for the chain head");
+			Assert.That(fanOut.Record(2, 101), Is.True);
+			Assert.That(fanOut.Record(2, 101), Is.False, "a repeat for a pair's first left, with chains present");
+			Assert.That(fanOut.PairCount, Is.EqualTo(3));
+			Assert.That(fanOut.DistinctRights, Is.EqualTo(2));
+
+			var log = new List<(int Left, string Value)>();
+			var delivery = DeliveryOver(ref fanOut, log);
+			delivery.Add(1, SlotOf(ref fanOut, 100), "v");
+			Assert.That(log.Select(e => e.Left), Is.EquivalentTo(new[] { 1, 2 }), "each left exactly once");
+		} finally {
+			fanOut.Dispose();
+		}
+	}
+
+	// Dispose after the hand-off returns the chains and leaves the set alone; a second Dispose returns
+	// nothing again — the pool sees every array exactly once.
+	[Test]
+	public void Dispose_TwiceAfterHandOff_ReturnsEverythingOnce() =>
+		LeakAssert.Balanced(() => {
+			var fanOut = new JoinManyFanOut<int, int>(4);
+			for (var right = 100; right < 160; right++) {
+				fanOut.Record(1, right);
+			}
+
+			for (var left = 2; left <= 40; left++) {
+				fanOut.Record(left, 130);
+			}
+
+			Assert.That(fanOut.HasChains, Is.True);
+			var pairs = fanOut.Pairs;
+			fanOut.MarkPairsHandedOff();
+			fanOut.Dispose();
+			fanOut.Dispose();
+			Assert.That(fanOut.DistinctRights, Is.EqualTo(60), "the count survives even Dispose");
+			pairs.Dispose();
+		});
+
 	// The paired core receives a copy of the set and disposes it; the fan-out must not dispose it too.
 	[Test]
 	public void MarkPairsHandedOff_LeavesThePairsToTheCore() =>

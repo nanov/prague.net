@@ -262,9 +262,9 @@ public class JoinManyLeftSymCollectionConcurrentMutationTests {
 
 	// No right is shared, so the resolver skips the fan-out delivery and runs the plain paired execute:
 	// every right key is hashed exactly twice — once by the walk recording its pair, once by the store
-	// lookup — and never a third time for a slot lookup. Every left still receives exactly its rights.
+	// lookup. Every left still receives exactly its rights.
 	[Test]
-	public void LeftSym_NoSharedRights_DeliversWithoutSlotLookups() {
+	public void LeftSym_NoSharedRights_DeliversStraightFromTheStore() {
 		var books = new InMemoryDataCache<ProbeKey, PkBook>();
 		var bookCountryIdx = books.CacheKeyValueListIndex<string>((_, v) => v.Country);
 		var countries = new[] { "UK", "DE", "FR" };
@@ -563,10 +563,10 @@ public class JoinManyLeftSymCollectionConcurrentMutationTests {
 			"book 1 is in the store at execution time yet was not delivered to tag 10");
 	}
 
-	// Collection twin of LeftSym_NoSharedRights_DeliversWithoutSlotLookups: owners referenced by one
-	// tag each are delivered through the plain paired execute — two hashes per pair, none for slots.
+	// Collection twin of LeftSym_NoSharedRights_DeliversStraightFromTheStore: owners referenced by one
+	// tag each are delivered through the plain paired execute — two hashes per pair.
 	[Test]
-	public void Collection_NoSharedOwners_DeliversWithoutSlotLookups() {
+	public void Collection_NoSharedOwners_DeliverStraightFromTheStore() {
 		var owners = new InMemoryDataCache<ProbeKey, PkTaggedBook>();
 		var index = owners.CacheCollectionSymmetricKeyValueListIndex<int>((_, b) => b.TagIds);
 		Tag(10);
