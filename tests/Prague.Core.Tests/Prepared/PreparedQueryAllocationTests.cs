@@ -472,4 +472,70 @@ public class PreparedQueryAllocationTests {
 			Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
 		}
 	}
+
+	// Optional-bounds range. The eager twin is the four-arm `if` a caller writes over the type-state
+	// builder (a static lambda per arm); the prepared step hands the core the two RangeValues directly
+	// through a cached pass-through delegate, so it must cost no more than eager for both bounds, one
+	// bound, and no bound at all (where neither side touches the range index) — and nothing in Release.
+	[Test]
+	public void OptionalRange_PooledParameterized_BothOneAndNoBounds_AllocatesNoMoreThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int? lo, int? hi)>()
+			.UseIndex(_codeRange, static a => a.lo, static a => a.hi, toInclusive: false)
+			.Build();
+
+		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((int? lo, int? hi) a) {
+			var q = _cache.Query();
+			if (a.lo is not null && a.hi is not null) q = q.UseIndex(_codeRange, static (rb, b) => rb.Gte(b.lo!.Value).Lt(b.hi!.Value), a);
+			else if (a.lo is not null) q = q.UseIndex(_codeRange, static (rb, lo) => rb.Gte(lo), a.lo.Value);
+			else if (a.hi is not null) q = q.UseIndex(_codeRange, static (rb, hi) => rb.Lt(hi), a.hi.Value);
+			return q.ExecutePooled(0, 100);
+		}
+
+		foreach (var args in new (int? lo, int? hi)[] { (1500, 1580), (5900, null), (null, 1080), (null, null) }) {
+			var eager = Measure(() => Eager(args).Dispose());
+			var command = Measure(() => prepared.ExecutePooled(args, 0, 100).Dispose());
+
+			TestContext.Out.WriteLine($"optional-range ({args.lo?.ToString() ?? "-"}, {args.hi?.ToString() ?? "-"}): eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
+			Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+#if !DEBUG
+			Assert.That(command, Is.EqualTo(0), "prepared pooled optional range must allocate nothing in Release");
+#endif
+		}
+	}
+
+	// Match: a three-arm parameterized dispatch. The eager twin is the `switch` a caller writes; the
+	// prepared side pays one tag-selector call and the arm's own replay, so it allocates no more than
+	// eager whichever arm is selected (and nothing in Release, where the arm bodies are index steps).
+	[Test]
+	public void Match_PooledParameterized_EveryArmAndUnmatched_AllocatesNoMoreThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int mode, int group, int code)>()
+			.Match(static a => a.mode, m => m
+				.Case(0, b => b.UseIndex(_byGroup, static a => a.group))
+				.Case(1, b => b.UseIndex(_byCode, static a => a.code))
+				.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag)))
+			.Build();
+
+		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((int mode, int group, int code) a) {
+			var q = _cache.Query();
+			switch (a.mode) {
+				case 0: q = q.UseIndex(_byGroup, a.group); break;
+				case 1: q = q.UseIndex(_byCode, a.code); break;
+				case 2: q = q.UseIndex(_byGroup, a.group).Where(static v => v.Flag); break;
+			}
+
+			return q.ExecutePooled(0, 100);
+		}
+
+		foreach (var mode in new[] { 0, 1, 2 }) {
+			var args = (mode, group: 13, code: 1042);
+			var eager = Measure(() => Eager(args).Dispose());
+			var command = Measure(() => prepared.ExecutePooled(args, 0, 100).Dispose());
+
+			TestContext.Out.WriteLine($"match (arm {mode}): eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
+			Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+#if !DEBUG
+			Assert.That(command, Is.EqualTo(0), "prepared pooled match must allocate nothing in Release");
+#endif
+		}
+	}
 }

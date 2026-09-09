@@ -134,7 +134,8 @@ internal static class FrozenPlanner {
 	/// <summary>
 	///   Point-lookup eligibility: a simple, unsorted query whose first op is a unique-index equality
 	///   (bound or parameterized) followed by nothing but filters. Anything else — a list index, a
-	///   narrower before the unique step, a range or multi-value step after it, any composite — replays.
+	///   narrower before the unique step, a range (fixed or optional-bounds) or multi-value step after
+	///   it, any composite (<c>Or</c> / <c>If</c> / <c>IfElse</c> / <c>Match</c>) — replays.
 	/// </summary>
 	internal static bool IsPointLookup(IReadOnlyList<NarrowerDescriptor> narrowers, bool hasResolvers, bool isSorted) {
 		if (hasResolvers || isSorted || narrowers.Count == 0 || narrowers[0].Kind != NarrowerKind.UniqueEq)

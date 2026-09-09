@@ -239,8 +239,29 @@ and `Build()` is only reachable on `IExecutableQuery`.
 >   `XxxCachePreparedQueryExtensions` with the prepared twin of every `WithXxx` / `WithoutXxx` /
 >   `WithKey` / `UpdatedAfter` overload, scoped by `ICacheCarrier<XxxCache>` so they bind at top level
 >   and inside branches. FK `JoinWith{T}` needed no change.
-> - **Tests:** `tests/Prague.Core.Tests/Prepared/` (194: differential, reuse, leak, concurrency,
->   allocation parity, `Or`, `If`) and `tests/Prague.Generated.Tests/Prepared/`.
+> - **`Match` (prepared-only tag dispatch):** `.Match(static a => a.Mode, m => m.Case(tag, b => …)
+>   .Case(…).Default(b => …))` — the prepared twin of a C# `switch` over type-preserving reassignments.
+>   The selector runs per execution; the arms run once at build against the `If` seed builders
+>   (`PreparedConditionalBranch` at top level / inside conditionals, `PreparedNarrowOnly` inside `Or`)
+>   and accumulate as a type chain with no arity limit (`EmptyArms` → `MatchArms<TPrev,TArm,…>` per
+>   `Case`, optional `DefaultArm` tail; `Case` / `Default` are extensions constrained on
+>   `IOpenMatchArms`, so an arm after `Default` is a compile error). First equal tag in declaration
+>   order wins (a duplicate tag resolves to its first arm), else the default, else no-op; the compare is
+>   `EqualityComparer<TTag>.Default` (enums do not implement `IEquatable<T>`). `Describe` emits
+>   `NarrowerKind.Match` with the tags in `Value` (`MatchArmTags`) and a child per arm; the frozen
+>   planner replays it. **`Eval` was considered and rejected** — an opaque per-execution callback that
+>   narrows the core directly would work, but the recorded arms keep the plan analyzable
+>   (`Explain()` shows every arm), which is the whole point of `BuildFrozen()`.
+> - **Optional-bounds range:** `UseIndex(range, from: Func<TArgs,T?>, to: Func<TArgs,T?>,
+>   fromInclusive = true, toInclusive = true)` and the bound `UseIndex(range, T? from, T? to, …)`
+>   (`RangeOptionalArgNarrower` / `RangeOptionalRefArgNarrower` / `RangeOptionalNarrower`), plus the
+>   generated `WithXxx(from:, to:, …)` twins on Range indexes. Replay hands the eager `UseIndexCore` an
+>   `OptionalRange<T>` (two `RangeValue`s, `None` for an open side) through a cached pass-through
+>   delegate. The core has no `(None, None)` arm — it throws `UnreachableException` — so both-`null`
+>   skips the core call, which is exactly the eager query that never called the range (pinned).
+> - **Tests:** `tests/Prague.Core.Tests/Prepared/` (293: differential, reuse, leak, concurrency,
+>   allocation parity, `Or`, `If`, `Match`, optional range, frozen) and
+>   `tests/Prague.Generated.Tests/Prepared/` (1210 generated tests in the project).
 > - **Step 6 (docs + benchmark):** `context/query.md` and `context/generated.md` sections, README
 >   "Prepared Queries" section, `benchmarks/Prague.Benchmarks/PreparedQueryBenchmarks.cs` (eager vs
 >   prepared per shape, results in `benchmarks/Prague.Benchmarks/RESULTS.MD`): every ratio within noise
@@ -276,7 +297,11 @@ Considered and consciously left out of this branch; each is a separate PR if it 
   `CacheQueryBuilderCoreCombined`). Replaces the per-thread `ArgPredicate` pool and also removes the
   eager `&&` closure allocation on the second chained `Where`. Invasive in the eager core, so its own
   change.
-- **Conditional resolvers** — joins or `Sort` / `SortBounded` inside an `If` branch. Decided against
+- **`Eval(Action<core, args>)` / opaque per-execution narrowing.** Rejected in favour of `Match`
+  (§7 progress): a callback that narrows the replayed core directly cannot be described, so
+  `BuildFrozen()` would lose the plan; recorded `Match` arms cover the dispatch use case and stay
+  inspectable.
+- **Conditional resolvers** — joins or `Sort` / `SortBounded` inside an `If` branch or `Match` arm. Decided against
   for now: the resolver chain is part of the *result type*, so a conditional join would have to
   produce a union result shape (or a nullable right side) that the eager builder does not have, and
   parity by construction would be lost. `If` stays a narrowing-only construct.
@@ -304,7 +329,7 @@ exactly today's replay.
 every narrower struct and by `EmptyNarrowers` / `NarrowerLink` (prev, then self, so the list is in
 replay order). A `NarrowerDescriptor` carries `Kind` (`UniqueEq`, `UniqueIn`, `ListEq`, `ListIn`,
 `ListInProjected`, `Range`, `KeySet`, `LastUpdatedAfter`, `LastUpdatedBetween`, `Filter`, `FilterArg`,
-`Or`, `If`, `IfElse`), `IsParameterized`, the index as `object` (identity), the bound value boxed, the
+`Or`, `If`, `IfElse`, `Match`), `IsParameterized`, the index as `object` (identity), the bound value boxed, the
 selector / range builder / condition as `Delegate`, the filter delegate, and for the composites the
 sub-chains described recursively in `Children`. The descriptor also keeps an internal `Source` — the
 narrower that produced it — which is how the planner recovers `TIndexKey` without reflection: the
@@ -330,7 +355,8 @@ a body specialized per executor and the constrained call on the struct field dev
 | `ReplayJoinedExecutor<…,TPlan>` | every joined shape | `PreparedReplay.RunJoined` — the `PreparedJoinedQuery` body |
 
 The eligibility rule is deliberately narrow: a `Where` *before* the unique step, a second index after
-it, any multi-value / range / key-set op, any `Or` / `If`, a sort or a join all fall back. Stage 1
+it, any multi-value / range (fixed or optional-bounds) / key-set op, any `Or` / `If` / `Match`, a sort
+or a join all fall back. Stage 1
 proves the machinery on one shape.
 
 ### The point-lookup fast path

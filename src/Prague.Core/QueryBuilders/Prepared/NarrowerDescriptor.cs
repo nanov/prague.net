@@ -18,14 +18,16 @@ public enum NarrowerKind {
 	Or,
 	If,
 	IfElse,
+	Match,
 }
 
 /// <summary>
 ///   Build-time description of one narrower: the flattened, inspectable twin of a link in the typed
 ///   chain. Produced once by <c>INarrower.Describe</c> when a query is frozen; never touched at execute
 ///   time, so it holds the index as an <see cref="object" /> (for identity), the bound value boxed, and
-///   the delegates as <see cref="Delegate" />. Composite narrowers (<c>Or</c>, <c>If</c>, <c>IfElse</c>)
-///   describe their sub-chains recursively in <see cref="Children" />.
+///   the delegates as <see cref="Delegate" />. Composite narrowers (<c>Or</c>, <c>If</c>, <c>IfElse</c>,
+///   <c>Match</c>) describe their sub-chains recursively in <see cref="Children" />; a <c>Match</c> keeps
+///   its arm tags in <see cref="Value" /> as a <see cref="MatchArmTags" />.
 /// </summary>
 public sealed class NarrowerDescriptor {
 	private static readonly IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> NoChildren = [];
@@ -47,7 +49,7 @@ public sealed class NarrowerDescriptor {
 	/// <summary>The predicate of a <see cref="NarrowerKind.Filter" /> / <see cref="NarrowerKind.FilterArg" /> step.</summary>
 	public Delegate? Filter { get; }
 
-	/// <summary>Sub-chains of a composite step, in branch order (<c>Or</c>: two, <c>If</c>: one, <c>IfElse</c>: then/else).</summary>
+	/// <summary>Sub-chains of a composite step, in branch order (<c>Or</c>: two, <c>If</c>: one, <c>IfElse</c>: then/else, <c>Match</c>: one per <c>Case</c> then the <c>Default</c>).</summary>
 	public IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> Children { get; }
 
 	// The narrower that produced the descriptor, when it can seed a specialized executor (a unique
@@ -78,6 +80,10 @@ public sealed class NarrowerDescriptor {
 	public static NarrowerDescriptor ForComposite(NarrowerKind kind, Delegate? condition, params IReadOnlyList<NarrowerDescriptor>[] children)
 		=> new(kind, condition is not null, null, null, condition, null, children, null);
 
+	/// <summary>A <c>Match</c> step: the tag selector, the arm tags (<see cref="Value" />) and one child per arm, the default last.</summary>
+	public static NarrowerDescriptor ForMatch(Delegate selector, MatchArmTags tags, IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> arms)
+		=> new(NarrowerKind.Match, true, null, tags, selector, null, arms, null);
+
 	public override string ToString() {
 		var sb = new StringBuilder();
 		Write(sb, 0);
@@ -91,8 +97,15 @@ public sealed class NarrowerDescriptor {
 		if (Value is not null)
 			sb.Append(" value=").Append(Value);
 		sb.AppendLine();
+		var tags = Value as MatchArmTags;
 		for (var b = 0; b < Children.Count; b++) {
-			sb.Append(' ', depth * 2 + 2).Append("branch ").Append(b + 1).AppendLine(":");
+			sb.Append(' ', depth * 2 + 2);
+			if (tags is null)
+				sb.Append("branch ").Append(b + 1).AppendLine(":");
+			else if (b < tags.Tags.Count)
+				sb.Append("case ").Append(tags.Tags[b]).AppendLine(":");
+			else
+				sb.AppendLine("default:");
 			var branch = Children[b];
 			if (branch.Count == 0)
 				sb.Append(' ', depth * 2 + 4).AppendLine("(empty)");

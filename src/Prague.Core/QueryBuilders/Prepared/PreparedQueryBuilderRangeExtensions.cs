@@ -40,3 +40,101 @@ public static class PreparedQueryBuilderRangeExtensions {
 		where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey>
 		=> PreparedQueryBuilderExtensions.Link(in builder, new RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs>(index, rangeBuilder));
 }
+
+/// <summary>
+///   Optional-bounds range narrowing: "from and/or to" in one step, which the type-state
+///   <see cref="RangeQueryBuilder{TIndexKey}" /> cannot spell in one lambda. A <c>null</c> bound is
+///   the open side; both <c>null</c> is no narrowing at all (the core is not called — see
+///   <see cref="OptionalRange{TIndexKey}" />). Value-type and reference-type keys are separate
+///   overloads because <c>TIndexKey?</c> means <see cref="Nullable{T}" /> for the one and an annotated
+///   reference for the other; overload resolution picks by constraint, so callers see one <c>UseIndex</c>.
+/// </summary>
+public static class PreparedQueryBuilderOptionalRangeExtensions {
+	/// <summary>Optional bounds selected from the execution arguments (use static lambdas), value-type key.</summary>
+	public static CacheQueryBuilderCombined<TDiscriminator,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, RangeOptionalArgNarrower<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			CacheRangeIndex<TKey, TValue, TIndexKey> index,
+			Func<TArgs, TIndexKey?> from,
+			Func<TArgs, TIndexKey?> to,
+			bool fromInclusive = true,
+			bool toInclusive = true)
+		where TDiscriminator : struct, IIndexNarrower
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TIndexKey : struct, IComparable<TIndexKey> {
+		ArgumentNullException.ThrowIfNull(from);
+		ArgumentNullException.ThrowIfNull(to);
+		return PreparedQueryBuilderExtensions.Link(in builder, new RangeOptionalArgNarrower<TKey, TValue, TIndexKey, TArgs>(index, from, to, fromInclusive, toInclusive));
+	}
+
+	/// <summary>Optional bounds selected from the execution arguments (use static lambdas), reference-type key.</summary>
+	public static CacheQueryBuilderCombined<TDiscriminator,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, RangeOptionalRefArgNarrower<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			CacheRangeIndex<TKey, TValue, TIndexKey> index,
+			Func<TArgs, TIndexKey?> from,
+			Func<TArgs, TIndexKey?> to,
+			bool fromInclusive = true,
+			bool toInclusive = true)
+		where TDiscriminator : struct, IIndexNarrower
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TIndexKey : class, IComparable<TIndexKey> {
+		ArgumentNullException.ThrowIfNull(from);
+		ArgumentNullException.ThrowIfNull(to);
+		return PreparedQueryBuilderExtensions.Link(in builder, new RangeOptionalRefArgNarrower<TKey, TValue, TIndexKey, TArgs>(index, from, to, fromInclusive, toInclusive));
+	}
+
+	/// <summary>Optional bounds fixed at build time, value-type key. Both <c>null</c> records a no-op step.</summary>
+	public static CacheQueryBuilderCombined<TDiscriminator,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			CacheRangeIndex<TKey, TValue, TIndexKey> index,
+			TIndexKey? from,
+			TIndexKey? to,
+			bool fromInclusive = true,
+			bool toInclusive = true)
+		where TDiscriminator : struct, IIndexNarrower
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TIndexKey : struct, IComparable<TIndexKey>
+		=> PreparedQueryBuilderExtensions.Link(in builder, new RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs>(index,
+			new OptionalRange<TIndexKey>(OptionalRange<TIndexKey>.Bound(from.HasValue, from.GetValueOrDefault(), fromInclusive), OptionalRange<TIndexKey>.Bound(to.HasValue, to.GetValueOrDefault(), toInclusive))));
+
+	/// <summary>Optional bounds fixed at build time, reference-type key. Both <c>null</c> records a no-op step.</summary>
+	public static CacheQueryBuilderCombined<TDiscriminator,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			CacheRangeIndex<TKey, TValue, TIndexKey> index,
+			TIndexKey? from,
+			TIndexKey? to,
+			bool fromInclusive = true,
+			bool toInclusive = true)
+		where TDiscriminator : struct, IIndexNarrower
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TIndexKey : class, IComparable<TIndexKey>
+		=> PreparedQueryBuilderExtensions.Link(in builder, new RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs>(index,
+			new OptionalRange<TIndexKey>(OptionalRange<TIndexKey>.Bound(from is not null, from!, fromInclusive), OptionalRange<TIndexKey>.Bound(to is not null, to!, toInclusive))));
+}

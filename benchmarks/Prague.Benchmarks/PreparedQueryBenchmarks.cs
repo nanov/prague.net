@@ -13,7 +13,9 @@ using Prague.Core;
 ///   Expected: ratios within noise of 1.00 and equal allocations, except where the eager side needs a
 ///   closure to carry the per-call argument (parameterized <c>Where</c>, <c>If</c> with a captured
 ///   value) — there the prepared side binds the argument into a per-thread pooled predicate box and
-///   allocates less. <c>Build_FourNarrowers</c> measures the one-time cost of building a command.
+///   allocates less. <c>Match</c> (three parameterized arms vs the eager <c>switch</c>) and the
+///   optional-bounds range (vs the eager four-arm <c>if</c>) replay the selected arm's eager work plus
+///   the tag / bound selector calls. <c>Build_FourNarrowers</c> measures the one-time cost of building a command.
 ///
 ///   100k rows, list buckets of 1k (Group = Id % 100), range windows of ~1k codes.
 /// </summary>
@@ -39,6 +41,8 @@ public class PreparedQueryBenchmarks {
 	private PreparedQuery<(int lo, int hi), PqbItem> _rangePrepared = null!;
 	private PreparedQuery<(int g1, int g2), PqbItem> _orPrepared = null!;
 	private PreparedQuery<(bool cond, int group, int code), PqbItem> _ifPrepared = null!;
+	private PreparedQuery<(int mode, int group, int code), PqbItem> _matchPrepared = null!;
+	private PreparedQuery<(int? lo, int? hi), PqbItem> _optionalRangePrepared = null!;
 	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOnePrepared = null!;
 	private PreparedQuery<int, PqbItem> _sortBoundedPrepared = null!;
 
@@ -50,6 +54,8 @@ public class PreparedQueryBenchmarks {
 	private (int g1, int g2) _orArgs = (13, 41);
 	private (bool cond, int group, int code) _ifTaken = (true, 13, 1000 + 13 + 100 * 420);
 	private (bool cond, int group, int code) _ifSkipped = (false, 13, 1000 + 13 + 100 * 420);
+	private (int mode, int group, int code) _matchArgs = (2, 13, 1000 + 13 + 100 * 420);
+	private (int? lo, int? hi) _optionalRangeArgs = (1000 + 50_000, 1000 + 51_000);
 	private int _customer = 7;
 	private int _take = 20;
 
@@ -86,6 +92,15 @@ public class PreparedQueryBenchmarks {
 		_ifPrepared = _items.Prepare<int, PqbItem, (bool cond, int group, int code)>()
 			.UseIndex(_byGroup, static a => a.group)
 			.If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code))
+			.Build();
+		_matchPrepared = _items.Prepare<int, PqbItem, (int mode, int group, int code)>()
+			.Match(static a => a.mode, m => m
+				.Case(0, b => b.UseIndex(_byCode, static a => a.code))
+				.Case(1, b => b.UseIndex(_byGroup, static a => a.group))
+				.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag)))
+			.Build();
+		_optionalRangePrepared = _items.Prepare<int, PqbItem, (int? lo, int? hi)>()
+			.UseIndex(_codeRange, static a => a.lo, static a => a.hi, toInclusive: false)
 			.Build();
 		_joinOnePrepared = _orders.Prepare<int, PqbOrder, int>()
 			.UseIndex(_byCustomer, static c => c)
@@ -202,6 +217,53 @@ public class PreparedQueryBenchmarks {
 	[BenchmarkCategory("IfSkipped"), Benchmark]
 	public int IfSkipped_Prepared() {
 		using var r = _ifPrepared.ExecutePooled(_ifSkipped);
+		return r.Count;
+	}
+
+	// ── 6b. Match: three parameterized arms, the third selected ───────────────────
+
+	private QueryResults<PqbItem> EagerMatch((int mode, int group, int code) a) {
+		var q = _items.Query();
+		switch (a.mode) {
+			case 0: q = q.UseIndex(_byCode, a.code); break;
+			case 1: q = q.UseIndex(_byGroup, a.group); break;
+			case 2: q = q.UseIndex(_byGroup, a.group).Where(static v => v.Flag); break;
+		}
+
+		return q.ExecutePooled();
+	}
+
+	[BenchmarkCategory("Match"), Benchmark(Baseline = true)]
+	public int Match_Eager() {
+		using var r = EagerMatch(_matchArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Match"), Benchmark]
+	public int Match_Prepared() {
+		using var r = _matchPrepared.ExecutePooled(_matchArgs);
+		return r.Count;
+	}
+
+	// ── 6c. Optional-bounds range, both bounds present ────────────────────────────
+
+	private QueryResults<PqbItem> EagerOptionalRange((int? lo, int? hi) a) {
+		var q = _items.Query();
+		if (a.lo is not null && a.hi is not null) q = q.UseIndex(_codeRange, static (rb, b) => rb.Gte(b.lo!.Value).Lt(b.hi!.Value), a);
+		else if (a.lo is not null) q = q.UseIndex(_codeRange, static (rb, lo) => rb.Gte(lo), a.lo.Value);
+		else if (a.hi is not null) q = q.UseIndex(_codeRange, static (rb, hi) => rb.Lt(hi), a.hi.Value);
+		return q.ExecutePooled();
+	}
+
+	[BenchmarkCategory("OptionalRange"), Benchmark(Baseline = true)]
+	public int OptionalRange_Eager() {
+		using var r = EagerOptionalRange(_optionalRangeArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("OptionalRange"), Benchmark]
+	public int OptionalRange_Prepared() {
+		using var r = _optionalRangePrepared.ExecutePooled(_optionalRangeArgs);
 		return r.Count;
 	}
 

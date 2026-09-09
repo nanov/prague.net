@@ -7,9 +7,9 @@ using Prague.Core;
 /// <summary>
 ///   Eager builder (baseline) vs <c>Build()</c> (replay) vs <c>BuildFrozen()</c>, shape by shape, on
 ///   the raw <see cref="InMemoryDataCache{TKey,TValue}" />. The first four categories are the shapes
-///   the frozen planner binds to the point-lookup executor; the last three are deliberately
-///   ineligible, so their <c>_Frozen</c> rows must sit on top of the <c>_Prepared</c> rows — the
-///   fallback is the same replay. Every body executes pooled and disposes. Same data as
+///   the frozen planner binds to the point-lookup executor; the rest (list, range, join, <c>Match</c>,
+///   optional-bounds range) are deliberately ineligible, so their <c>_Frozen</c> rows must sit on top of
+///   the <c>_Prepared</c> rows — the fallback is the same replay. Every body executes pooled and disposes. Same data as
 ///   <see cref="PreparedQueryBenchmarks" />: 100k rows, list buckets of 1k, range windows of 1k codes.
 /// </summary>
 [MemoryDiagnoser]
@@ -42,6 +42,10 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<(int lo, int hi), PqbItem> _rangeFrozen = null!;
 	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOnePrepared = null!;
 	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFrozen = null!;
+	private PreparedQuery<(int mode, int group, int code), PqbItem> _matchPrepared = null!;
+	private FrozenQuery<(int mode, int group, int code), PqbItem> _matchFrozen = null!;
+	private PreparedQuery<(int? lo, int? hi), PqbItem> _optionalRangePrepared = null!;
+	private FrozenQuery<(int? lo, int? hi), PqbItem> _optionalRangeFrozen = null!;
 
 	// Arguments are fields, not constants, so no side gets a constant folded into the query.
 	private int _code = 1000 + 42_042;
@@ -49,6 +53,8 @@ public class FrozenQueryBenchmarks {
 	private int _group = 13;
 	private (int lo, int hi) _rangeArgs = (1000 + 50_000, 1000 + 51_000);
 	private int _customer = 7;
+	private (int mode, int group, int code) _matchArgs = (2, 13, 1000 + 13 + 100 * 420);
+	private (int? lo, int? hi) _optionalRangeArgs = (1000 + 50_000, 1000 + 51_000);
 
 	[GlobalSetup]
 	public void Setup() {
@@ -82,6 +88,16 @@ public class FrozenQueryBenchmarks {
 		_rangeFrozen = _items.Prepare<int, PqbItem, (int lo, int hi)>().UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen();
 		_joinOnePrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).Build();
 		_joinOneFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).BuildFrozen();
+		_matchPrepared = _items.Prepare<int, PqbItem, (int mode, int group, int code)>().Match(static a => a.mode, m => m
+			.Case(0, b => b.UseIndex(_byCode, static a => a.code))
+			.Case(1, b => b.UseIndex(_byGroup, static a => a.group))
+			.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag))).Build();
+		_matchFrozen = _items.Prepare<int, PqbItem, (int mode, int group, int code)>().Match(static a => a.mode, m => m
+			.Case(0, b => b.UseIndex(_byCode, static a => a.code))
+			.Case(1, b => b.UseIndex(_byGroup, static a => a.group))
+			.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag))).BuildFrozen();
+		_optionalRangePrepared = _items.Prepare<int, PqbItem, (int? lo, int? hi)>().UseIndex(_codeRange, static a => a.lo, static a => a.hi, toInclusive: false).Build();
+		_optionalRangeFrozen = _items.Prepare<int, PqbItem, (int? lo, int? hi)>().UseIndex(_codeRange, static a => a.lo, static a => a.hi, toInclusive: false).BuildFrozen();
 	}
 
 	// ── 1. unique lookup, value bound at build ────────────────────────────────────
@@ -226,6 +242,65 @@ public class FrozenQueryBenchmarks {
 	[BenchmarkCategory("JoinOne"), Benchmark]
 	public int JoinOne_Frozen() {
 		using var r = _joinOneFrozen.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	// ── 8. Match, three parameterized arms (not eligible: replay) ─────────────────
+
+	private QueryResults<PqbItem> EagerMatch((int mode, int group, int code) a) {
+		var q = _items.Query();
+		switch (a.mode) {
+			case 0: q = q.UseIndex(_byCode, a.code); break;
+			case 1: q = q.UseIndex(_byGroup, a.group); break;
+			case 2: q = q.UseIndex(_byGroup, a.group).Where(static v => v.Flag); break;
+		}
+
+		return q.ExecutePooled();
+	}
+
+	[BenchmarkCategory("Match"), Benchmark(Baseline = true)]
+	public int Match_Eager() {
+		using var r = EagerMatch(_matchArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Match"), Benchmark]
+	public int Match_Prepared() {
+		using var r = _matchPrepared.ExecutePooled(_matchArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Match"), Benchmark]
+	public int Match_Frozen() {
+		using var r = _matchFrozen.ExecutePooled(_matchArgs);
+		return r.Count;
+	}
+
+	// ── 9. Optional-bounds range, both bounds (not eligible: replay) ──────────────
+
+	private QueryResults<PqbItem> EagerOptionalRange((int? lo, int? hi) a) {
+		var q = _items.Query();
+		if (a.lo is not null && a.hi is not null) q = q.UseIndex(_codeRange, static (rb, b) => rb.Gte(b.lo!.Value).Lt(b.hi!.Value), a);
+		else if (a.lo is not null) q = q.UseIndex(_codeRange, static (rb, lo) => rb.Gte(lo), a.lo.Value);
+		else if (a.hi is not null) q = q.UseIndex(_codeRange, static (rb, hi) => rb.Lt(hi), a.hi.Value);
+		return q.ExecutePooled();
+	}
+
+	[BenchmarkCategory("OptionalRange"), Benchmark(Baseline = true)]
+	public int OptionalRange_Eager() {
+		using var r = EagerOptionalRange(_optionalRangeArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("OptionalRange"), Benchmark]
+	public int OptionalRange_Prepared() {
+		using var r = _optionalRangePrepared.ExecutePooled(_optionalRangeArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("OptionalRange"), Benchmark]
+	public int OptionalRange_Frozen() {
+		using var r = _optionalRangeFrozen.ExecutePooled(_optionalRangeArgs);
 		return r.Count;
 	}
 }

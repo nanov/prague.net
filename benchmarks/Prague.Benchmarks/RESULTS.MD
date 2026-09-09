@@ -365,3 +365,44 @@ The four eligible categories re-run with the default job (15+ iterations) for ti
   extension hop; left for stage 2.
 - Building a frozen query allocates the descriptor list and the executor object once; nothing on the
   execute path reads the descriptors.
+
+
+# `Match` and optional-bounds range — eager vs `Build()` vs `BuildFrozen()`
+
+`FrozenQueryBenchmarks` / `PreparedQueryBenchmarks`, same data and rules as above (100k rows, list
+buckets of 1k, range windows of 1k codes, every body executes pooled and disposes). `Match` is three
+parameterized arms (`UseIndex(unique)`, `UseIndex(list)`, `UseIndex(list).Where`) with the third selected,
+against the eager `switch` a caller writes; `OptionalRange` is `UseIndex(range, from:, to:, toInclusive: false)`
+with both bounds present, against the eager four-arm `if` over the type-state builder. Neither shape is
+point-lookup eligible, so the `_Frozen` rows are the replay executor and must sit on the `_Prepared` rows.
+
+Apple M4 Pro, .NET 9, `--job short --inProcess` (3 iterations), `[MemoryDiagnoser]`.
+
+| Method                 | Categories    | Mean      | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|----------------------- |-------------- |----------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Match_Eager            | Match         |  8.340 us | 0.9136 us | 0.0501 us |  1.00 |    0.01 |         - |          NA |
+| Match_Prepared         | Match         |  8.481 us | 1.9180 us | 0.1051 us |  1.02 |    0.01 |         - |          NA |
+| Match_Frozen           | Match         |  8.484 us | 2.7098 us | 0.1485 us |  1.02 |    0.02 |         - |          NA |
+| OptionalRange_Eager    | OptionalRange | 13.291 us | 0.5024 us | 0.0275 us |  1.00 |    0.00 |         - |          NA |
+| OptionalRange_Prepared | OptionalRange | 13.318 us | 0.0514 us | 0.0028 us |  1.00 |    0.00 |         - |          NA |
+| OptionalRange_Frozen   | OptionalRange | 13.355 us | 2.4157 us | 0.1324 us |  1.00 |    0.01 |       1 B |          NA |
+
+`PreparedQueryBenchmarks` (eager vs `Build()` only):
+
+| Method                 | Categories    | Mean      | Error     | StdDev    | Ratio | Allocated | Alloc Ratio |
+|----------------------- |-------------- |----------:|----------:|----------:|------:|----------:|------------:|
+| Match_Eager            | Match         |  8.406 us | 0.7177 us | 0.0393 us |  1.00 |       1 B |        1.00 |
+| Match_Prepared         | Match         |  8.436 us | 1.5786 us | 0.0865 us |  1.00 |         - |        0.00 |
+| OptionalRange_Eager    | OptionalRange | 13.291 us | 1.1032 us | 0.0605 us |  1.00 |         - |          NA |
+| OptionalRange_Prepared | OptionalRange | 13.366 us | 1.2045 us | 0.0660 us |  1.01 |         - |          NA |
+
+## Reading it
+
+- **Dispatch is free.** `Match` costs the selected arm's eager work plus one tag-selector call and a
+  chain of `EqualityComparer<TTag>.Default.Equals` compares the JIT folds per closed generic; ratios
+  sit at 1.00–1.02 inside the short-job error bars, and nothing is allocated on either side.
+- **Optional bounds are the eager range.** The prepared step hands the core the same two `RangeValue`s
+  the eager `Gte(..).Lt(..)` chain produces, through a cached pass-through delegate; 13.3 us both ways.
+- The `1 B` cells are BenchmarkDotNet's per-op amortization of a one-off pool refill (as in the earlier
+  tables); the deterministic pins — 0 B pooled in Release for both bounds, one bound, no bound, and every
+  `Match` arm — are `PreparedQueryAllocationTests.OptionalRange_*` / `Match_*`.

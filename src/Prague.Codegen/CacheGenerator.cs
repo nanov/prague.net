@@ -7218,6 +7218,18 @@ public class CacheGenerator : IIncrementalGenerator {
 					ReturnType($"RangeArgNarrower<{keyTypeName}, {documentTypeName}, {propertyType}, TQueryBuilder, TArgs>"), methodName, ", TQueryBuilder",
 					$", System.Func<RangeQueryBuilder<{propertyType}>, TArgs, TQueryBuilder> rangeBuilder", rangeConstraint,
 					$"{getDisc}.Cache.{indexName}, rangeBuilder");
+				// Optional bounds: "from and/or to" in one step, a null bound is the open side, both null is no
+				// narrowing. The hand-written UseIndex picks the value-type / reference-type narrower by constraint;
+				// the emitted return type has to name it, so the property type decides here.
+				var optionalArg = prop.Type.IsValueType ? "RangeOptionalArgNarrower" : "RangeOptionalRefArgNarrower";
+				EmitForward($"{methodName}: optional range bounds taken from the execution arguments (use static lambdas); a <c>null</c> bound is the open side, both <c>null</c> is no narrowing.",
+					ReturnType(Narrower(optionalArg, propertyType)), methodName, "",
+					$", System.Func<TArgs, {propertyType}?> from, System.Func<TArgs, {propertyType}?> to, bool fromInclusive = true, bool toInclusive = true", "",
+					$"{getDisc}.Cache.{indexName}, from, to, fromInclusive, toInclusive");
+				EmitForward($"{methodName}: optional range bounds fixed at build time; a <c>null</c> bound is the open side, both <c>null</c> is no narrowing.",
+					ReturnType(Narrower("RangeOptionalNarrower", propertyType)), methodName, "",
+					$", {propertyType}? from, {propertyType}? to, bool fromInclusive = true, bool toInclusive = true", "",
+					$"{getDisc}.Cache.{indexName}, from, to, fromInclusive, toInclusive");
 			}
 		}
 
