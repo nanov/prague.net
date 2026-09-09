@@ -53,7 +53,9 @@ internal static class StableSort {
 	/// </summary>
 	internal static void Sort<T, TComparer>(Span<T> values, TComparer comparer)
 		where TComparer : IComparer<T> {
-		if (comparer is null) {
+		// `comparer is null` on a type parameter boxes a struct comparer to test it (24 B); the
+		// Release JIT elides the box, the Debug JIT does not. Only reference comparers can be null.
+		if (!typeof(TComparer).IsValueType && comparer is null) {
 			Sort(values, Comparer<T>.Default);
 			return;
 		}
@@ -80,7 +82,7 @@ internal static class StableSort {
 		if (n < 2)
 			return;
 
-		if (comparer is null) {
+		if (!typeof(TComparer).IsValueType && comparer is null) {
 			Sort(values, items, Comparer<T>.Default, depthLimit);
 			return;
 		}
