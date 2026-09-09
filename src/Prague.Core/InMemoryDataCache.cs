@@ -1337,7 +1337,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 	internal int TryGetJoined<TForeignKey, TContainer>(ref TContainer container,
 		ref ValueSet<JoinedKeyPair<TForeignKey, TKey>, DefaultKeyComparer<JoinedKeyPair<TForeignKey, TKey>>> keys, Predicate<TValue>? predicate = null)
 		where TForeignKey : notnull
-		where TContainer : struct, IJoinedResultContainer<TForeignKey, TKey ,TValue>, allows ref struct {
+		where TContainer : struct, IJoinedSlotResultContainer<TForeignKey, TValue>, allows ref struct {
 		return predicate is null
 			? _cache.TryGetValuesJoined(ref container, ref keys)
 			: _cache.TryGetValuesJoined(ref container, ref keys, predicate);

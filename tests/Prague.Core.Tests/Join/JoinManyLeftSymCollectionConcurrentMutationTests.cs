@@ -296,9 +296,9 @@ public class JoinManyLeftSymCollectionConcurrentMutationTests {
 	}
 
 	// One shared right turns the fan-out delivery on: the walk hashes every pair, the store looks each
-	// distinct right up once and the delivery hashes it once more to find its chain.
+	// distinct right up once and delivers it by pair slot — the chain walk never hashes.
 	[Test]
-	public void LeftSym_SharedRights_DeliverThroughTheFanOut_OneSlotLookupPerDistinctRight() {
+	public void LeftSym_SharedRights_DeliverThroughTheFanOut_NoSlotLookups() {
 		var books = new InMemoryDataCache<ProbeKey, PkBook>();
 		var bookCountryIdx = books.CacheKeyValueListIndex<string>((_, v) => v.Country);
 		Author(1, "UK");
@@ -320,7 +320,7 @@ public class JoinManyLeftSymCollectionConcurrentMutationTests {
 			ProbeKey.Disarm();
 		}
 
-		Assert.That(hashes, Is.EqualTo(6 + 2 * 3), "six pairs walked, three distinct rights looked up in the store and in the pair set");
+		Assert.That(hashes, Is.EqualTo(6 + 3), "six pairs walked, three distinct rights looked up in the store, none for slots");
 		Assert.That(Ids(log, 1, b => b.Id), Is.EquivalentTo(new[] { 100, 101, 102 }));
 		Assert.That(Ids(log, 2, b => b.Id), Is.EquivalentTo(new[] { 100, 101, 102 }));
 	}
@@ -595,9 +595,9 @@ public class JoinManyLeftSymCollectionConcurrentMutationTests {
 	}
 
 	// One owner carrying both tags turns the fan-out delivery on: two pairs walked, one distinct owner
-	// looked up in the store and once more in the pair set, delivered to both tags.
+	// looked up in the store and delivered by pair slot to both tags.
 	[Test]
-	public void Collection_SharedOwner_DeliversThroughTheFanOut_OneSlotLookupPerDistinctOwner() {
+	public void Collection_SharedOwner_DeliversThroughTheFanOut_NoSlotLookups() {
 		var owners = new InMemoryDataCache<ProbeKey, PkTaggedBook>();
 		var index = owners.CacheCollectionSymmetricKeyValueListIndex<int>((_, b) => b.TagIds);
 		Tag(10);
@@ -617,7 +617,7 @@ public class JoinManyLeftSymCollectionConcurrentMutationTests {
 			ProbeKey.Disarm();
 		}
 
-		Assert.That(hashes, Is.EqualTo(2 + 2 * 1), "two pairs walked, one distinct owner looked up in the store and in the pair set");
+		Assert.That(hashes, Is.EqualTo(2 + 1), "two pairs walked, one distinct owner looked up in the store, none for slots");
 		Assert.That(Ids(log, 10, b => b.Id), Is.EqualTo(new[] { 100 }));
 		Assert.That(Ids(log, 20, b => b.Id), Is.EqualTo(new[] { 100 }));
 	}

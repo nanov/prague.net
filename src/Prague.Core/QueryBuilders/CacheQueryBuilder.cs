@@ -1628,13 +1628,14 @@ void ICandidatesExecutor<TKey, TValue>.ExecuteBase<TContainer>(ref TContainer c)
 	}
 
 	/// <summary>
-	/// <see cref="ExecutePaired{TContainer}"/> for a container that also wants the right key: the store
-	/// calls <c>Add(pair.JoinedKey, pair.Key, value)</c> per surviving pair. The JoinMany fan-out uses the
-	/// key to deliver one right to every left recorded for it. Auto-disposes after execution.
+	/// <see cref="ExecutePaired{TContainer}"/> for a container that also wants the pair's slot in the
+	/// candidate set: the store calls <c>Add(pair.JoinedKey, slot, value)</c> per surviving pair. The
+	/// JoinMany fan-out indexes its right → extra-lefts chains by that slot, so one right is delivered
+	/// to every left recorded for it without looking the pair up again. Auto-disposes after execution.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void ExecutePairedJoined<TContainer>(scoped ref TContainer container)
-		where TContainer : struct, IJoinedResultContainer<TLeft, TKey, TValue>, allows ref struct {
+		where TContainer : struct, IJoinedSlotResultContainer<TLeft, TValue>, allows ref struct {
 		if (_disposed)
 			throw new ObjectDisposedException(nameof(PairedCacheQueryBuilderCoreCombined<TLeft, TKey, TValue>));
 

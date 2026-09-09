@@ -1729,6 +1729,15 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 		public T Current { get; private set; }
 
+		/// <summary>
+		///   Slot of <see cref="Current"/> in the set — the same index <see cref="ValueSet{T,TKeyComparer}.AddOrFind"/>
+		///   reported when the item was added; slots survive growth and in-place removals.
+		/// </summary>
+		public int CurrentSlot {
+			[MethodImpl(MethodImplOptions.AggressiveInlining)]
+			get => _index - 1;
+		}
+
 		object IEnumerator.Current {
 			get {
 				if (_index == 0 || _index == _lastIndex + 1)

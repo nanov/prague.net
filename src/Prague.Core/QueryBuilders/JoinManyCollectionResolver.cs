@@ -151,13 +151,13 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 		if (fanOut.SingleLeftPerRight) {
 			// No right is shared, so a pair's JoinedKey is its whole chain: the plain paired execute (the
 			// store calls Add(pair.JoinedKey, value)) delivers exactly what a Delivery would, without the
-			// wrapper, the right key or the slot lookup.
+			// wrapper or the chain walk.
 			core.ExecutePaired(ref container);
 			return;
 		}
 
 		var delivery = new JoinManyFanOut<TLeftKey, TRightKey>.Delivery<TRightValue, TContainer>(
-			container, core._candidates, fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
+			container, fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
 		core.ExecutePairedJoined(ref delivery);
 		container = delivery.Inner;
 	}

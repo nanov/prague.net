@@ -429,6 +429,16 @@ public interface IJoinedResultContainer<in TForeignKey, in TKey, in TResult> {
 	void Add(TForeignKey foreignKey, TKey key, TResult result);
 }
 
+/// <summary>
+/// Container for a paired walk that reports each surviving pair by the slot it occupies in the pair
+/// set. <see cref="Collections.ValueSet{T,TKeyComparer}"/> slots survive growth and in-place removals,
+/// so a caller that kept per-pair side data by slot when it built the set reaches it again without a
+/// lookup — the JoinMany fan-out's right → extra-lefts chains.
+/// </summary>
+internal interface IJoinedSlotResultContainer<in TForeignKey, in TResult> {
+	void Add(TForeignKey foreignKey, int slot, TResult result);
+}
+
 // From IResultContainerInitializer.cs
 internal interface IResultContainerInitializer<TForeignKey, TResult> : IJoinedResultContainer<TForeignKey, TResult>
 	where TForeignKey : notnull {

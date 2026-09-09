@@ -32,7 +32,12 @@ public class JoinManyFanOutTests {
 
 	private static JoinManyFanOut<int, int>.Delivery<string, Recorder> DeliveryOver(
 		ref JoinManyFanOut<int, int> fanOut, List<(int Left, string Value)> log) =>
-		new(new Recorder(log), fanOut.Pairs, fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
+		new(new Recorder(log), fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
+
+	// The store reports a surviving pair by its slot in the pair set; a test stands in for the store by
+	// looking the slot up (pair identity is the right key alone, so the probe's left is irrelevant).
+	private static int SlotOf(ref JoinManyFanOut<int, int> fanOut, int right) =>
+		fanOut.Pairs.IndexOf(new JoinedKeyPair<int, int>(0, right));
 
 	[Test]
 	public void Record_DistinctRights_OnePairEach() {
@@ -66,7 +71,7 @@ public class JoinManyFanOutTests {
 
 			var log = new List<(int Left, string Value)>();
 			var delivery = DeliveryOver(ref fanOut, log);
-			delivery.Add(1, 100, "book");
+			delivery.Add(1, SlotOf(ref fanOut, 100), "book");
 
 			Assert.That(log.Select(e => e.Left), Is.EquivalentTo(Enumerable.Range(1, 40)));
 			Assert.That(log.All(e => e.Value == "book"), Is.True);
@@ -92,11 +97,11 @@ public class JoinManyFanOutTests {
 
 			var log = new List<(int Left, string Value)>();
 			var delivery = DeliveryOver(ref fanOut, log);
-			delivery.Add(1, 100, "v");
+			delivery.Add(1, SlotOf(ref fanOut, 100), "v");
 			Assert.That(log.Select(e => e.Left), Is.EquivalentTo(new[] { 1, 2 }));
 
 			log.Clear();
-			delivery.Add(1, 101, "w");
+			delivery.Add(1, SlotOf(ref fanOut, 101), "w");
 			Assert.That(log.Select(e => e.Left), Is.EquivalentTo(new[] { 1 }));
 		} finally {
 			fanOut.Dispose();
@@ -131,16 +136,16 @@ public class JoinManyFanOutTests {
 
 			var log = new List<(int Left, string Value)>();
 			var delivery = DeliveryOver(ref fanOut, log);
-			delivery.Add(1, 130, "a");
+			delivery.Add(1, SlotOf(ref fanOut, 130), "a");
 			Assert.That(log.Select(e => e.Left), Is.EquivalentTo(new[] { 1, 2 }), "shared before the chains existed");
 			log.Clear();
-			delivery.Add(1, 115, "b");
+			delivery.Add(1, SlotOf(ref fanOut, 115), "b");
 			Assert.That(log.Select(e => e.Left), Is.EqualTo(new[] { 1 }), "an earlier slot with no chain");
 			log.Clear();
-			delivery.Add(3, 250, "c");
+			delivery.Add(3, SlotOf(ref fanOut, 250), "c");
 			Assert.That(log.Select(e => e.Left), Is.EquivalentTo(Enumerable.Range(3, 38)), "a later slot with a long chain");
 			log.Clear();
-			delivery.Add(3, 260, "d");
+			delivery.Add(3, SlotOf(ref fanOut, 260), "d");
 			Assert.That(log.Select(e => e.Left), Is.EqualTo(new[] { 3 }), "a later slot with no chain");
 		} finally {
 			fanOut.Dispose();
@@ -162,8 +167,8 @@ public class JoinManyFanOutTests {
 
 			var log = new List<(int Left, string Value)>();
 			var delivery = new JoinManyFanOut<int, int>.Delivery<string, Recorder>(
-				new Recorder(log), survivors, fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
-			delivery.Add(2, 200, "v");
+				new Recorder(log), fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
+			delivery.Add(2, survivors.IndexOf(new JoinedKeyPair<int, int>(0, 200)), "v");
 
 			Assert.That(log.Select(e => e.Left), Is.EquivalentTo(new[] { 2, 3 }));
 		} finally {
@@ -171,9 +176,10 @@ public class JoinManyFanOutTests {
 		}
 	}
 
-	// Each delivered right costs one hash (the slot probe) and reaches every left in its chain.
+	// A delivered right reaches every left in its chain through the slot the store reports — the
+	// right key is never hashed again.
 	[Test]
-	public void Delivery_SharedRight_LooksTheSlotUp() {
+	public void Delivery_SharedRight_NeverHashesTheRight() {
 		var fanOut = new JoinManyFanOut<int, ProbeKey>(4);
 		var hashes = 0;
 		try {
@@ -181,15 +187,17 @@ public class JoinManyFanOutTests {
 			fanOut.Record(2, new ProbeKey(100));
 			fanOut.Record(3, new ProbeKey(101));
 			Assert.That(fanOut.SingleLeftPerRight, Is.False);
+			var sharedSlot = fanOut.Pairs.IndexOf(new JoinedKeyPair<int, ProbeKey>(0, new ProbeKey(100)));
+			var ownSlot = fanOut.Pairs.IndexOf(new JoinedKeyPair<int, ProbeKey>(0, new ProbeKey(101)));
 
 			var log = new List<(int Left, string Value)>();
 			var delivery = new JoinManyFanOut<int, ProbeKey>.Delivery<string, Recorder>(
-				new Recorder(log), fanOut.Pairs, fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
+				new Recorder(log), fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
 			ProbeKey.Arm(_ => hashes++);
-			delivery.Add(1, new ProbeKey(100), "shared");
-			delivery.Add(3, new ProbeKey(101), "own");
+			delivery.Add(1, sharedSlot, "shared");
+			delivery.Add(3, ownSlot, "own");
 
-			Assert.That(hashes, Is.EqualTo(2), "one slot probe per delivered right");
+			Assert.That(hashes, Is.Zero, "the slot comes from the store walk; delivery does not hash");
 			Assert.That(log, Is.EquivalentTo(new[] { (1, "shared"), (2, "shared"), (3, "own") }));
 		} finally {
 			ProbeKey.Disarm();

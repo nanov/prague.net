@@ -37,8 +37,8 @@ _Generated 2026-09-09T02:11:08Z_
 | query.sortDistinct.alloc | 88.00 | bytes |
 | query.sortTied.p50 | 11125.62 | ns |
 | query.sortTied.alloc | 88.00 | bytes |
-| query.sortTiedJoined.p50 | 236550.26 | ns |
-| query.sortTiedJoinedBoundedPage.p50 | 228575.74 | ns |
+| query.sortTiedJoined.p50 | 226604.96 | ns |
+| query.sortTiedJoinedBoundedPage.p50 | 221854.90 | ns |
 | query.sortTiedLeftThenJoinClassic.p50 | 65720.97 | ns |
 | query.sortTiedLeftThenJoinBounded.p50 | 20751.93 | ns |
 | query.sortBoundedPage.p50 | 7604.17 | ns |

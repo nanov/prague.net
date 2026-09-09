@@ -457,28 +457,35 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		return values;
 	}
 
+	/// <summary>
+	/// The paired walk of <see cref="TryGetValues{TForeignKey,TContainer}(ref TContainer, ref ValueSet{JoinedKeyPair{TForeignKey,TKey},DefaultKeyComparer{JoinedKeyPair{TForeignKey,TKey}}})"/>
+	/// for a container that keeps per-pair side data by pair slot: each hit is reported as
+	/// <c>Add(pair.JoinedKey, slot, value)</c>, the slot being the pair's index in <paramref name="keys"/>.
+	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	internal int TryGetValuesJoined<TForeignKey, TContainer>(
 		ref TContainer container,
 		ref ValueSet<JoinedKeyPair<TForeignKey, TKey>, DefaultKeyComparer<JoinedKeyPair<TForeignKey, TKey>>> keys)
 		where TForeignKey : notnull
-		where TContainer : struct, IJoinedResultContainer<TForeignKey, TKey, TValue>, allows ref struct {
+		where TContainer : struct, IJoinedSlotResultContainer<TForeignKey, TValue>, allows ref struct {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
 		var values = 0;
-		foreach (var pair in keys) {
+		var pairs = keys.GetEnumerator();
+		while (pairs.MoveNext()) {
+			var pair = pairs.Current;
 			var key = pair.Key;
 			var hashCode = GetHashCode(key);
 			var bucket = GetBucket(tables, hashCode);
 			if (bucket is not null) {
 				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
-					container.Add(pair.JoinedKey, pair.Key, bucket.Value);
+					container.Add(pair.JoinedKey, pairs.CurrentSlot, bucket.Value);
 					++values;
 				} else {
 					for (var next = bucket.Next; next is not null; next = next.Next) {
 						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
-							container.Add(pair.JoinedKey, pair.Key, next.Value);
+							container.Add(pair.JoinedKey, pairs.CurrentSlot, next.Value);
 							++values;
 							break;
 						}
@@ -496,26 +503,28 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		ref ValueSet<JoinedKeyPair<TForeignKey, TKey>, DefaultKeyComparer<JoinedKeyPair<TForeignKey, TKey>>> keys,
 		Predicate<TValue> predicate)
 		where TForeignKey : notnull
-		where TContainer : struct, IJoinedResultContainer<TForeignKey, TKey, TValue>, allows ref struct {
+		where TContainer : struct, IJoinedSlotResultContainer<TForeignKey, TValue>, allows ref struct {
 		if (keys.Count == 0)
 			return 0;
 		var tables = _tables;
 		var values = 0;
-		foreach (var pair in keys) {
+		var pairs = keys.GetEnumerator();
+		while (pairs.MoveNext()) {
+			var pair = pairs.Current;
 			var key = pair.Key;
 			var hashCode = GetHashCode(key);
 			var bucket = GetBucket(tables, hashCode);
 			if (bucket is not null) {
 				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
 					if (predicate(bucket.Value)) {
-						container.Add(pair.JoinedKey, pair.Key, bucket.Value);
+						container.Add(pair.JoinedKey, pairs.CurrentSlot, bucket.Value);
 						++values;
 					}
 				} else {
 					for (var next = bucket.Next; next is not null; next = next.Next) {
 						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
 							if (predicate(next.Value)) {
-								container.Add(pair.JoinedKey, pair.Key, next.Value);
+								container.Add(pair.JoinedKey, pairs.CurrentSlot, next.Value);
 								++values;
 							}
 

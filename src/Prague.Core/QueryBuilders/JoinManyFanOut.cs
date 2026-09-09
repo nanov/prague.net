@@ -1,6 +1,5 @@
 namespace Prague.Core;
 
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Prague.Core.Collections;
@@ -12,15 +11,25 @@ using Prague.Core.Collections;
 // resolver therefore keeps ONE pair per distinct right in the set — its JoinedKey is the first left
 // that recorded the right, which is enough for the user's filter (UseIndex / Where / Or all narrow by
 // right key) and for one paired execute — and records on the side which OTHER lefts each right belongs
-// to: a chain of left keys per pair slot, in pooled arrays. Delivery runs the keyed paired execute once:
-// the store hands the container (first left, right key, value) per surviving right, the container adds
-// the value to the first left and then to every left in the right's chain.
+// to: a chain of left keys per pair slot, in pooled arrays. Delivery runs the slot-reporting paired
+// execute once: the store hands the container (first left, pair slot, value) per surviving right, the
+// container adds the value to the first left and then to every left in the slot's chain — no lookup.
 //
 // The chains are lazy. While no right is recorded by a second left — the ordinary FK join, where every
 // right belongs to exactly one left — nothing but the pair itself is written and no chain array is
 // rented, so the fan-out costs what a plain pair set does; the resolver then skips the delivery as
 // well and runs the plain paired execute (see SingleLeftPerRight). The first shared right rents the
 // chain arrays and gives every slot recorded so far an empty chain.
+//
+// Recording is the per-pair hot loop of every JoinMany query, so RecordBucket is written for the
+// unshared shape: while no chain exists it does one AddOrFind per right and nothing else — no chain
+// bookkeeping, no per-right counter, no per-right test of whether chains exist — and only switches
+// to the chain-maintaining loop once a right is actually shared. Measured against the pre-fan-out
+// UnionWith loop this is what closes the gap (#72): the fan-out's per-pair extras were a handful of
+// instructions, and on 10 000 pairs a handful of instructions is 5%. The bucket's stored hash is
+// deliberately NOT reused for the pair: the bucket enumerator's (value, hash) copy is not atomic
+// against a concurrent remove + reuse of the slot, so the hash can belong to a key the slot no
+// longer holds — and reusing it measured no faster anyway.
 //
 // Pair slots are stable while nothing is removed (the recording phase only adds) and survive the set's
 // growth, and the user filter can only remove pairs — in place — so a slot recorded here still names
@@ -47,10 +56,10 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	private const int MinCapacity = 16;
 
 	private ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>> _pairs;
-	// The set's Count at the hand-off, when the set itself is gone from here; before that the set is
-	// asked directly, so recording keeps no counter of its own.
-	private int _distinctRightsHandedOff;
-	private bool _handedOff;
+	// True while this instance must dispose the pair set; cleared by the hand-off to the paired core
+	// (which disposes its copy) and by Dispose itself. The set is never zeroed — it is ~1 KB of inline
+	// storage — its Count stays readable after the hand-off because nothing here touches it again.
+	private bool _pairsOwned;
 	// Rented by the first shared right. _heads[slot]: first chain node of the pair stored at that slot,
 	// or NoChain; a node carries a left recorded for the right AFTER its first one, and the next node.
 	private int[]? _heads;
@@ -61,19 +70,27 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	/// <param name="expectedPairs">Capacity hint for the pair set.</param>
 	public JoinManyFanOut(int expectedPairs) {
 		_pairs = new ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>(Math.Max(expectedPairs, MinCapacity));
-		_distinctRightsHandedOff = 0;
-		_handedOff = false;
+		_pairsOwned = true;
 		_heads = null;
 		_nodeLeft = null;
 		_nodeNext = null;
 		_nodeCount = 0;
 	}
 
-	/// <summary>Distinct rights recorded: the pair set's size (remembered across the hand-off).</summary>
-	public readonly int DistinctRights => _handedOff ? _distinctRightsHandedOff : _pairs.Count;
+	// Not readonly: ValueSet.Count is an auto-property, so a readonly accessor would copy the whole
+	// set (inline storage included) before reading it.
+
+	/// <summary>Distinct rights recorded: the pair set's size (still readable after the hand-off).</summary>
+	public int DistinctRights {
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		get => _pairs.Count;
+	}
 
 	/// <summary>(left, right) pairs recorded so far, repeat sightings excluded.</summary>
-	public readonly int PairCount => DistinctRights + _nodeCount;
+	public int PairCount {
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		get => _pairs.Count + _nodeCount;
+	}
 
 	/// <summary>
 	/// True while every recorded right belongs to exactly one left, so a pair's JoinedKey is its whole
@@ -101,14 +118,35 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	/// the exact capacity the left's slot must reserve.
 	/// </summary>
 	public int RecordBucket(TLeftKey left, PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket) {
-		var added = 0;
-		foreach (var right in bucket) {
-			if (Record(left, right)) {
-				added++;
+		ref var pairs = ref _pairs;
+		var before = pairs.Count + _nodeCount;
+		using var rights = bucket.GetEnumerator();
+
+		if (_heads is null) {
+			// No right is shared yet: a new right is one insert and nothing else. The first shared
+			// right rents the chains, after which every new slot needs its head set — the loop below
+			// takes over the rest of this bucket.
+			while (rights.MoveNext()) {
+				if (pairs.AddOrFind(new(left, rights.Current), out var slot))
+					continue;
+
+				RecordShared(left, slot);
+				if (_heads is not null)
+					goto chained;
 			}
+
+			return pairs.Count + _nodeCount - before;
 		}
 
-		return added;
+		chained:
+		while (rights.MoveNext()) {
+			if (pairs.AddOrFind(new(left, rights.Current), out var slot))
+				SetEmptyHead(slot);
+			else
+				RecordShared(left, slot);
+		}
+
+		return pairs.Count + _nodeCount - before;
 	}
 
 	/// <summary>
@@ -117,22 +155,25 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Record(TLeftKey left, TRightKey right) {
-		var added = _pairs.AddOrFind(new JoinedKeyPair<TLeftKey, TRightKey>(left, right), out var slot);
-		if (added) {
-			if (_heads is not null) {
-				// Chains exist, so the new slot needs an empty one. Nothing is removed while recording:
-				// new rights take slots 0, 1, 2, … in order.
-				if (slot >= _heads.Length) {
-					GrowHeads();
-				}
-
-				_heads[slot] = NoChain;
-			}
+		if (_pairs.AddOrFind(new(left, right), out var slot)) {
+			if (_heads is not null)
+				SetEmptyHead(slot);
 
 			return true;
 		}
 
 		return RecordShared(left, slot);
+	}
+
+	// Chains exist, so a new slot needs an empty one. Nothing is removed while recording: new rights
+	// take slots 0, 1, 2, … in order.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void SetEmptyHead(int slot) {
+		var heads = _heads!;
+		if ((uint)slot >= (uint)heads.Length)
+			heads = GrowHeads();
+
+		heads[slot] = NoChain;
 	}
 
 	// The right already belongs to a left: cold next to the FK shape, where every right is new. A repeat
@@ -141,15 +182,13 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	private bool RecordShared(TLeftKey left, int slot) {
 		var head = _heads is null ? NoChain : _heads[slot];
 		var latest = head == NoChain ? _pairs.ValueAt(slot).JoinedKey : _nodeLeft![head];
-		if (EqualityComparer<TLeftKey>.Default.Equals(latest, left)) {
+		if (EqualityComparer<TLeftKey>.Default.Equals(latest, left))
 			return false;
-		}
 
-		if (_heads is null) {
+		if (_heads is null)
 			RentChains();
-		} else if (_nodeCount == _nodeLeft!.Length) {
+		else if (_nodeCount == _nodeLeft!.Length)
 			GrowNodes();
-		}
 
 		var node = _nodeCount;
 		_nodeLeft![node] = left;
@@ -163,11 +202,7 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	/// The pair set now belongs to the paired core that received a copy of it (the core disposes it):
 	/// <see cref="Dispose"/> leaves the pairs alone from here on and only returns the chains.
 	/// </summary>
-	public void MarkPairsHandedOff() {
-		_distinctRightsHandedOff = _pairs.Count;
-		_handedOff = true;
-		_pairs = default;
-	}
+	public void MarkPairsHandedOff() => _pairsOwned = false;
 
 	// Chain storage for a Delivery, valid once some right is shared (!SingleLeftPerRight); the arrays
 	// stay owned (and returned) by this instance.
@@ -176,11 +211,10 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	internal readonly int[] NodeNexts => _nodeNext!;
 
 	public void Dispose() {
-		if (_pairs.IsInitlized) {
+		if (_pairsOwned && _pairs.IsInitlized)
 			_pairs.Dispose();
-		}
 
-		_pairs = default;
+		_pairsOwned = false;
 		if (_heads is not null) {
 			PragueArrayPool<int>.Pool.Return(_heads);
 			_heads = null;
@@ -197,12 +231,10 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 		}
 
 		_nodeCount = 0;
-		_distinctRightsHandedOff = 0;
-		_handedOff = false;
 	}
 
 	// First shared right: rent the chains and give every slot recorded so far an empty one. Slots that
-	// arrive later get theirs in Record.
+	// arrive later get theirs in SetEmptyHead.
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private void RentChains() {
 		var recorded = _pairs.Count;
@@ -214,12 +246,13 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	}
 
 	[MethodImpl(MethodImplOptions.NoInlining)]
-	private void GrowHeads() {
+	private int[] GrowHeads() {
 		var heads = _heads!;
 		var grown = PragueArrayPool<int>.Pool.Rent(heads.Length * 2);
 		Array.Copy(heads, grown, heads.Length);
 		PragueArrayPool<int>.Pool.Return(heads);
 		_heads = grown;
+		return grown;
 	}
 
 	[MethodImpl(MethodImplOptions.NoInlining)]
@@ -238,56 +271,39 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	}
 
 	/// <summary>
-	/// Container for the keyed paired execute: receives one surviving right at a time and adds its
-	/// value to the right's first left and to every left in its chain. Holds the target container by
-	/// value — a ref field cannot refer to a ref struct — so the caller copies <see cref="Inner"/> back
-	/// once the execute returns. The pair set is a by-value snapshot taken after the user filter
-	/// narrowed it: it shares the set's rented arrays (or, for an inline-stored set, copies its slots),
-	/// which is all a slot lookup needs, and it is never disposed — the paired core owns the real set.
-	/// A resolver builds one only when some right is shared (see <see cref="SingleLeftPerRight"/>), so
-	/// the chain arrays exist.
+	/// Container for the slot-reporting paired execute: receives one surviving right at a time — as the
+	/// first left that recorded it, the pair's slot and the value — and adds the value to that left and
+	/// to every left in the slot's chain. The slot is the one the right took when it was recorded: the
+	/// user filter only removes pairs in place, so survivors keep their slots and no lookup is needed.
+	/// Holds the target container by value — a ref field cannot refer to a ref struct — so the caller
+	/// copies <see cref="Inner"/> back once the execute returns. A resolver builds one only when some
+	/// right is shared (see <see cref="SingleLeftPerRight"/>), so the chain arrays exist.
 	/// </summary>
-	internal ref struct Delivery<TRightValue, TContainer> : IJoinedResultContainer<TLeftKey, TRightKey, TRightValue>
+	internal ref struct Delivery<TRightValue, TContainer> : IJoinedSlotResultContainer<TLeftKey, TRightValue>
 		where TContainer : struct, IJoinedResultContainer<TLeftKey, TRightValue>, allows ref struct {
 		public TContainer Inner;
-		// Not readonly on purpose: ValueSet has no readonly members, so a readonly field would make every
-		// IndexOf copy the whole struct (inline storage included) before probing it.
-		private ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>> _pairs;
 		private readonly int[] _heads;
 		private readonly TLeftKey[] _nodeLeft;
 		private readonly int[] _nodeNext;
 
 		/// <param name="inner">The resolver's result container.</param>
-		/// <param name="survivingPairs">Snapshot of the paired core's pair set after the user filter ran.</param>
 		/// <param name="heads">Per pair slot: the first chain node, or <see cref="NoChain"/>.</param>
 		/// <param name="nodeLefts">Chain nodes: a left recorded for the right after its first one.</param>
 		/// <param name="nodeNexts">Chain nodes: the next node of the same right, or <see cref="NoChain"/>.</param>
-		public Delivery(TContainer inner,
-			ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>> survivingPairs,
-			int[] heads, TLeftKey[] nodeLefts, int[] nodeNexts) {
+		public Delivery(TContainer inner, int[] heads, TLeftKey[] nodeLefts, int[] nodeNexts) {
 			Inner = inner;
-			_pairs = survivingPairs;
 			_heads = heads;
 			_nodeLeft = nodeLefts;
 			_nodeNext = nodeNexts;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public void Add(TLeftKey firstLeft, TRightKey right, TRightValue value) {
+		public void Add(TLeftKey firstLeft, int slot, TRightValue value) {
 			// The pair's JoinedKey is the first left that recorded the right; it always receives.
 			Inner.Add(firstLeft, value);
 
-			// Pair identity is the right key, so the probe's JoinedKey is irrelevant; the slot is the one
-			// the right took when it was recorded — removals never renumber survivors.
-			var slot = _pairs.IndexOf(new JoinedKeyPair<TLeftKey, TRightKey>(firstLeft, right));
-			Debug.Assert(slot >= 0, "a delivered right must sit in the pair set");
-			if (slot < 0) {
-				return;
-			}
-
-			for (var node = _heads[slot]; node != NoChain; node = _nodeNext[node]) {
+			for (var node = _heads[slot]; node != NoChain; node = _nodeNext[node])
 				Inner.Add(_nodeLeft[node], value);
-			}
 		}
 	}
 }

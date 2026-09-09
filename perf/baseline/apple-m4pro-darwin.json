@@ -193,13 +193,13 @@
         {
           "id": "query.sortTiedJoined.p50",
           "unit": "ns",
-          "value": 236550.26114908853,
+          "value": 226604.96,
           "higherIsBetter": false
         },
         {
           "id": "query.sortTiedJoinedBoundedPage.p50",
           "unit": "ns",
-          "value": 228575.74350585937,
+          "value": 221854.90,
           "higherIsBetter": false
         },
         {
