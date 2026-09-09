@@ -20,6 +20,7 @@ public class PreparedQueryAllocationTests {
 	private CacheKeyValueListIndex<int, PreparedQueryJoinDifferentialTests.PqLine, int> _lineByOrder = null!;
 	private CacheUniqueIndex<int, PreparedQueryDifferentialTests.PqItem, int> _byCode = null!;
 	private CacheKeyValueListIndex<int, PreparedQueryDifferentialTests.PqItem, int> _byGroup = null!;
+	private CacheKeyValueListIndex<int, PreparedQueryDifferentialTests.PqItem, int> _byTier = null!;
 	private CacheRangeIndex<int, PreparedQueryDifferentialTests.PqItem, int> _codeRange = null!;
 
 	// Struct comparer: the sort plans carry it as a type parameter, so neither side boxes it.
@@ -36,6 +37,7 @@ public class PreparedQueryAllocationTests {
 		_cache = new InMemoryDataCache<int, PreparedQueryDifferentialTests.PqItem>();
 		_byCode = _cache.AddKeyValueIndex<int>(static (_, v) => v.Code);
 		_byGroup = _cache.CacheKeyValueListIndex<int>(static (_, v) => v.Group);
+		_byTier = _cache.CacheKeyValueListIndex<int>(static (_, v) => v.Id % 10);
 		_codeRange = _cache.CacheRangeIndex<int>(static (_, v) => v.Code);
 		for (var i = 0; i < N; i++)
 			_cache.AddOrUpdate(i, new PreparedQueryDifferentialTests.PqItem { Id = i, Code = 1000 + i, Group = i % 97, Flag = i % 3 == 0 });
@@ -311,6 +313,89 @@ public class PreparedQueryAllocationTests {
 #if !DEBUG
 		Assert.That(fast, Is.EqualTo(0), "frozen pooled point lookup with an arg filter must allocate nothing in Release");
 		Assert.That(count, Is.EqualTo(0), "frozen Count must allocate nothing in Release");
+#endif
+	}
+
+	// ── Frozen, stage 2 ───────────────────────────────────────────────────────────
+	// Fused filters: the eager core composes a second Where through a closure allocated per execution
+	// and rents one predicate box per parameterized filter; the fused plan applies one predicate (a
+	// cached delegate for constants, one box for the whole plan otherwise), so pooled execution is 0 B.
+
+	[Test]
+	public void Frozen_ListTwoConstantWheres_Pooled_AllocatesNothing_AndLessThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, int>()
+			.UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Where(static v => v.Id % 10 == 0).Build();
+		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, int>()
+			.UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Where(static v => v.Id % 10 == 0).BuildFrozen();
+		Assert.That(frozen.Plan.Optimizations, Does.Contain("FusedFilters"));
+		var group = 13;
+
+		var eager = Measure(() => _cache.Query().UseIndex(_byGroup, group).Where(static v => v.Flag).Where(static v => v.Id % 10 == 0).ExecutePooled().Dispose());
+		var command = Measure(() => prepared.ExecutePooled(group).Dispose());
+		var fast = Measure(() => frozen.ExecutePooled(group).Dispose());
+		var count = Measure(() => frozen.Count(group));
+
+		TestContext.Out.WriteLine($"list+2 const wheres: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op, frozen {(double)fast / Iterations:F1} B/op, count {(double)count / Iterations:F1} B/op");
+		Assert.That(fast, Is.LessThan(eager));
+		Assert.That(fast, Is.LessThan(command));
+#if !DEBUG
+		Assert.That(fast, Is.EqualTo(0), "frozen pooled list + two constant Wheres must allocate nothing in Release");
+		Assert.That(count, Is.EqualTo(0), "frozen Count must allocate nothing in Release");
+		Assert.That(eager, Is.GreaterThan(0), "the eager second Where composes a closure");
+#endif
+	}
+
+	[Test]
+	public void Frozen_ListTwoArgWheres_Pooled_AllocatesNothing_AndLessThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min, int max)>()
+			.UseIndex(_byGroup, static a => a.group).Where(static (v, a) => v.Id >= a.min).Where(static (v, a) => v.Id <= a.max).Build();
+		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min, int max)>()
+			.UseIndex(_byGroup, static a => a.group).Where(static (v, a) => v.Id >= a.min).Where(static (v, a) => v.Id <= a.max).BuildFrozen();
+		Assert.That(frozen.Plan.Optimizations, Does.Contain("FusedFilters"));
+		var args = (group: 13, min: 1_000, max: 4_000);
+
+		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((int group, int min, int max) a)
+			=> _cache.Query().UseIndex(_byGroup, a.group).Where(v => v.Id >= a.min).Where(v => v.Id <= a.max).ExecutePooled();
+
+		var eager = Measure(() => Eager(args).Dispose());
+		var command = Measure(() => prepared.ExecutePooled(args).Dispose());
+		var fast = Measure(() => frozen.ExecutePooled(args).Dispose());
+
+		TestContext.Out.WriteLine($"list+2 arg wheres: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op, frozen {(double)fast / Iterations:F1} B/op");
+		Assert.That(fast, Is.LessThan(eager));
+		Assert.That(fast, Is.LessThan(command));
+#if !DEBUG
+		Assert.That(fast, Is.EqualTo(0), "frozen pooled list + two arg Wheres must allocate nothing in Release");
+#endif
+	}
+
+	// Capacity hints, single compaction and smallest-bucket seeding rent from the same pools the
+	// eager core rents from; none of them may add a per-execution allocation.
+	[Test]
+	public void Frozen_ListList_DefaultAdaptiveIntersectionAndReorder_Pooled_AllocateNoMoreThanEager() {
+		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		var single = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
+			.BuildFrozen(new FrozenOptions { AdaptiveIntersection = true });
+		var reorder = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
+			.BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true });
+		Assert.That(frozen.Plan.Optimizations, Does.Contain("CapacityHints"));
+		Assert.That(single.Plan.Executor, Is.EqualTo("IndexSteps"));
+		Assert.That(reorder.Plan.Executor, Is.EqualTo("IndexSteps"));
+		var args = (group: 13, tier: 3);
+
+		var eager = Measure(() => _cache.Query().UseIndex(_byGroup, args.group).UseIndex(_byTier, args.tier).ExecutePooled().Dispose());
+		var hinted = Measure(() => frozen.ExecutePooled(args).Dispose());
+		var compacted = Measure(() => single.ExecutePooled(args).Dispose());
+		var reordered = Measure(() => reorder.ExecutePooled(args).Dispose());
+
+		TestContext.Out.WriteLine($"list+list: eager {(double)eager / Iterations:F1} B/op, frozen {(double)hinted / Iterations:F1} B/op, adaptive intersection {(double)compacted / Iterations:F1} B/op, reorder {(double)reordered / Iterations:F1} B/op");
+		Assert.That(hinted, Is.LessThanOrEqualTo(eager + Iterations / 100));
+		Assert.That(compacted, Is.LessThanOrEqualTo(eager + Iterations / 100));
+		Assert.That(reordered, Is.LessThanOrEqualTo(eager + Iterations / 100));
+#if !DEBUG
+		Assert.That(hinted, Is.EqualTo(0), "frozen pooled list+list must allocate nothing in Release");
+		Assert.That(compacted, Is.EqualTo(0), "adaptive intersection must allocate nothing in Release");
+		Assert.That(reordered, Is.EqualTo(0), "smallest-bucket seeding must allocate nothing in Release");
 #endif
 	}
 

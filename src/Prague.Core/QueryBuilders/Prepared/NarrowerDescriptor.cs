@@ -128,14 +128,27 @@ public sealed class PlanInfo {
 
 	public bool IsSorted { get; }
 
-	/// <summary>The executor <c>BuildFrozen()</c> selected: <c>PointLookup</c> or <c>Replay</c>.</summary>
+	/// <summary>The executor <c>BuildFrozen()</c> selected: <c>PointLookup</c>, <c>IndexSteps</c> or <c>Replay</c>.</summary>
 	public string Executor { get; }
 
-	internal PlanInfo(IReadOnlyList<NarrowerDescriptor> narrowers, bool hasResolvers, bool isSorted, string executor) {
+	/// <summary>The stage-2 optimizations active on this plan (<c>FusedFilters</c>, <c>AdaptiveFilterOrder</c>, <c>CapacityHints</c>, <c>AdaptiveIntersection</c>, <c>ReorderIndexNarrowers</c>); empty when none applies.</summary>
+	public IReadOnlyList<string> Optimizations { get; }
+
+	// Live state the optimizations keep (the fused filter's current order, the capacity hint), printed by Explain.
+	private readonly IReadOnlyList<IPlanExplainable> _live;
+
+	internal PlanInfo(IReadOnlyList<NarrowerDescriptor> narrowers, bool hasResolvers, bool isSorted, string executor)
+		: this(narrowers, hasResolvers, isSorted, executor, [], []) {
+	}
+
+	internal PlanInfo(IReadOnlyList<NarrowerDescriptor> narrowers, bool hasResolvers, bool isSorted, string executor,
+		IReadOnlyList<string> optimizations, IReadOnlyList<IPlanExplainable> live) {
 		Narrowers = narrowers;
 		HasResolvers = hasResolvers;
 		IsSorted = isSorted;
 		Executor = executor;
+		Optimizations = optimizations;
+		_live = live;
 	}
 
 	public string Explain() {
@@ -145,6 +158,21 @@ public sealed class PlanInfo {
 		for (var i = 0; i < Narrowers.Count; i++)
 			Narrowers[i].Write(sb, 1);
 		sb.Append("resolvers: ").Append(HasResolvers ? "yes" : "none").Append(", sorted: ").AppendLine(IsSorted ? "yes" : "no");
+		sb.Append("optimizations: ");
+		if (Optimizations.Count == 0)
+			sb.Append("none");
+		for (var i = 0; i < Optimizations.Count; i++) {
+			if (i > 0)
+				sb.Append(", ");
+			sb.Append(Optimizations[i]);
+		}
+
+		sb.AppendLine();
+		for (var i = 0; i < _live.Count; i++) {
+			sb.Append("  ");
+			_live[i].Explain(sb);
+		}
+
 		return sb.ToString();
 	}
 }

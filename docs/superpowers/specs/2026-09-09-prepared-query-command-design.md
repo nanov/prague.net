@@ -387,23 +387,166 @@ mutations, 8×2000 concurrent lookups, leak balance incl. a throwing arg filter,
 test over every narrower kind with nested `Or` / `If`) plus three frozen pins in
 `PreparedQueryAllocationTests` (frozen ≤ prepared; 0 B pooled in Release).
 
-### Stage 2
+### Stage 2 — measured optimizations
 
-In order of expected return:
+> **Status:** shipped on `poc/prepared-query` after stage 1. Every item below was implemented, given
+> benchmark rows next to the eager (baseline) / `Build()` / `BuildFrozen()` rows in
+> `FrozenQueryBenchmarks`, and kept or reverted on the numbers (`RESULTS.MD`, "stage 2"). `BuildFrozen()`
+> now takes an optional `FrozenOptions`; the defaults keep the eager row sequence, the one optimization
+> that changes encounter order is opt-in. `Explain()` names the executor, lists the active optimizations
+> and prints their live state (the fused filter's current order and sample count, the capacity hint).
 
-1. **Constant-`Where` fusion** — fold a run of constant predicates into one typed step (and, on the
-   replay executor, hand the eager core a single pre-composed predicate so the per-execution `Compose`
-   closure on the second `Where` disappears).
-2. **Capacity hints** — the descriptors know the index kind; a list-equality plan can size the
-   candidate set and the result buffer from the live bucket count instead of the defaults.
-3. **Mutation version + memoization** — a per-cache write counter lets a frozen query with bound
-   arguments return a cached materialized page while the counter is unchanged.
-4. **Materialized sets** — keep a frozen query's candidate set maintained incrementally by the
-   cache's write path (the event-loop shape of §9), so execution is a copy-out.
+Apple M4 Pro, .NET 9, `--inProcess`, default job; 100k rows, list buckets of 1k (Group) and 100 (Tier).
 
-Also open: the bound (`NoArgs`) point lookup is a consistent ~8 ns slower than the parameterized one
-and the `NoArgs` forwarders are not the cause; and `PlanInfo` is the natural seat for equality /
-hashing (the "identity" half of the deferred item).
+#### 1. Fused filters + adaptive ordering — **kept** (`FuseFilters`, `AdaptiveFilterOrdering`, both default on)
+
+`FusedFilter<TValue,TArgs>` (`FusedFilter.cs`) folds the plan's top-level `Where`s — two or more — into one
+predicate. The eager core composes a second `Where` through a `&&` closure allocated per execution
+(96 B) and every parameterized filter rented its own predicate box; the fused plan hands the core one
+`Predicate<TValue>`: a delegate cached on the fused object when every filter is constant, otherwise one
+pooled box per execution (`ArgPredicatePool.RentFused`) that loops the steps with the execution's
+arguments. The chain replays through the new `INarrowerChain.ReplayIndexOnly`, whose `NarrowerLink`
+skips the `FilterNarrower` / `FilterArgNarrower` links by a `typeof` test the JIT folds per closed
+chain — the least invasive way to keep the fused `Where`s from running twice; filters inside `If` /
+`Match` branches stay in their sub-chains. The fused predicate is set on the core *before* the index
+replay, so an `Or` that auto-seeds sees the filter exactly as an eager `Where(..).Or(..)` does.
+
+*Adaptive order.* Predicates are pure, so their order changes only how many calls a rejected row
+costs. Every 256th execution (the first included) runs sampled: per step, calls and rejections are
+counted and the first 4096 calls are timed with `Stopwatch`; at the end of that execution the steps are
+re-ranked by rejection rate per unit cost and a changed order is published as a fresh immutable
+`FusedOrdering` (the steps permuted into evaluation order) through `Volatile.Write`. Unsampled
+executions read the ordering once and write nothing — no shared writes, no false sharing; the counters
+are plain ints (advisory, racy by design). Chosen over DuckDB's permutation trials because it is
+deterministic and testable, and because per-step statistics are argument-independent while whole-phase
+timings vary with the bucket size the arguments select. Two findings shaped it: (a) a sampled execution
+that timed every call cost ~80 µs, which at 1/32 sampling was a 20% regression on a 9 µs query — hence
+the 4096-call timing cap and the 1/256 rate; (b) `Stopwatch` cannot tell a field read from an integer
+modulo (both ~1–2 ns under a ~10 ns read overhead), so the cost is the timed mean minus the measured
+timer overhead clamped to a 2 ns floor — cost separates expensive predicates (string ops) from cheap
+ones, selectivity decides among the cheap — and a step is promoted only when its score beats the
+other's by 1.5×: a swap between predicates of similar selectivity saves ~N·Δreject calls and measured a
+loss of the same size to branch prediction (`ListTwoWheres`, Flag 67% vs Score%10 90%: reordering was
+7% slower than the fixed order). Exceptions: a throwing predicate may throw earlier or later than under
+the eager order and a non-total predicate (one guarded by an earlier `Where`) may be called on rows it
+never saw — `AdaptiveFilterOrdering = false` restores the declared order (documented in the XML docs).
+
+| Shape | Eager | `Build()` | `BuildFrozen()` | fixed order | Frozen alloc |
+|---|---:|---:|---:|---:|---|
+| list + 2 constant `Where`s | 9.52 µs (97 B) | 9.53 µs (97 B) | 8.55 µs (0.90) | 8.34 µs (0.88) | 0 B |
+| list + 3 `Where`s, most selective last | 10.38 µs (193 B) | 11.48 µs (193 B) | 7.04 µs (0.68) | 10.15 µs (0.98) | 0 B |
+| list + 2 parameterized `Where`s | 12.24 µs (257 B) | 13.49 µs (97 B) | 11.63 µs (0.95) | — | 0 B |
+
+The two-constant row's win is fusion (no closure) plus the capacity hint (#2); with the 1.5× margin the
+order stays declared there, and the 2% between the adaptive and the fixed-order row is the sampling
+itself. The three-`Where` row is the adaptive win: the 99%-rejecting predicate moves to the front and
+predicate calls drop from ~2,300 to ~1,000 per execution. The two-arg row removes two of the eager
+path's five delegate hops per row and both boxes' `&&` closure.
+
+#### 2. Capacity hints — **kept** (`CapacityHints`, default on)
+
+`FrozenHints` (`FrozenHints.cs`) remembers the candidate set's high-water mark (`ValueSet.HighWaterMark`
+= `_lastIndex`, the slots ever used, i.e. the seed size before later steps pruned it) and the next
+execution pre-creates `core.Candidates` at that capacity before the replay (`FrozenReplay.PreSize`) — the
+set the eager core would otherwise create lazily, at the default size, on its first index step. Hinted
+plans are equality-seeded, so that step always runs and only unions into / prunes the set: the state is
+the lazy path's minus the rehashes, and the eager core itself is untouched (a first version added a
+`_candidateCapacityHint` field and an `InitCandidates()` helper to the core; reverted in favour of the
+pre-created set once a default-job run showed the frozen `list ∩ range` replay — a plan with no
+optimization active — 5% slower than `Build()`, see "Executor split" below). Plain-int advisory state:
+grows to the observed size (capped
+at 1<<20) and shrinks to the observed size after eight consecutive executions under half the hint, so a
+one-off spike cannot pin an oversized rental. Only equality / membership-seeded plans get a hint: a
+range seed's size says nothing about the next execution's bounds, composites may not seed at all, and a
+filter-only plan never rents a set. `SimpleResultContainer` already sizes the result buffer from
+`Candidates.Count`, so only the candidate set benefits.
+
+| Shape | Eager | `Build()` | `BuildFrozen()` | hints off |
+|---|---:|---:|---:|---:|
+| list bucket (1k) + `Where` | 8.39 µs | 8.48 µs | 7.12 µs (0.85) | 8.46 µs (1.01) |
+| list ∩ list, eager intersection | 9.42 µs | 9.32 µs | 8.08 µs (0.86) | — |
+
+A 1k bucket rents its three arrays once at 1,103 slots instead of rehashing 47 → 97 → 197 → 397 → 797 →
+1,597 with a rent / copy / return each time.
+
+#### 3. Single compaction → adaptive intersection — **kept in a different form** (`AdaptiveIntersection`, default on)
+
+The hypothesis was that one mark-and-prune bitmap over the seeded set with a single compaction beats
+the eager per-step `IntersectWith`. Investigated: both remove by slot (`RemoveAt` / `Remove` leave holes
+the enumerator skips), so both keep the seed's encounter order and the transform is result-identical.
+Built as `IndexStepsExecutor` (`IndexStepsExecutor.cs`): the declared first step seeds the core the eager
+way, then a top-level `IncrementalIntersecter` over `core.Candidates` and a child core in intersecter
+mode (the `OrWith` construction) take the remaining steps, and `Dispose()` compacts once. Equality steps
+implement the internal `IIndexStep` (cardinality probe + `Apply` on the concrete core) and are boxed
+once at build; the executor is generic over `TPlan` like the replay, so sorted shapes qualify too.
+
+Measured as literally "compact once", it was **not** a win: `list(1k) ∩ list(100)` fell from 8.3 to
+5.4 µs but `list(100) ∩ list(1k)` doubled from 1.25 to 2.46 µs. The reason is which side is walked: the
+eager `IntersectWith(PooledSet)` walks the *candidate set* probing the bucket — O(|candidates|) — while the
+intersecter's first step walks the *bucket* probing the set — O(|bucket|); compaction cost is secondary.
+So the kept form reads each remaining step's bucket size (`CacheKeyValueListIndex.TryGetCount`, one
+probe) and takes the bitmap way only when the smallest bucket is smaller than the seeded set, with that
+step first (later steps `RetainOnly` over the marks, O(|marked|)); otherwise it runs the eager way. Key-set
+plans keep the eager intersection: the key-set step in intersecter mode always unions marks (it is
+written for an `Or` branch's first step). Range steps are not equality steps and are not covered
+(`list ∩ range` stays the plain stage-1 replay: 401.6 µs frozen against 400.9 eager / 406.0 `Build()`).
+
+| Shape | Eager | `Build()` | `BuildFrozen()` | eager intersection (hints only) |
+|---|---:|---:|---:|---:|
+| list(1k) ∩ list(100) | 9.42 µs | 9.32 µs | **4.33 µs (0.46)** | 8.08 µs (0.86) |
+| list(100) ∩ list(1k) | 1.36 µs | 1.33 µs | 1.27 µs (0.93) | 1.25 µs (0.92) |
+
+A bug found on the way and pinned: the intersecter takes its `stackalloc` buffer as an already-zeroed
+bitmap, so the executor must not carry `[SkipLocalsInit]` — a stale bit is a phantom mark
+(`AdaptiveIntersection_ListList_ListListUnique_WithFilters_LikeEager_InOrder` caught it).
+
+#### 4. Smallest-bucket seeding — **kept, opt-in** (`ReorderIndexNarrowers = true`)
+
+Same executor: when every top-level op is an equality step or a filter, each step's cardinality is read
+per execution and the smallest seeds (a unique step reports 0 / 1 and always wins; a missing key seeds
+an empty set and every later step skips), the others intersect into it as above. Same set and `Count`
+as eager; encounter order follows the seeding bucket, which is why it is opt-in and pinned on sorted
+row sets (`Reorder_*` tests) rather than sequences.
+
+| Shape | Eager | `BuildFrozen()` (default) | `ReorderIndexNarrowers` |
+|---|---:|---:|---:|
+| list(1k) ∩ list(100) | 9.42 µs | 4.33 µs | **1.26 µs (0.13)** |
+| list(100) ∩ list(1k) | 1.36 µs | 1.27 µs | 1.24 µs (0.91) |
+
+#### 5. The bound-vs-parameterized point lookup gap — **diagnosed, left**
+
+Two probe rows: `Unique_FrozenDirectCall` calls the bound plan's virtual `ExecutePooled(default(NoArgs))`
+directly, `Unique_FrozenBoundIntArgs` binds the value in a plan whose `TArgs` is `int`. Bound `NoArgs`
+through the extension 27.2 ns, direct call 23.7 ns, bound with `int` args 19.5 ns, parameterized `int`
+25.5 ns (short job). So the bound *value* is not the cost — the `int`-args bound plan is the fastest row — and the
+`NoArgs` extension hop is ~3.5 ns of it; the rest is the `NoArgs` instantiation itself (an empty struct
+passed by `in` through the generic virtual terminal). Not worth a special case at this size; recorded.
+
+#### Executor split
+
+A plan that gets neither a fused filter nor a hint binds the stage-1 `ReplaySimpleExecutor` /
+`ReplayJoinedExecutor` (which call `PreparedReplay`, the `Build()` body) rather than the
+`OptimizedReplay*Executor` twins that call `FrozenReplay`. The replay inlines the whole narrower chain
+into one frame, and the extra parameters and null-checks of the optimized frame measured as +5% on the
+frozen `list(1k) ∩ range(60k)` row in a default job (416 vs 398 µs eager / `Build()`; the stage-1 tree
+measured 399) although nothing in them executed. With the split that row is back on the `Build()` body.
+
+#### Eager-core additions
+
+Two internal one-liners, both reads: `ValueSet.HighWaterMark` (`ValueSet.cs`) and
+`CacheKeyValueListIndex.TryGetCount` (`Indexing.cs`). `CacheQueryBuilder.cs` is unchanged;
+`Prague.Generated.Tests` unchanged and green.
+
+#### Not observed as stable: in-process range rows
+
+Across long `--inProcess` runs one range row (`Range_Prepared`, `OptionalRange_Prepared` or
+`ListRange_Frozen`) intermittently measured 2–3× its neighbours with ~100 B/op, a different row each
+run; re-running the category alone put it back at 1.00 every time (six re-runs). Two of the affected
+rows are stage-1 code paths the change does not touch; the stage-1 tree did not show it in three runs
+(one full), so it is not ruled out that the larger set of generic instantiations on this branch makes a
+runtime slow path (generic-dictionary / virtual-stub resolution for the range narrower's constrained
+generic call in `__Canon`-shared code) more likely in a long process. Left open; the per-category and
+default-job numbers are what is reported.
 
 ## 9. Relation to the event-loop research
 

@@ -12,15 +12,28 @@ using System.Runtime.CompilerServices;
 internal sealed class ArgPredicate<TValue, TArgs> {
 	private Func<TValue, TArgs, bool>? _func;
 	private TArgs _args;
+	private FusedFilter<TValue, TArgs>? _fused;
+	private FusedOrdering<TValue, TArgs>? _ordering;
 
 	internal readonly Predicate<TValue> Predicate;
+
+	// The fused-filter bindings (BuildFrozen stage 2): the box carries the execution's arguments plus
+	// the order snapshot the whole execution evaluates under; the sampled twin records statistics.
+	internal readonly Predicate<TValue> FusedPredicate;
+	internal readonly Predicate<TValue> FusedSampledPredicate;
 
 	internal ArgPredicate() {
 		_args = default!;
 		Predicate = Invoke;
+		FusedPredicate = InvokeFused;
+		FusedSampledPredicate = InvokeFusedSampled;
 	}
 
 	private bool Invoke(TValue value) => _func!(value, _args);
+
+	private bool InvokeFused(TValue value) => FusedFilter<TValue, TArgs>.Passes(value, in _args, _ordering!);
+
+	private bool InvokeFusedSampled(TValue value) => _fused!.PassesSampled(value, in _args, _ordering!);
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void Bind(Func<TValue, TArgs, bool> func, in TArgs args) {
@@ -28,10 +41,19 @@ internal sealed class ArgPredicate<TValue, TArgs> {
 		_args = args;
 	}
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal void BindFused(FusedFilter<TValue, TArgs> fused, FusedOrdering<TValue, TArgs> ordering, in TArgs args) {
+		_fused = fused;
+		_ordering = ordering;
+		_args = args;
+	}
+
 	// Clearing on pop is GC hygiene: TArgs may hold references (a string, a nested command) that
 	// must not stay rooted by a thread-static box past the execution that used them.
 	internal void Clear() {
 		_func = null;
+		_fused = null;
+		_ordering = null;
 		_args = default!;
 	}
 
@@ -72,6 +94,23 @@ internal static class ArgPredicatePool<TValue, TArgs> {
 		box.Bind(func, in args);
 		_depth = depth + 1;
 		return box.Predicate;
+	}
+
+	/// <summary>
+	///   Binds the next free box to a fused filter, its current ordering and this execution's arguments —
+	///   one box for every parameterized filter in the plan instead of one per filter — and returns
+	///   the sampled or unsampled predicate.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal static Predicate<TValue> RentFused(FusedFilter<TValue, TArgs> fused, FusedOrdering<TValue, TArgs> ordering, bool sampled, in TArgs args) {
+		var depth = _depth;
+		var boxes = _boxes;
+		if (boxes is null || (uint)depth >= (uint)boxes.Length)
+			boxes = Grow(boxes);
+		var box = boxes[depth];
+		box.BindFused(fused, ordering, in args);
+		_depth = depth + 1;
+		return sampled ? box.FusedSampledPredicate : box.FusedPredicate;
 	}
 
 	/// <summary>Pops every box rented since <paramref name="mark" /> and clears what it was bound to.</summary>

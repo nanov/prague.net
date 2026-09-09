@@ -701,6 +701,11 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey>
 	}
 
 
+	// Live bucket size for `key` (0 when the key is absent) — one probe, no enumeration. The frozen
+	// planner's smallest-bucket seeding reads it to pick which equality step seeds the candidates.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal int TryGetCount(TIndexKey key) => _cache.TryGetValue(key, out var values) ? values.Count : 0;
+
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void IntersectValue(TIndexKey key, ref ValueSet<TKey, DefaultKeyComparer<TKey>>.IncrementalIntersecter target) {
 		if (!_cache.TryGetValue(key, out var values)) {

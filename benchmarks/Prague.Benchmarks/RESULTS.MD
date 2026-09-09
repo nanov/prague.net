@@ -406,3 +406,118 @@ Apple M4 Pro, .NET 9, `--job short --inProcess` (3 iterations), `[MemoryDiagnose
 - The `1 B` cells are BenchmarkDotNet's per-op amortization of a one-off pool refill (as in the earlier
   tables); the deterministic pins — 0 B pooled in Release for both bounds, one bound, no bound, and every
   `Match` arm — are `PreparedQueryAllocationTests.OptionalRange_*` / `Match_*`.
+
+
+# Frozen queries — `BuildFrozen()` stage 2: fused filters, capacity hints, adaptive intersection, smallest-bucket seeding
+
+`FrozenQueryBenchmarks`, same data and rules as stage 1 (100k rows; Group buckets of 1k, Tier buckets of
+100; every body executes pooled and disposes). New categories 10–15; every kept optimization has its
+control row next to the eager (baseline) / `Build()` / `BuildFrozen()` rows: `_FrozenFixedOrder`
+(fusion without adaptive ordering), `_FrozenNoHints`, `_FrozenEagerIntersection` (hints only, per-step
+intersection), `_FrozenReorder` (opt-in `ReorderIndexNarrowers`). Design and per-optimization reading:
+`docs/superpowers/specs/2026-09-09-prepared-query-command-design.md` §8 "Stage 2".
+
+Apple M4 Pro, .NET 9.0 (osx-arm64), `--inProcess`, default job (15+ iterations), `[MemoryDiagnoser]`.
+
+| Method                                        | Categories                   | Mean      | Error     | StdDev    | Ratio | Allocated | Alloc Ratio |
+|---------------------------------------------- |----------------------------- |----------:|----------:|----------:|------:|----------:|------------:|
+| ListWhere_Eager                               | ListWhere                    |  8.385 us | 0.1577 us | 0.1398 us |  1.00 |       1 B |        1.00 |
+| ListWhere_Prepared                            | ListWhere                    |  8.476 us | 0.1248 us | 0.1226 us |  1.01 |       1 B |        1.00 |
+| ListWhere_Frozen                              | ListWhere                    |  7.116 us | 0.1414 us | 0.2243 us |  0.85 |         - |        0.00 |
+| ListWhere_FrozenNoHints                       | ListWhere                    |  8.463 us | 0.1533 us | 0.1434 us |  1.01 |       1 B |        1.00 |
+| ListTwoWheres_Eager                           | ListTwoWheres                |  9.520 us | 0.1015 us | 0.0900 us |  1.00 |      97 B |        1.00 |
+| ListTwoWheres_Prepared                        | ListTwoWheres                |  9.528 us | 0.0939 us | 0.0784 us |  1.00 |      97 B |        1.00 |
+| ListTwoWheres_Frozen                          | ListTwoWheres                |  8.546 us | 0.1144 us | 0.1014 us |  0.90 |       1 B |        0.01 |
+| ListTwoWheres_FrozenFixedOrder                | ListTwoWheres                |  8.344 us | 0.0777 us | 0.0607 us |  0.88 |       1 B |        0.01 |
+| ListThreeWheresSelectiveLast_Eager            | ListThreeWheresSelectiveLast | 10.380 us | 0.1955 us | 0.3425 us |  1.00 |     193 B |        1.00 |
+| ListThreeWheresSelectiveLast_Prepared         | ListThreeWheresSelectiveLast | 11.482 us | 0.1915 us | 0.1698 us |  1.11 |     193 B |        1.00 |
+| ListThreeWheresSelectiveLast_Frozen           | ListThreeWheresSelectiveLast |  7.039 us | 0.1339 us | 0.1375 us |  0.68 |         - |        0.00 |
+| ListThreeWheresSelectiveLast_FrozenFixedOrder | ListThreeWheresSelectiveLast | 10.149 us | 0.1936 us | 0.1811 us |  0.98 |         - |        0.00 |
+| ListTwoArgWheres_Eager                        | ListTwoArgWheres             | 12.242 us | 0.0773 us | 0.0603 us |  1.00 |     257 B |       1.000 |
+| ListTwoArgWheres_Prepared                     | ListTwoArgWheres             | 13.491 us | 0.0839 us | 0.0655 us |  1.10 |      97 B |       0.377 |
+| ListTwoArgWheres_Frozen                       | ListTwoArgWheres             | 11.628 us | 0.0705 us | 0.0550 us |  0.95 |       1 B |       0.004 |
+| ListList_Eager                                | ListList                     |  9.415 us | 0.1869 us | 0.3174 us |  1.00 |       1 B |        1.00 |
+| ListList_Prepared                             | ListList                     |  9.318 us | 0.1812 us | 0.2356 us |  0.99 |       1 B |        1.00 |
+| ListList_Frozen                               | ListList                     |  4.332 us | 0.0440 us | 0.0367 us |  0.46 |         - |        0.00 |
+| ListList_FrozenEagerIntersection              | ListList                     |  8.080 us | 0.1449 us | 0.1284 us |  0.86 |         - |        0.00 |
+| ListList_FrozenReorder                        | ListList                     |  1.260 us | 0.0250 us | 0.0221 us |  0.13 |         - |        0.00 |
+| ListListReversed_Eager                        | ListListReversed             |  1.357 us | 0.0264 us | 0.0334 us |  1.00 |         - |          NA |
+| ListListReversed_Prepared                     | ListListReversed             |  1.328 us | 0.0256 us | 0.0251 us |  0.98 |         - |          NA |
+| ListListReversed_Frozen                       | ListListReversed             |  1.265 us | 0.0213 us | 0.0189 us |  0.93 |         - |          NA |
+| ListListReversed_FrozenEagerIntersection      | ListListReversed             |  1.246 us | 0.0201 us | 0.0168 us |  0.92 |         - |          NA |
+| ListListReversed_FrozenReorder                | ListListReversed             |  1.239 us | 0.0178 us | 0.0139 us |  0.91 |         - |          NA |
+| ListRange_Eager                               | ListRange                    | 400.9 us  |  3.26 us  |  3.05 us  |  1.00 |      24 B |        1.00 |
+| ListRange_Prepared                            | ListRange                    | 406.0 us  |  6.32 us  |  5.91 us  |  1.01 |      24 B |        1.00 |
+| ListRange_Frozen                              | ListRange                    | 401.6 us  |  3.86 us  |  3.42 us  |  1.00 |      24 B |        1.00 |
+
+Stage-1 categories and the optimization-5 probes, `--job short --inProcess`:
+
+| Method                    | Categories     | Mean         | Error         | StdDev       | Ratio | Allocated | Alloc Ratio |
+|-------------------------- |--------------- |-------------:|--------------:|-------------:|------:|----------:|------------:|
+| JoinOne_Eager             | JoinOne        | 34,463.68 ns | 62,763.319 ns | 3,440.269 ns |  1.01 |       5 B |        1.00 |
+| JoinOne_Prepared          | JoinOne        | 33,422.91 ns | 19,621.113 ns | 1,075.499 ns |  0.98 |       5 B |        1.00 |
+| JoinOne_Frozen            | JoinOne        | 31,511.10 ns |  4,031.990 ns |   221.007 ns |  0.92 |       5 B |        1.00 |
+| Range_Eager               | Range          | 13,592.98 ns |  9,723.970 ns |   533.004 ns |  1.00 |       1 B |        1.00 |
+| Range_Prepared            | Range          | 13,489.37 ns |  6,095.481 ns |   334.114 ns |  0.99 |       1 B |        1.00 |
+| Range_Frozen              | Range          | 13,249.91 ns |    481.576 ns |    26.397 ns |  0.98 |       1 B |        1.00 |
+| Unique_Eager              | Unique         |    140.21 ns |    187.600 ns |    10.283 ns |  1.00 |         - |          NA |
+| Unique_Prepared           | Unique         |    131.24 ns |      7.430 ns |     0.407 ns |  0.94 |         - |          NA |
+| Unique_Frozen             | Unique         |     27.18 ns |     24.522 ns |     1.344 ns |  0.19 |         - |          NA |
+| Unique_FrozenDirectCall   | Unique         |     23.70 ns |      0.802 ns |     0.044 ns |  0.17 |         - |          NA |
+| Unique_FrozenBoundIntArgs | Unique         |     19.47 ns |     18.353 ns |     1.006 ns |  0.14 |         - |          NA |
+| UniqueArg_Eager           | UniqueArg      |    139.37 ns |     25.739 ns |     1.411 ns |  1.00 |         - |          NA |
+| UniqueArg_Prepared        | UniqueArg      |    134.12 ns |     49.593 ns |     2.718 ns |  0.96 |         - |          NA |
+| UniqueArg_Frozen          | UniqueArg      |     25.51 ns |      9.231 ns |     0.506 ns |  0.18 |         - |          NA |
+| UniqueArgWhere_Eager      | UniqueArgWhere |    186.02 ns |    220.661 ns |    12.095 ns |  1.00 |      88 B |        1.00 |
+| UniqueArgWhere_Prepared   | UniqueArgWhere |    141.82 ns |      6.664 ns |     0.365 ns |  0.76 |         - |        0.00 |
+| UniqueArgWhere_Frozen     | UniqueArgWhere |     19.88 ns |     24.129 ns |     1.323 ns |  0.11 |         - |        0.00 |
+| UniqueWhere_Eager         | UniqueWhere    |    157.95 ns |    185.968 ns |    10.194 ns |  1.00 |         - |          NA |
+| UniqueWhere_Prepared      | UniqueWhere    |    142.02 ns |     22.997 ns |     1.261 ns |  0.90 |         - |          NA |
+| UniqueWhere_Frozen        | UniqueWhere    |     24.76 ns |      0.584 ns |     0.032 ns |  0.16 |         - |          NA |
+
+`Match` and `OptionalRange` re-measured within their error bars of their earlier table (0.98–1.02 of
+`Build()`); `ListRange`, a range-seeded plan no stage-2 optimization applies to, binds the stage-1 replay
+executor and sits on `Build()` in the default job (401.6 vs 406.0 / 400.9 µs).
+
+## Reading it
+
+- **Fused filters (optimization 1).** Two constant `Where`s: the eager `&&` closure (97 B) is gone and
+  the row is 10% faster (0.90); with the 1.5× promotion margin the declared order is kept here (the
+  second predicate rejects 90% against the first's 67% but costs about what the swap would save), and the
+  `_FrozenFixedOrder` control at 0.88 shows the price of sampling itself — one execution in 256 counts
+  and (for its first 4096 calls) times every predicate call, ~2% here. Three `Where`s with the 99%
+  rejector declared last: the adaptive order moves it to the front and the row drops from 10.38 to
+  7.04 µs (0.68), against 10.15 µs for the same fused plan with the order fixed — that difference *is*
+  the ordering. Two parameterized `Where`s: one pooled box instead of two plus a closure, 5 delegate
+  hops per row become 3; 0 B against 257 B eager / 97 B `Build()`, 5% under eager and 14% under `Build()`.
+- **Capacity hints (2).** `ListWhere_Frozen` 7.12 µs against 8.46 µs with hints off (0.85 vs 1.01): the
+  1k bucket rents its arrays once at 1,103 slots instead of rehashing five times. The same hint is the
+  `ListList_FrozenEagerIntersection` row's 14%. `JoinOne_Frozen` (1k bucket, no filter) sits at 0.92
+  inside a wide short-job error bar.
+- **Adaptive intersection (3).** `list(1k) ∩ list(100)`: 4.33 µs against 8.08 µs for the per-step
+  intersection (0.46 vs 0.86) — the 100-row bucket is walked and probed into the 1k set instead of the
+  1k set being walked and probed into the bucket, then one compaction. `list(100) ∩ list(1k)`: the
+  bucket (1k) is larger than the seeded set (100), so the executor takes the eager way — 1.27 µs, parity
+  with `_FrozenEagerIntersection` (1.25) and 7% under eager. The literal "compact once" variant measured
+  first (always the bitmap way) was 2× slower on this reversed shape, which is why the kept form is
+  size-directed.
+- **Smallest-bucket seeding (4, opt-in).** Declared large-then-small: 1.26 µs, 7.5× faster than eager
+  and 3.4× faster than the default frozen plan; declared small-then-large: 1.24 µs, parity — the seed is
+  already the smallest bucket.
+- **The bound point lookup (5).** Direct virtual call 23.7 ns vs 27.2 ns through the `NoArgs`
+  extension; the same bound value with `int` args 19.5 ns. The `NoArgs` instantiation, not the bound
+  value, carries the ~5 ns; left as is.
+- **Regression gate.** A first version of the hints added a capacity field and an `InitCandidates()`
+  helper to the eager core and the optimized frozen replay carried its hint / fused-filter parameters
+  on every plan; a default-job run of `ListRange` — a plan with no optimization active — then measured
+  the frozen row at 416 µs against 398 / 397 (1.05, ~6σ; the stage-1 tree measured 399 / 398 / 399).
+  The core change was reverted (the hint now pre-creates `core.Candidates` before the replay) and plans
+  without an optimization bind the stage-1 replay executor; the row is back at 1.00 (table above).
+  Separately, long `--inProcess` runs intermittently measured one range row (`Range_Prepared`,
+  `OptionalRange_Prepared` or `ListRange_Frozen`) at 2–3× with ~100 B/op — a different row each run,
+  never reproducible when the category ran alone, and prepared rows are stage-1 code the change did not
+  touch — so those runs were discarded and per-category runs are reported.
+- The `1 B` cells are BenchmarkDotNet's amortization of a one-off pool refill; the deterministic pins —
+  0 B pooled in Release for list + two constant `Where`s, list + two arg `Where`s, list ∩ list on the
+  default, adaptive-intersection and reorder plans — are `PreparedQueryAllocationTests.Frozen_*`.
+

@@ -384,22 +384,22 @@ public static class PreparedQueryBuilderExtensions {
 	/// </summary>
 	public static FrozenQuery<TArgs, TValue> BuildFrozen<TCache, TKey, TValue, TArgs, TChain, TResolver>(
 		this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
-			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, Resolvers<TResolver>, TValue> builder)
+			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, Resolvers<TResolver>, TValue> builder, FrozenOptions? options = null)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolver : struct, IJoinResolver
-		=> FrozenPlanner.Simple<TKey, TValue, TArgs, TChain, TResolver, ClassicSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, false);
+		=> FrozenPlanner.Simple<TKey, TValue, TArgs, TChain, TResolver, ClassicSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, false, options ?? FrozenOptions.Default);
 
 	/// <summary>The joined <see cref="Build{TCache,TKey,TValue,TArgs,TChain,TResolverChain,TResult}" /> with plan metadata; joined shapes always replay in stage 1.</summary>
 	public static FrozenQuery<TArgs, TResult> BuildFrozen<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
 		this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
-			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder)
+			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder, FrozenOptions? options = null)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
 		=> FrozenPlanner.Joined<TKey, TValue, TArgs, TChain, TResolverChain, TResult, ClassicJoinedPlan>(
-			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount, false);
+			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount, false, options ?? FrozenOptions.Default);
 }

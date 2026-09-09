@@ -155,8 +155,10 @@ public class FrozenQueryTests {
 			Assert.That(_cache.Prepare().BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "no narrowing");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "list eq");
 			Assert.That(_cache.Prepare().Where(static v => v.Flag).UseIndex(_byCode, 1042).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Where before unique");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 0).UseIndex(_byCode, 1042).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "list before unique");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_byGroup, 0).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique then list");
+			// Two equality steps: stage 2's adaptive intersection binds the index-steps executor by default.
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 0).UseIndex(_byCode, 1042).BuildFrozen().Plan.Executor, Is.EqualTo("IndexSteps"), "list before unique");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_byGroup, 0).BuildFrozen().Plan.Executor, Is.EqualTo("IndexSteps"), "unique then list");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 0).UseIndex(_byCode, 1042).BuildFrozen(new FrozenOptions { AdaptiveIntersection = false }).Plan.Executor, Is.EqualTo("Replay"), "list before unique, eager intersection");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_codeRange, static rb => rb.Gte(0)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique then range");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_byCode, new[] { 1042 }).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique then unique-in");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Where(static v => v.Flag).UseIndex(_flagged).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique, Where, key-set");

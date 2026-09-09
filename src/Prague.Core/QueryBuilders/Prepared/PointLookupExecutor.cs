@@ -29,6 +29,8 @@ internal readonly struct FilterStep<TValue, TArgs> {
 
 	internal FilterStep(Func<TValue, TArgs, bool> arg) => _arg = arg;
 
+	internal Predicate<TValue>? Constant => _constant;
+
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal bool Passes(TValue value, in TArgs args) => _constant is not null ? _constant(value) : _arg!(value, args);
 }

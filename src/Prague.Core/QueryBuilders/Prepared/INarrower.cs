@@ -33,6 +33,15 @@ public interface INarrowerChain<TKey, TValue, TArgs>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
 
+	/// <summary>
+	///   <see cref="Replay{TCore}" /> without the chain's own top-level <c>Where</c> links — the frozen
+	///   replay applies those as one fused predicate (<see cref="FrozenOptions.FuseFilters" />) before
+	///   calling this. Filters inside composite branches (<c>If</c>, <c>Match</c>) are part of their
+	///   sub-chains and still replay. The link test is a <c>typeof</c> comparison the JIT folds per
+	///   closed chain, so this costs nothing over <c>Replay</c>.
+	/// </summary>
+	void ReplayIndexOnly<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
+
 	/// <summary>Describes every recorded step in build (= replay) order.</summary>
 	void Describe(List<NarrowerDescriptor> plan);
 }

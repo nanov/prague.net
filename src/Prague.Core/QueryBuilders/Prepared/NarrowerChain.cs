@@ -10,6 +10,9 @@ public readonly struct EmptyNarrowers<TKey, TValue, TArgs> : INarrowerChain<TKey
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> { }
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void ReplayIndexOnly<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> { }
+
 	public void Describe(List<NarrowerDescriptor> plan) { }
 }
 
@@ -31,6 +34,13 @@ public readonly struct NarrowerLink<TPrev, TNarrower, TKey, TValue, TArgs> : INa
 	public void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> {
 		_prev.Replay(ref core, in args);
 		_narrower.Apply(ref core, in args);
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void ReplayIndexOnly<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> {
+		_prev.ReplayIndexOnly(ref core, in args);
+		if (typeof(TNarrower) != typeof(FilterNarrower<TKey, TValue, TArgs>) && typeof(TNarrower) != typeof(FilterArgNarrower<TKey, TValue, TArgs>))
+			_narrower.Apply(ref core, in args);
 	}
 
 	public void Describe(List<NarrowerDescriptor> plan) {
