@@ -19,6 +19,8 @@ When adding a Rent site, add/extend a leak test — exception paths included (us
 
 Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `IntersectWith`, `UnionWith`, `RetainNonNullSlots`, `IntersectWith<TKey,TInto>(…)`.
 
+**Slot addressing:** `AddOrFind(item, out slot)` reports the slot the item occupies (new or existing), `ValueAt(slot)` reads it back by ref, and `Enumerator.CurrentSlot` reports the slot of `Current` during a walk — the same numbering `AddOrFind` handed out. Slots are dense while only adding, survive growth out of inline storage, and are never renumbered by in-place removals (a removal leaves a hole the enumerator skips). Callers can therefore keep per-item side data in a parallel array indexed by slot and reach it again from an enumeration without a second hash — the JoinMany fan-out does this for its right → extra-lefts chains (see [`joins.md`](joins.md), "JoinMany fan-out"), delivering through `IJoinedSlotResultContainer.Add(foreignKey, slot, value)`. `IndexOf(item)` is the test-side stand-in for naming a slot without enumerating; production code reads `CurrentSlot`. Pinned by `Prague.Core.Tests/Collections/ValueSetEnumeratorSlotTests` (inline → heap growth, holes from removals).
+
 **Pool-corruption caveat:** `Dispose()` has a defensive `catch(ArgumentException)` around `ArrayPool.Return`, so a double-return is *swallowed* — **but it corrupts the pool** (same buffer enters the bag twice; two callers both Rent it). Exactly-one-Dispose must be enforced by callers. Joins do this with the `handedOff` guard — see [`joins.md`](joins.md).
 
 ## ValueDictionary&lt;TKey,TValue&gt;
