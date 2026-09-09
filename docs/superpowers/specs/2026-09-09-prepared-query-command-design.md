@@ -548,6 +548,113 @@ runtime slow path (generic-dictionary / virtual-stub resolution for the range na
 generic call in `__Canon`-shared code) more likely in a long process. Left open; the per-category and
 default-job numbers are what is reported.
 
+### Stage 3 — the pipeline executor, steps 1–2
+
+> **Status:** shipped on `poc/prepared-query` after stage 2. Design in
+> `2026-09-09-frozen-pipeline-executor-design.md`; this is its §13 steps 1 (index probe APIs and
+> cardinality signals) and 2 (the pipeline for equality / range seeds with probes and fused
+> predicates, unsorted, fixed seed, driving `SimpleResultContainer`). Numbers in
+> `benchmarks/Prague.Benchmarks/RESULTS.MD`, "stage 3".
+
+**Step 1 — index APIs** (`Collections/PooledSet.cs`, `Collections/PooledBTree.cs`, `Indexing.cs`,
+`InMemoryDataCache.cs`): `PooledSet.TryGetSlot(item, out slot)` (the enumerator's slot, gate-pinned;
+false on absent / disposed), `CacheKeyValueListIndex.HasKeySelector` / `TryGetBucket(key, out bucket)`,
+`CacheRangeIndex.KeyOf(key, value)` / `EstimateCount(in from, in to)`, `CacheKeySetIndex.Matches(key, value)`
+/ `Count` / `CopyKeysTo<TSink>(ref sink)` (the locked copy `AddKeyTo` does, into an `IKeySink<TKey>`),
+`LastUpdatedIndex.EstimateCount(after[, untilInclusive])`, `PooledBTree.EstimateCount(from, fromIncl, to,
+toIncl)` / `EstimateCountFrom` / `EstimateCountTo`. The estimator is the design's fractional-rank
+descent (two gate-pinned descents recording `Σ childIndex / Π childCounts` plus the leaf position), with
+one addition: a chain of at most eight leaves between the bounds is summed exactly, because the right
+spine of a sequentially filled tree is half-empty at every level and a pure rank estimate on a small
+window there missed 2× (`DuplicateRuns` test, 37 vs 100). The descents are pinned (the design said no
+pin is needed): a retired internal node's arrays are nulled on reclaim, and a lock-free descent must
+not read one. Tests: `PooledBTreeEstimateCountTests` (uniform, shuffled, duplicate runs, after
+deletes: within 2×; single-key and single-leaf windows exact), `PooledSetTryGetSlotTests` (slot =
+enumeration position, after free-list reuse, disposed → false, 4 readers × 1 s churn), `IndexProbeApiTests`
+(every API against the public surface, `TryGetBucket` + `Contains` / `TryGetSlot` under a writer moving
+rows across buckets).
+
+**Step 2 — the pipeline** (`QueryBuilders/Prepared/Pipeline/`): `PipelineExecutor<TKey,TValue,TArgs,TResolver>`
+is the fourth `IFrozenExecutor`. The non-composite narrowers implement `IPipelineStepSource` and build
+one `IPipelineStep` each — `UniqueEqStep`, `UniqueInStep`, `ListEqStep`, `ListInStep` (bound,
+parameterized and projected), `RangeStep` (all five range narrowers reduce to two `RangeValue`s per
+execution), `KeySetStep`, `LastUpdatedStep` (after / between, raw and global, all three time types) —
+boxed once at build. Per execution: `Bind` resolves the arguments into a type-erased `StepBinding`
+(two 16-byte slots for unmanaged index keys, two object slots for reference keys, a span's backing
+object + offset + length for `In` spans) inside a stack `PipelineFrame`; the **first active** step seeds,
+its keys copied out under one gate pin into `SeedKeys` (256 int keys on the stack, `PragueArrayPool`
+above, multi-bucket seeds deduplicated through a `ValueSet` as the eager `UnionWith` chain is) — the
+eager `_first` rule, so the encounter order is eager's; every later active step probes each candidate
+key-side (unique: `TryGetValue` + `Equals`; last-updated: `TryGetLastUpdated`) or value-side (list:
+`KeySelector(value) == k`; range: `KeyOf(value)` against the bounds with the eager `IndexSkip`
+exclusions; key-set: `Matches(value)`); then the top-level filters run directly (`FilterStep[]`, the
+stage-2 `FusedFilter` with adaptive order when there are two or more, no `ArgPredicatePool`); then
+`SimpleResultContainer` is driven exactly as the eager core drives it. `Count` is the same walk without
+a container. An empty unique `In` span short-circuits to zero rows (eager's `Clear()`); an empty list
+`In` span and an unbounded optional range are inactive steps; every step inactive → the eager store
+walk, keys copied out. Frame lifetime is one `try/finally`: the seed buffer, the dedupe set, a
+projected step's rented key array and the container are all returned whatever throws.
+
+*Planner rule.* Simple, unsorted, `Pipeline = true` (default), not `ReorderIndexNarrowers`, one to
+sixteen index steps all of which build a step (a `TIndexKey` the binding can hold; no range step under
+`IndexSideProbes`) → `Pipeline`. `[UniqueEq, Filter*]` keeps `PointLookup`. Composites, sorts, joins,
+filter-only plans and the rejected key shapes → the stage-2 selection (`IndexSteps` / `Replay`).
+`ReorderIndexNarrowers` stays on `IndexStepsExecutor` until the pipeline's free seed (design step 3).
+`Explain()` prints `executor: Pipeline`, the seed rule and each step's probe side.
+
+*Staleness (design §14.1).* Value-side probes judge a row by the value they return: under a writer
+parked between the store write and the index writes (`InMemoryDataCache.AddIndexForTests` +
+`FrozenPipelineTests.PausingIndex`) the pipeline never returns a row whose value contradicts the query
+and returns a row whose current value qualifies, where eager does the opposite in both directions.
+`FrozenOptions.IndexSideProbes = true` switches list and key-set probes to the index (`bucket.Contains`,
+`Contains`) and reproduces the eager window exactly; a plan with a range probe replays under it (the
+key-side twin is a window walk). Both are inside the documented contract.
+
+*Not in this step.* The small-probe order-preserving seed (§3.4) and free seed for `Count` (step 3), so
+`list(1k) ∩ list(100)` walks the 1k bucket and probes the tier on the value — faster than eager but
+slower than the stage-2 adaptive intersection (kept reachable with `Pipeline = false`, `ListList_FrozenIndexSteps`);
+composites (step 4); `JoinOne` fusion (step 5); the `SortBounded` feed (step 6). The two production
+shapes — three list indexes → `SortBounded` → `JoinOne`, and time window → two lists → `SortBounded`
+→ two `JoinOne`s (last-updated and range-on-timestamp variants) — replay in this step and are pinned
+eager == prepared == frozen in `PreparedQueryProductionShapeDifferentialTests`, with benchmark rows as
+the baseline for steps 3 / 5 / 6.
+
+*Two pre-existing eager bugs the new tests surfaced, fixed minimally:* `SimpleResultContainer.BuildResults`
+handed the rented buffer off before `CloneInPlace` / the sort ran, so a throwing `Clone()` or comparer
+on the clone-after-slice path stranded the array (now handed off last); all four `JoinOne*Resolver.Clone`
+dereferenced a missing outer right (`item = item.Clone()`) under `Execute*Cloned` (now null-checked).
+
+#### Measured (Apple M4 Pro, .NET 9, `--inProcess`, default job, one category per run; full tables in `RESULTS.MD`, "stage 3")
+
+| Row | Eager | `Build()` | `BuildFrozen()` | Ratio | Bar (§12) | Frozen alloc |
+|---|---:|---:|---:|---:|---|---|
+| `ListWhere` (1k bucket + `Flag`) | 9.79 µs | 8.65 µs | 7.02 µs | 0.72 (1.39×) | ≥ 1.3× kept | 0 B |
+| `ListList` (1k ∩ 100, fixed walk) | 9.63 µs | 9.58 µs | 8.91 µs | 0.93 (1.08×) | ~1.3× expected — short; step 3 (stage-2 `IndexSteps` 4.38 µs, `Reorder` 1.29 µs still available) | 0 B |
+| `ListListReversed` (100 ∩ 1k) | 1.33 µs | 1.31 µs | 1.03 µs | 0.78 (1.29×) | ≥ 1.2× kept | 0 B |
+| `ListRange` (1k ∩ 60k window) | 406.7 µs | 407.4 µs | **12.09 µs** | 0.03 (33.6×) | ≥ 5× kept | 0 B |
+| `Range` (1k window) | 12.94 µs | 12.96 µs | 8.82 µs | 0.68 (1.47×) | ≥ 1.3× kept | 0 B |
+| `OptionalRange` | 12.96 µs | 13.21 µs | 8.78 µs | 0.68 (1.48×) | ≥ 1.3× kept | 0 B |
+| `ListKeySet` (1k ∩ a third of the rows) | 12.31 µs | 12.15 µs | 9.90 µs | 0.80 (1.24×) | ≥ 1.4× **missed** (delegate predicate per candidate on the ~6 µs floor) | 0 B |
+| `ListLastUpdated` (1k ∩ newest half) | 224.3 µs | 219.4 µs | **9.86 µs** | 0.04 (22.7×) | ≥ 5× kept | 0 B |
+| `Count_ListWhere` | 6.92 µs | 6.76 µs | 5.77 µs | 0.83 (1.20×) | ≥ 1.1× kept | 0 B |
+| `Count_ListList` | 8.93 µs | 8.74 µs | 8.41 µs | 0.94 (1.06×) | ≥ 5× — step 3 (free seed) | 0 B |
+| `Count_ListRange` | 434.0 µs | 433.5 µs | **10.14 µs** | 0.02 (42.8×) | — | 0 B |
+| `Unique` / `UniqueArg` / `UniqueWhere` / `UniqueArgWhere` | 132–166 ns | 129–138 ns | 27.2 / 18.8 / 19.1 / 19.3 ns | 0.12–0.21 | within noise of stage 1 | 0 B |
+| `ListTwoWheres` / `ListThreeWheres` / `ListTwoArgWheres` | 8.14 / 9.87 / 10.90 µs | 9.66 / 11.68 / 13.44 µs | 7.39 / 7.77 / 12.58 µs | 0.91 / 0.79 / 1.15 | stage-2 rows, now pipelined; `ListTwoArgWheres` at 1.15 of eager (its stage-2 replay was 0.95 — the two arg filters and the tuple copy per row; noted for step 3's probe/predicate ordering) | 0 B |
+| `JoinOne` / `Match` (replay) | 31.3 / 8.51 µs | 32.2 / 8.46 µs | 30.6 / 8.44 µs | 0.98 / 0.99 | within noise | = |
+| `ListListListSortBoundedJoinOne` (A) / `Count_` | 17.70 / 11.00 µs | 17.36 / 10.83 µs | 16.11 / 9.69 µs | 0.91 / 0.88 | replay baseline for steps 3 / 5 / 6 | 1 B / 0 B |
+| `TimeWindowListListSortBoundedJoinTwo` (B) / `Count_` | 34.56 / 21.64 µs | 34.39 / 21.48 µs | 34.04 / 21.57 µs | 0.98 / 1.00 | replay baseline | 6 B / 3 B |
+| `TimeRangeListListSortBoundedJoinTwo` (B, range on timestamp) / `Count_` | 37.33 / 24.95 µs | 37.17 / 24.86 µs | 37.00 / 24.87 µs | 0.99 / 1.00 | replay baseline (`Count_` re-run alone: the sequential run hit the in-process artifact at 1.92) | 6 B / 3 B |
+
+Tests: `FrozenPipelineTests` (27: parity on every non-composite shape × four `Execute*` variants × five
+pages with clone identity and `Count`; staleness in both directions for range / list / key-set probes
+with the key-side twin; 8 × 2000 concurrent executions against a writer; leak balance incl. throwing
+selector / predicate / `Clone()`, pool-path seeds; executor selection and `Explain`),
+`FrozenPipelineAllocationTests` (8), `PreparedQueryProductionShapeDifferentialTests` (4),
+`PooledBTreeEstimateCountTests` (7), `PooledSetTryGetSlotTests` (4), `IndexProbeApiTests` (5).
+`Prague.Core.Tests` 1398 → 1457 per target framework, 0 failures; `Prague.Generated.Tests` unchanged and green.
+
+
 ## 9. Relation to the event-loop research
 
 A `PreparedQuery<TArgs, TResult>` is exactly what a per-cache loop would dequeue: an immutable

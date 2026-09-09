@@ -521,3 +521,232 @@ executor and sits on `Build()` in the default job (401.6 vs 406.0 / 400.9 µs).
   0 B pooled in Release for list + two constant `Where`s, list + two arg `Where`s, list ∩ list on the
   default, adaptive-intersection and reorder plans — are `PreparedQueryAllocationTests.Frozen_*`.
 
+
+
+# Frozen queries — `BuildFrozen()` stage 3, steps 1–2: the pipeline executor
+
+`FrozenQueryBenchmarks`, same data and rules as stages 1–2 (100k rows; Group buckets of 1k, Tier buckets of
+100; every body executes pooled and disposes). New categories: `ListKeySet` (1k bucket ∩ key-set of a third
+of the rows), `ListLastUpdated` (1k bucket ∩ updated-after covering half the rows), the `Count_*` twins of
+`ListWhere` / `ListList` / `ListRange`, and the two production shapes — `ListListListSortBoundedJoinOne`
+(1k ∩ 333 ∩ 111 → 111 rows, `SortBounded` page 20..40 with a tying struct comparer, `JoinOne` 1:1 by PK)
+and `TimeWindowListListSortBoundedJoinTwo` / `TimeRangeListListSortBoundedJoinTwo` (10k records, newer
+than T selecting ~15%, two skewed list keys, `SortBounded` page 20..40, two chained `JoinOne`s 1:1 by FK;
+the last-updated index vs a range index on the timestamp), each with a `Count_` twin. Simple unsorted
+list / range / key-set / last-updated plans bind the `Pipeline` executor; `ListList_FrozenIndexSteps` is the
+stage-2 adaptive intersection (`Pipeline = false`) for reference; the production shapes replay in this
+step (their rows are the baseline for the design's steps 3 / 5 / 6). Design and reading:
+`docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md`, parent spec §8 "Stage 3".
+
+Apple M4 Pro, .NET 9.0 (osx-arm64), `--inProcess`, default job, one category per run, `[MemoryDiagnoser]`.
+
+**Pipeline plans**
+
+| Method                  | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------ |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| ListWhere_Eager         | 9.792 us | 0.1955 us | 0.3044 us |  1.00 |    0.04 |       1 B |        1.00 |
+| ListWhere_Prepared      | 8.645 us | 0.0802 us | 0.0711 us |  0.88 |    0.03 |       1 B |        1.00 |
+| ListWhere_Frozen        | 7.020 us | 0.0833 us | 0.0779 us |  0.72 |    0.02 |         - |        0.00 |
+| ListWhere_FrozenNoHints | 9.234 us | 0.0707 us | 0.0661 us |  0.94 |    0.03 |         - |        0.00 |
+
+| Method                           | Mean     | Error     | StdDev    | Ratio | Allocated | Alloc Ratio |
+|--------------------------------- |---------:|----------:|----------:|------:|----------:|------------:|
+| ListList_Eager                   | 9.627 us | 0.0812 us | 0.0720 us |  1.00 |       1 B |        1.00 |
+| ListList_Prepared                | 9.584 us | 0.1137 us | 0.1064 us |  1.00 |       1 B |        1.00 |
+| ListList_Frozen                  | 8.913 us | 0.0538 us | 0.0504 us |  0.93 |         - |        0.00 |
+| ListList_FrozenEagerIntersection | 8.456 us | 0.0895 us | 0.0837 us |  0.88 |         - |        0.00 |
+| ListList_FrozenReorder           | 1.285 us | 0.0105 us | 0.0082 us |  0.13 |         - |        0.00 |
+| ListList_FrozenIndexSteps        | 4.375 us | 0.0456 us | 0.0426 us |  0.45 |         - |        0.00 |
+
+| Method                                   | Mean     | Error     | StdDev    | Ratio | Allocated | Alloc Ratio |
+|----------------------------------------- |---------:|----------:|----------:|------:|----------:|------------:|
+| ListListReversed_Eager                   | 1.328 us | 0.0117 us | 0.0110 us |  1.00 |         - |          NA |
+| ListListReversed_Prepared                | 1.314 us | 0.0060 us | 0.0053 us |  0.99 |         - |          NA |
+| ListListReversed_Frozen                  | 1.032 us | 0.0090 us | 0.0080 us |  0.78 |         - |          NA |
+| ListListReversed_FrozenEagerIntersection | 1.253 us | 0.0151 us | 0.0141 us |  0.94 |         - |          NA |
+| ListListReversed_FrozenReorder           | 1.250 us | 0.0085 us | 0.0079 us |  0.94 |         - |          NA |
+| ListListReversed_FrozenIndexSteps        | 1.255 us | 0.0108 us | 0.0101 us |  0.94 |         - |          NA |
+
+| Method             | Mean      | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|------------------- |----------:|---------:|---------:|------:|----------:|------------:|
+| ListRange_Eager    | 406.70 us | 3.524 us | 3.124 us |  1.00 |      24 B |        1.00 |
+| ListRange_Prepared | 407.42 us | 4.924 us | 4.606 us |  1.00 |      24 B |        1.00 |
+| ListRange_Frozen   |  12.09 us | 0.077 us | 0.068 us |  0.03 |         - |        0.00 |
+
+| Method         | Mean      | Error     | StdDev    | Ratio | Allocated | Alloc Ratio |
+|--------------- |----------:|----------:|----------:|------:|----------:|------------:|
+| Range_Eager    | 12.940 us | 0.1114 us | 0.1042 us |  1.00 |       1 B |        1.00 |
+| Range_Prepared | 12.957 us | 0.0438 us | 0.0366 us |  1.00 |       1 B |        1.00 |
+| Range_Frozen   |  8.822 us | 0.1351 us | 0.1388 us |  0.68 |         - |        0.00 |
+
+| Method                 | Mean      | Error     | StdDev    | Ratio | Allocated | Alloc Ratio |
+|----------------------- |----------:|----------:|----------:|------:|----------:|------------:|
+| OptionalRange_Eager    | 12.961 us | 0.0803 us | 0.0751 us |  1.00 |       1 B |        1.00 |
+| OptionalRange_Prepared | 13.209 us | 0.1364 us | 0.1276 us |  1.02 |       1 B |        1.00 |
+| OptionalRange_Frozen   |  8.781 us | 0.0615 us | 0.0514 us |  0.68 |         - |        0.00 |
+
+| Method              | Mean      | Error     | StdDev    | Ratio | Allocated | Alloc Ratio |
+|-------------------- |----------:|----------:|----------:|------:|----------:|------------:|
+| ListKeySet_Eager    | 12.307 us | 0.1164 us | 0.1088 us |  1.00 |       1 B |        1.00 |
+| ListKeySet_Prepared | 12.146 us | 0.1479 us | 0.1384 us |  0.99 |       1 B |        1.00 |
+| ListKeySet_Frozen   |  9.902 us | 0.1078 us | 0.1008 us |  0.80 |         - |        0.00 |
+
+| Method                   | Mean       | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------- |-----------:|----------:|----------:|------:|--------:|----------:|------------:|
+| ListLastUpdated_Eager    | 224.332 us | 3.9234 us | 4.5182 us |  1.00 |    0.03 |      11 B |        1.00 |
+| ListLastUpdated_Prepared | 219.435 us | 2.1722 us | 1.9256 us |  0.98 |    0.02 |      11 B |        1.00 |
+| ListLastUpdated_Frozen   |   9.861 us | 0.1347 us | 0.1260 us |  0.04 |    0.00 |         - |        0.00 |
+
+| Method                   | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------- |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Count_ListWhere_Eager    | 6.915 us | 0.0922 us | 0.0818 us |  1.00 |    0.02 |         - |          NA |
+| Count_ListWhere_Prepared | 6.756 us | 0.0527 us | 0.0493 us |  0.98 |    0.01 |         - |          NA |
+| Count_ListWhere_Frozen   | 5.768 us | 0.0503 us | 0.0471 us |  0.83 |    0.01 |         - |          NA |
+
+| Method                  | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------ |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Count_ListList_Eager    | 8.931 us | 0.1623 us | 0.1355 us |  1.00 |    0.02 |       1 B |        1.00 |
+| Count_ListList_Prepared | 8.742 us | 0.1422 us | 0.1397 us |  0.98 |    0.02 |       1 B |        1.00 |
+| Count_ListList_Frozen   | 8.410 us | 0.0767 us | 0.0680 us |  0.94 |    0.02 |         - |        0.00 |
+
+| Method                   | Mean      | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|------------------------- |----------:|---------:|---------:|------:|----------:|------------:|
+| Count_ListRange_Eager    | 434.01 us | 3.095 us | 2.895 us |  1.00 |      20 B |        1.00 |
+| Count_ListRange_Prepared | 433.50 us | 3.821 us | 3.575 us |  1.00 |      20 B |        1.00 |
+| Count_ListRange_Frozen   |  10.14 us | 0.047 us | 0.042 us |  0.02 |         - |        0.00 |
+
+**Unchanged executors (point lookup, stage-2 fused filters, replay fallbacks)**
+
+| Method                    | Mean      | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|-------------------------- |----------:|---------:|---------:|------:|----------:|------------:|
+| Unique_Eager              | 131.91 ns | 0.452 ns | 0.378 ns |  1.00 |         - |          NA |
+| Unique_Prepared           | 129.96 ns | 1.396 ns | 1.238 ns |  0.99 |         - |          NA |
+| Unique_Frozen             |  27.19 ns | 0.295 ns | 0.276 ns |  0.21 |         - |          NA |
+| Unique_FrozenDirectCall   |  23.36 ns | 0.233 ns | 0.218 ns |  0.18 |         - |          NA |
+| Unique_FrozenBoundIntArgs |  18.94 ns | 0.268 ns | 0.251 ns |  0.14 |         - |          NA |
+
+| Method             | Mean      | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|------------------- |----------:|---------:|---------:|------:|----------:|------------:|
+| UniqueArg_Eager    | 131.52 ns | 0.559 ns | 0.495 ns |  1.00 |         - |          NA |
+| UniqueArg_Prepared | 128.53 ns | 0.646 ns | 0.540 ns |  0.98 |         - |          NA |
+| UniqueArg_Frozen   |  18.78 ns | 0.113 ns | 0.095 ns |  0.14 |         - |          NA |
+
+| Method               | Mean      | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|--------------------- |----------:|---------:|---------:|------:|----------:|------------:|
+| UniqueWhere_Eager    | 149.72 ns | 0.780 ns | 0.652 ns |  1.00 |         - |          NA |
+| UniqueWhere_Prepared | 132.06 ns | 0.404 ns | 0.315 ns |  0.88 |         - |          NA |
+| UniqueWhere_Frozen   |  19.13 ns | 0.101 ns | 0.094 ns |  0.13 |         - |          NA |
+
+| Method                  | Mean      | Error    | StdDev   | Ratio | Gen0   | Allocated | Alloc Ratio |
+|------------------------ |----------:|---------:|---------:|------:|-------:|----------:|------------:|
+| UniqueArgWhere_Eager    | 165.50 ns | 0.912 ns | 0.854 ns |  1.00 | 0.0105 |      88 B |        1.00 |
+| UniqueArgWhere_Prepared | 137.53 ns | 0.726 ns | 0.644 ns |  0.83 |      - |         - |        0.00 |
+| UniqueArgWhere_Frozen   |  19.30 ns | 0.300 ns | 0.281 ns |  0.12 |      - |         - |        0.00 |
+
+| Method                         | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------------- |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| ListTwoWheres_Eager            | 8.144 us | 0.0508 us | 0.0450 us |  1.00 |    0.01 |      97 B |        1.00 |
+| ListTwoWheres_Prepared         | 9.663 us | 0.0784 us | 0.0733 us |  1.19 |    0.01 |      97 B |        1.00 |
+| ListTwoWheres_Frozen           | 7.393 us | 0.1285 us | 0.1202 us |  0.91 |    0.02 |         - |        0.00 |
+| ListTwoWheres_FrozenFixedOrder | 9.112 us | 0.0862 us | 0.0806 us |  1.12 |    0.01 |         - |        0.00 |
+
+| Method                                        | Mean      | Error     | StdDev    | Ratio | Gen0   | Allocated | Alloc Ratio |
+|---------------------------------------------- |----------:|----------:|----------:|------:|-------:|----------:|------------:|
+| ListThreeWheresSelectiveLast_Eager            |  9.865 us | 0.0405 us | 0.0338 us |  1.00 | 0.0153 |     193 B |        1.00 |
+| ListThreeWheresSelectiveLast_Prepared         | 11.678 us | 0.0900 us | 0.0798 us |  1.18 | 0.0153 |     193 B |        1.00 |
+| ListThreeWheresSelectiveLast_Frozen           |  7.771 us | 0.0389 us | 0.0345 us |  0.79 |      - |         - |        0.00 |
+| ListThreeWheresSelectiveLast_FrozenFixedOrder | 11.521 us | 0.0989 us | 0.0826 us |  1.17 |      - |         - |        0.00 |
+
+| Method                    | Mean     | Error    | StdDev   | Ratio | Gen0   | Allocated | Alloc Ratio |
+|-------------------------- |---------:|---------:|---------:|------:|-------:|----------:|------------:|
+| ListTwoArgWheres_Eager    | 10.90 us | 0.068 us | 0.063 us |  1.00 | 0.0305 |     257 B |        1.00 |
+| ListTwoArgWheres_Prepared | 13.44 us | 0.129 us | 0.107 us |  1.23 |      - |      97 B |        0.38 |
+| ListTwoArgWheres_Frozen   | 12.58 us | 0.133 us | 0.124 us |  1.15 |      - |         - |        0.00 |
+
+| Method           | Mean     | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|----------------- |---------:|---------:|---------:|------:|----------:|------------:|
+| JoinOne_Eager    | 31.34 us | 0.387 us | 0.343 us |  1.00 |       6 B |        1.00 |
+| JoinOne_Prepared | 32.24 us | 0.333 us | 0.278 us |  1.03 |       6 B |        1.00 |
+| JoinOne_Frozen   | 30.61 us | 0.363 us | 0.339 us |  0.98 |       5 B |        0.83 |
+
+| Method         | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|--------------- |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Match_Eager    | 8.513 us | 0.1032 us | 0.0965 us |  1.00 |    0.02 |       1 B |        1.00 |
+| Match_Prepared | 8.458 us | 0.0707 us | 0.0627 us |  0.99 |    0.01 |       1 B |        1.00 |
+| Match_Frozen   | 8.442 us | 0.0346 us | 0.0307 us |  0.99 |    0.01 |       1 B |        1.00 |
+
+**Production shapes (replay in this step — the baseline for steps 3 / 5 / 6)**
+
+| Method                                  | Mean     | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|---------------------------------------- |---------:|---------:|---------:|------:|----------:|------------:|
+| ListListListSortBoundedJoinOne_Eager    | 17.70 us | 0.180 us | 0.168 us |  1.00 |       1 B |        1.00 |
+| ListListListSortBoundedJoinOne_Prepared | 17.36 us | 0.083 us | 0.069 us |  0.98 |       1 B |        1.00 |
+| ListListListSortBoundedJoinOne_Frozen   | 16.11 us | 0.122 us | 0.114 us |  0.91 |       1 B |        1.00 |
+
+| Method                                        | Mean      | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|---------------------------------------------- |----------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Count_ListListListSortBoundedJoinOne_Eager    | 10.996 us | 0.1385 us | 0.1296 us |  1.00 |    0.02 |       1 B |        1.00 |
+| Count_ListListListSortBoundedJoinOne_Prepared | 10.825 us | 0.1086 us | 0.1015 us |  0.98 |    0.01 |       1 B |        1.00 |
+| Count_ListListListSortBoundedJoinOne_Frozen   |  9.687 us | 0.0968 us | 0.0905 us |  0.88 |    0.01 |         - |        0.00 |
+
+| Method                                        | Mean     | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|---------------------------------------------- |---------:|---------:|---------:|------:|----------:|------------:|
+| TimeWindowListListSortBoundedJoinTwo_Eager    | 34.56 us | 0.303 us | 0.268 us |  1.00 |       6 B |        1.00 |
+| TimeWindowListListSortBoundedJoinTwo_Prepared | 34.39 us | 0.333 us | 0.312 us |  1.00 |       6 B |        1.00 |
+| TimeWindowListListSortBoundedJoinTwo_Frozen   | 34.04 us | 0.132 us | 0.110 us |  0.98 |       6 B |        1.00 |
+
+| Method                                              | Mean     | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|---------------------------------------------------- |---------:|---------:|---------:|------:|----------:|------------:|
+| Count_TimeWindowListListSortBoundedJoinTwo_Eager    | 21.64 us | 0.177 us | 0.166 us |  1.00 |       3 B |        1.00 |
+| Count_TimeWindowListListSortBoundedJoinTwo_Prepared | 21.48 us | 0.175 us | 0.155 us |  0.99 |       3 B |        1.00 |
+| Count_TimeWindowListListSortBoundedJoinTwo_Frozen   | 21.57 us | 0.182 us | 0.161 us |  1.00 |       3 B |        1.00 |
+
+| Method                                       | Mean     | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|--------------------------------------------- |---------:|---------:|---------:|------:|----------:|------------:|
+| TimeRangeListListSortBoundedJoinTwo_Eager    | 37.33 us | 0.091 us | 0.076 us |  1.00 |       6 B |        1.00 |
+| TimeRangeListListSortBoundedJoinTwo_Prepared | 37.17 us | 0.516 us | 0.482 us |  1.00 |       6 B |        1.00 |
+| TimeRangeListListSortBoundedJoinTwo_Frozen   | 37.00 us | 0.292 us | 0.259 us |  0.99 |       6 B |        1.00 |
+
+| Method                                             | Mean     | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|--------------------------------------------------- |---------:|---------:|---------:|------:|----------:|------------:|
+| Count_TimeRangeListListSortBoundedJoinTwo_Eager    | 24.95 us | 0.102 us | 0.080 us |  1.00 |       3 B |        1.00 |
+| Count_TimeRangeListListSortBoundedJoinTwo_Prepared | 24.86 us | 0.178 us | 0.167 us |  1.00 |       3 B |        1.00 |
+| Count_TimeRangeListListSortBoundedJoinTwo_Frozen   | 24.87 us | 0.202 us | 0.179 us |  1.00 |       3 B |        1.00 |
+
+`Count_TimeRangeListListSortBoundedJoinTwo` in the long sequential run measured prepared / frozen at 48.2 / 48.4 µs
+(1.92, 6 B) against 25.1 eager while its Execute twin sat at 1.00 — the known in-process artifact
+(parent spec §8 "Not observed as stable"); re-run alone (table above) it is 24.86 / 24.87 vs 24.95 (1.00, 3 B).
+
+## Reading it
+
+- **Keep / kill bars (design §12).** `ListRange` 406.7 → 12.09 µs (**33.6×**, bar ≥ 5×, kept; the
+  predicted ~40× minus the value-side selector call the design measured at +4 ns/row) and its `Count`
+  twin 434 → 10.1 µs (43×). `ListLastUpdated` 224 → 9.86 µs (**22.7×**, bar ≥ 5×): eager walks the
+  50k-key window of the last-updated tree, the pipeline reads each candidate's own timestamp.
+  `ListWhere` 9.79 → 7.02 µs (1.39×, bar ≥ 1.3×; the walk + `TryGet` floor the design put at ~6 µs).
+  `Range` 12.94 → 8.82 µs and `OptionalRange` 12.96 → 8.78 µs (1.47×, bar ≥ 1.3×): the window's keys
+  go to a flat buffer instead of a hash set. `ListKeySet` 12.31 → 9.90 µs (1.24×, bar ≥ 1.4× — **missed**:
+  the value-side predicate is a delegate call per candidate, and the seed walk + `TryGet` floor is the
+  same ~6 µs; the key-set copy under its lock is what the eager path also pays). `ListListReversed`
+  1.33 → 1.03 µs (1.29×, bar ≥ 1.2×). `ListList` 9.63 → 8.91 µs (1.08×; the design's expectation for the
+  fixed walk was ~1.3× — the 1k walk, 1k `TryGet`s and 1k selector calls are all still paid; the
+  order-preserving small-probe seed of step 3 is what takes this row to ~1.2 µs, and the stage-2
+  adaptive intersection stays reachable at 4.38 µs with `Pipeline = false`). `Count_ListWhere` 6.92 →
+  5.77 µs (1.20×, bar ≥ 1.1×); `Count_ListList` 8.93 → 8.41 µs (1.06×, bar ≥ 5× — step 3's free seed).
+  `Unique*` 18.8–27.2 ns and the stage-2 rows within noise of their stage-2 tables; `JoinOne` / `Match`
+  replay at 0.98–0.99.
+- **Allocation.** `-` on every pipeline row, execute and `Count`; the deterministic pins are
+  `FrozenPipelineAllocationTests` (0 B pooled and 0 B `Count` in Release on list + where, list ∩ list,
+  list ∩ range, range, optional range, list ∩ key-set, list ∩ last-updated, unique / list `In`, three
+  fused filters).
+- **Production shapes.** Replay in this step, as designed: `ListListListSortBoundedJoinOne` 17.7 µs eager /
+  17.4 prepared / 16.1 frozen (the fused-filter-free replay with a capacity hint; the three-way
+  intersection dominates), `Count` 11.0 / 10.8 / 9.7 µs. `TimeWindowListListSortBoundedJoinTwo` 34.6 /
+  34.4 / 34.0 µs, `Count` 21.6 / 21.5 / 21.6 µs; the range-on-timestamp twin 37.3 / 37.2 / 37.0 µs and
+  25.1 / 24.9 / 24.9 µs. Where the pipeline would seed once step 3 lands: the time window is ~1,500 of
+  10k rows by the estimator (`LastUpdatedIndex.EstimateCount` / `CacheRangeIndex.EstimateCount`), key
+  A's hot bucket ~3,333 and key B's ~2,000, so the time step is the smallest signal and keeps seeding
+  as declared — then the two list probes are value-side field compares (≈ 3 ns per candidate against
+  the two bucket intersections eager runs today), the SortBounded feed (step 6) takes the survivors and
+  the fused JoinOnes (step 5) fill only the page rows.
+

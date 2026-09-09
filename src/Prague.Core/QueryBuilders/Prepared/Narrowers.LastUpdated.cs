@@ -11,7 +11,7 @@ using QueryBuilders;
 // DateTimeOffset or long — the public extensions are the sole constructors and fix it.
 
 /// <summary><c>updatedAfter</c> against a global last-update index, bound at build time.</summary>
-public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTime : struct {
@@ -31,11 +31,14 @@ public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INar
 		else LastUpdatedTime.ThrowUnsupported<TTime>();
 	}
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, _after));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, _after, null, false, this));
+
+	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
+		=> new LastUpdatedStep<TKey, TValue, TArgs>(_index.Index, LastUpdatedTime.ToUnixMs(_after), null);
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> against a global last-update index, bound at build time.</summary>
-public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTime : struct {
@@ -60,11 +63,14 @@ public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : IN
 		else LastUpdatedTime.ThrowUnsupported<TTime>();
 	}
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, (_after, _untilInclusive)));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, (_after, _untilInclusive), null, false, this));
+
+	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
+		=> new LastUpdatedStep<TKey, TValue, TArgs>(_index.Index, LastUpdatedTime.ToUnixMs(_after), LastUpdatedTime.ToUnixMs(_untilInclusive), null, null);
 }
 
 /// <summary><c>updatedAfter</c> (unix ms) against a global last-update index, selected from the execution arguments.</summary>
-public readonly struct GlobalLastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct GlobalLastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
@@ -79,11 +85,14 @@ public readonly struct GlobalLastUpdatedAfterArg<TKey, TValue, TArgs> : INarrowe
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args));
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, selector: _after, isParameterized: true));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, null, _after, true, this));
+
+	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
+		=> new LastUpdatedStep<TKey, TValue, TArgs>(_index.Index, 0, _after);
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> (unix ms) against a global last-update index, both selected from the execution arguments.</summary>
-public readonly struct GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
@@ -100,11 +109,14 @@ public readonly struct GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs> : INarro
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args), _untilInclusive(args));
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, selector: _after, isParameterized: true));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, null, _after, true, this));
+
+	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
+		=> new LastUpdatedStep<TKey, TValue, TArgs>(_index.Index, 0, 0, _after, _untilInclusive);
 }
 
 /// <summary><c>updatedAfter</c> against a raw <see cref="LastUpdatedIndex{TKey}" />, bound at build time.</summary>
-public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTime : struct {
@@ -124,11 +136,14 @@ public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<
 		else LastUpdatedTime.ThrowUnsupported<TTime>();
 	}
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, _after));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, _after, null, false, this));
+
+	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
+		=> new LastUpdatedStep<TKey, TValue, TArgs>(_index, LastUpdatedTime.ToUnixMs(_after), null);
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> against a raw <see cref="LastUpdatedIndex{TKey}" />, bound at build time.</summary>
-public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTime : struct {
@@ -153,11 +168,14 @@ public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrowe
 		else LastUpdatedTime.ThrowUnsupported<TTime>();
 	}
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, (_after, _untilInclusive)));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, (_after, _untilInclusive), null, false, this));
+
+	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
+		=> new LastUpdatedStep<TKey, TValue, TArgs>(_index, LastUpdatedTime.ToUnixMs(_after), LastUpdatedTime.ToUnixMs(_untilInclusive), null, null);
 }
 
 /// <summary><c>updatedAfter</c> (unix ms) against a raw <see cref="LastUpdatedIndex{TKey}" />, selected from the execution arguments.</summary>
-public readonly struct LastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct LastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly LastUpdatedIndex<TKey> _index;
@@ -172,11 +190,14 @@ public readonly struct LastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args));
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, selector: _after, isParameterized: true));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, null, _after, true, this));
+
+	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
+		=> new LastUpdatedStep<TKey, TValue, TArgs>(_index, 0, _after);
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> (unix ms) against a raw <see cref="LastUpdatedIndex{TKey}" />, both selected from the execution arguments.</summary>
-public readonly struct LastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct LastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly LastUpdatedIndex<TKey> _index;
@@ -193,10 +214,22 @@ public readonly struct LastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TK
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args), _untilInclusive(args));
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, selector: _after, isParameterized: true));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, null, _after, true, this));
+
+	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
+		=> new LastUpdatedStep<TKey, TValue, TArgs>(_index, 0, 0, _after, _untilInclusive);
 }
 
 internal static class LastUpdatedTime {
+	/// <summary>The unix-ms value the eager extension of <typeparamref name="TTime" /> hands the core.</summary>
+	internal static long ToUnixMs<TTime>(TTime time) where TTime : struct {
+		if (typeof(TTime) == typeof(long)) return Unsafe.BitCast<TTime, long>(time);
+		if (typeof(TTime) == typeof(DateTime)) return new DateTimeOffset(Unsafe.BitCast<TTime, DateTime>(time)).ToUnixTimeMilliseconds();
+		if (typeof(TTime) == typeof(DateTimeOffset)) return Unsafe.BitCast<TTime, DateTimeOffset>(time).ToUnixTimeMilliseconds();
+		ThrowUnsupported<TTime>();
+		return 0;
+	}
+
 	[DoesNotReturn]
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	internal static void ThrowUnsupported<TTime>()

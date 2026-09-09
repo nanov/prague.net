@@ -501,6 +501,46 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		}
 	}
 
+	/// <summary>
+	///   <see cref="Contains" /> that also reports the slot the item occupies in the live generation —
+	///   the position the ref-struct enumerator yields it at — so a caller can reproduce this set's
+	///   enumeration order for a subset of its items without walking it (the frozen pipeline's
+	///   order-preserving small-probe seed). Gate-pinned like <see cref="Contains" />; false and
+	///   <c>-1</c> for an absent item and for a disposed set (whose sentinel generation is empty). The
+	///   slot is a snapshot: a concurrent remove and re-add may move the item.
+	/// </summary>
+	internal bool TryGetSlot(T item, out int slot) {
+		var hashCode = GetHashCode(item);
+		var gate = ReaderGate.Enter();
+		try {
+			slot = FindSlotCore(item, hashCode);
+			return slot >= 0;
+		}
+		finally {
+			ReaderGate.Exit(gate);
+		}
+	}
+
+	// ContainsCore returning the slot index; kept apart so Contains keeps its exact codegen.
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private int FindSlotCore(T item, int hashCode) {
+		var tables = Volatile.Read(ref _tables);
+		var bucket = GetBucket(tables, hashCode);
+		ref var bucketsRef = ref MemoryMarshal.GetArrayDataReference(tables.Buckets);
+		ref var slotsRef = ref MemoryMarshal.GetArrayDataReference(tables.Slots);
+		var i = Unsafe.Add(ref bucketsRef, bucket) - 1;
+		var remaining = tables.Size;
+		while ((uint)i < (uint)tables.Size && remaining-- > 0) {
+			ref var slot = ref Unsafe.Add(ref slotsRef, i);
+			if (slot.HashCode == hashCode && Equals(slot.Value, item))
+				return i;
+
+			i = slot.Next;
+		}
+
+		return -1;
+	}
+
 	// NoInlining: keeps the chain walk out of the gated wrapper's EH region, which
 	// would otherwise pessimize the whole method's codegen.
 	[MethodImpl(MethodImplOptions.NoInlining)]

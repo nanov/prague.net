@@ -128,7 +128,7 @@ public sealed class PlanInfo {
 
 	public bool IsSorted { get; }
 
-	/// <summary>The executor <c>BuildFrozen()</c> selected: <c>PointLookup</c>, <c>IndexSteps</c> or <c>Replay</c>.</summary>
+	/// <summary>The executor <c>BuildFrozen()</c> selected: <c>PointLookup</c>, <c>Pipeline</c>, <c>IndexSteps</c> or <c>Replay</c>.</summary>
 	public string Executor { get; }
 
 	/// <summary>The stage-2 optimizations active on this plan (<c>FusedFilters</c>, <c>AdaptiveFilterOrder</c>, <c>CapacityHints</c>, <c>AdaptiveIntersection</c>, <c>ReorderIndexNarrowers</c>); empty when none applies.</summary>

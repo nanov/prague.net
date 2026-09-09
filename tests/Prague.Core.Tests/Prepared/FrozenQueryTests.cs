@@ -149,20 +149,26 @@ public class FrozenQueryTests {
 		});
 	}
 
+	// Stage 3: every simple, unsorted plan of non-composite index steps is the pipeline's; a Where before
+	// the unique step is one too (the unique step seeds, the filter is a predicate). Composites, sorts,
+	// joins and filter-only plans replay. The stage-2 executors are reachable with Pipeline = false.
 	[Test]
-	public void Replay_IsChosen_ForEveryOtherShape() {
+	public void PipelineOrReplay_IsChosen_ForEveryOtherShape() {
+		var stage2 = new FrozenOptions { Pipeline = false };
 		Assert.Multiple(() => {
 			Assert.That(_cache.Prepare().BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "no narrowing");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "list eq");
-			Assert.That(_cache.Prepare().Where(static v => v.Flag).UseIndex(_byCode, 1042).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Where before unique");
-			// Two equality steps: stage 2's adaptive intersection binds the index-steps executor by default.
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 0).UseIndex(_byCode, 1042).BuildFrozen().Plan.Executor, Is.EqualTo("IndexSteps"), "list before unique");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_byGroup, 0).BuildFrozen().Plan.Executor, Is.EqualTo("IndexSteps"), "unique then list");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 0).UseIndex(_byCode, 1042).BuildFrozen(new FrozenOptions { AdaptiveIntersection = false }).Plan.Executor, Is.EqualTo("Replay"), "list before unique, eager intersection");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_codeRange, static rb => rb.Gte(0)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique then range");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_byCode, new[] { 1042 }).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique then unique-in");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Where(static v => v.Flag).UseIndex(_flagged).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique, Where, key-set");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, new[] { 1042 }).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique-in alone");
+			Assert.That(_cache.Prepare().Where(static v => v.Flag).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "filter only");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "list eq");
+			Assert.That(_cache.Prepare().Where(static v => v.Flag).UseIndex(_byCode, 1042).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "Where before unique");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 0).UseIndex(_byCode, 1042).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "list before unique");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_byGroup, 0).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unique then list");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 0).UseIndex(_byCode, 1042).BuildFrozen(stage2).Plan.Executor, Is.EqualTo("IndexSteps"), "list before unique, stage 2");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 0).UseIndex(_byCode, 1042).BuildFrozen(new FrozenOptions { AdaptiveIntersection = false, Pipeline = false }).Plan.Executor, Is.EqualTo("Replay"), "list before unique, eager intersection");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_codeRange, static rb => rb.Gte(0)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unique then range");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).UseIndex(_byCode, new[] { 1042 }).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unique then unique-in");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Where(static v => v.Flag).UseIndex(_flagged).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unique, Where, key-set");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, new[] { 1042 }).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unique-in alone");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(stage2).Plan.Executor, Is.EqualTo("Replay"), "list eq, stage 2");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Or(b => b.UseIndex(_byGroup, 0), b => b.UseIndex(_byGroup, 1)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique then Or");
 			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byCode, 1042), b => b.UseIndex(_byCode, 1043)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Or of uniques");
 			Assert.That(_cache.Prepare<int, PqItem, bool>().If(static c => c, b => b.UseIndex(_byCode, 1042)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "If around unique");
@@ -351,7 +357,7 @@ public class FrozenQueryTests {
 	public void Fallback_ListWithWhere_FrozenEqualsPreparedEqualsEager() {
 		var prepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Build();
 		var frozen = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		AssertSame(_cache.Query().UseIndex(_byGroup, 3).Where(static v => v.Flag).Execute(), frozen.Execute(3));
 		AssertSame(prepared.ExecutePooled(3, 2, 5), frozen.ExecutePooled(3, 2, 5));
 		Assert.That(frozen.Count(3), Is.EqualTo(prepared.Count(3)));
@@ -362,7 +368,7 @@ public class FrozenQueryTests {
 		var prepared = _cache.Prepare<int, PqItem, (int lo, int hi)>().UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).Build();
 		var frozen = _cache.Prepare<int, PqItem, (int lo, int hi)>().UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen();
 		var args = (lo: 1100, hi: 1140);
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		AssertSame(_cache.Query().UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi), args).Execute(), frozen.Execute(args));
 		AssertSame(prepared.ExecutePooledCloned(args), frozen.ExecutePooledCloned(args));
 		Assert.That(frozen.Count(args), Is.EqualTo(prepared.Count(args)));
@@ -373,7 +379,7 @@ public class FrozenQueryTests {
 		ReadOnlyMemory<int> codes = new[] { 1001, 1042, 1177, -1 };
 		var prepared = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byCode, static c => c).Build();
 		var frozen = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byCode, static c => c).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		AssertSame(_cache.Query().UseIndex(_byCode, codes.Span).Execute(), frozen.Execute(codes));
 		AssertSame(prepared.Execute(codes), frozen.Execute(codes));
 	}

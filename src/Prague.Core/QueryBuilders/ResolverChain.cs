@@ -347,14 +347,17 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 					_totalCount);
 
 		var allResults = _results;
-		_handedOff = true;
-
 		if (TResolver.IsSorter)
 			_chain.UnsafeSortResults(ref allResults, _skip, _take);
 		else if (_skip > 0 || _take < int.MaxValue)
 			allResults.SliceLeaveTotalCount(_skip, Math.Min(_take, _totalCount - _skip));
 
-		return _clone ? allResults.CloneInPlace() : allResults;
+		// Hand the buffer off only once nothing left here can throw: a user comparer or Clone() that
+		// throws above leaves the rented array with this container, whose Dispose returns it.
+		if (_clone)
+			allResults.CloneInPlace();
+		_handedOff = true;
+		return allResults;
 	}
 
 	public void Dispose() {

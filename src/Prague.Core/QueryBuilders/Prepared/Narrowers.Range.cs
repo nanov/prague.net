@@ -5,7 +5,7 @@ using System.Text;
 using QueryBuilders;
 
 /// <summary>Range index narrowing with the bounds fixed at build time: the range lambda is invoked at replay, as eager.</summary>
-public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : IComparable<TIndexKey>
@@ -22,7 +22,18 @@ public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TAr
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _rangeBuilder);
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, selector: _rangeBuilder));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, null, _rangeBuilder, false, this));
+
+	// The range lambda runs per execution, as it does in the eager core; the closure is built once.
+	IPipelineStep<TKey, TValue, TArgs>? IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options) {
+		if (options.IndexSideProbes || !StepBinding.CanHold<TIndexKey>())
+			return null;
+		var rangeBuilder = _rangeBuilder;
+		return new RangeStep<TKey, TValue, TIndexKey, TArgs>(_index, _ => {
+			rangeBuilder(new RangeQueryBuilder<TIndexKey>()).Deconstruct(out var from, out var to);
+			return (from, to);
+		});
+	}
 }
 
 /// <summary>
@@ -30,7 +41,7 @@ public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TAr
 ///   <c>(rb, args) =&gt; …</c> shape and the query arguments are passed straight through to the eager
 ///   args overload, so no adaptor delegate or closure exists on the execution path.
 /// </summary>
-public readonly struct RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : IComparable<TIndexKey>
@@ -47,7 +58,17 @@ public readonly struct RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, 
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _rangeBuilder, args);
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, selector: _rangeBuilder, isParameterized: true));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, null, _rangeBuilder, true, this));
+
+	IPipelineStep<TKey, TValue, TArgs>? IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options) {
+		if (options.IndexSideProbes || !StepBinding.CanHold<TIndexKey>())
+			return null;
+		var rangeBuilder = _rangeBuilder;
+		return new RangeStep<TKey, TValue, TIndexKey, TArgs>(_index, args => {
+			rangeBuilder(new RangeQueryBuilder<TIndexKey>(), args).Deconstruct(out var from, out var to);
+			return (from, to);
+		});
+	}
 }
 
 /// <summary>
@@ -90,7 +111,7 @@ public readonly struct OptionalRange<TIndexKey> : IRangeQueryBuilder<TIndexKey> 
 }
 
 /// <summary>Optional-bounds range narrowing with the bounds fixed at build time; an unbounded range is a recorded no-op.</summary>
-public readonly struct RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : IComparable<TIndexKey> {
@@ -108,7 +129,15 @@ public readonly struct RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs> : I
 			core.UseIndexInternal(_index, OptionalRange<TIndexKey>.PassThrough, _range);
 	}
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, value: _range));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, _range, null, false, this));
+
+	IPipelineStep<TKey, TValue, TArgs>? IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options) {
+		if (options.IndexSideProbes || !StepBinding.CanHold<TIndexKey>())
+			return null;
+		_range.Deconstruct(out var from, out var to);
+		var bounds = (from, to);
+		return new RangeStep<TKey, TValue, TIndexKey, TArgs>(_index, _ => bounds);
+	}
 }
 
 /// <summary>
@@ -116,7 +145,7 @@ public readonly struct RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs> : I
 ///   arguments as a <see cref="Nullable{T}" /> (<c>null</c> = open side). Two delegate calls per
 ///   execution; both <c>null</c> skips the core (see <see cref="OptionalRange{TIndexKey}" />).
 /// </summary>
-public readonly struct RangeOptionalArgNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct RangeOptionalArgNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : struct, IComparable<TIndexKey> {
@@ -144,11 +173,22 @@ public readonly struct RangeOptionalArgNarrower<TKey, TValue, TIndexKey, TArgs> 
 			new OptionalRange<TIndexKey>(OptionalRange<TIndexKey>.Bound(from.HasValue, from.GetValueOrDefault(), _fromInclusive), OptionalRange<TIndexKey>.Bound(to.HasValue, to.GetValueOrDefault(), _toInclusive)));
 	}
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, selector: _from, isParameterized: true));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, null, _from, true, this));
+
+	IPipelineStep<TKey, TValue, TArgs>? IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options) {
+		if (options.IndexSideProbes || !StepBinding.CanHold<TIndexKey>())
+			return null;
+		var (fromSelector, toSelector, fromInclusive, toInclusive) = (_from, _to, _fromInclusive, _toInclusive);
+		return new RangeStep<TKey, TValue, TIndexKey, TArgs>(_index, args => {
+			var from = fromSelector(args);
+			var to = toSelector(args);
+			return (OptionalRange<TIndexKey>.Bound(from.HasValue, from.GetValueOrDefault(), fromInclusive), OptionalRange<TIndexKey>.Bound(to.HasValue, to.GetValueOrDefault(), toInclusive));
+		});
+	}
 }
 
 /// <summary>The reference-type-key twin of <see cref="RangeOptionalArgNarrower{TKey,TValue,TIndexKey,TArgs}" />: a <c>null</c> reference is the open side.</summary>
-public readonly struct RangeOptionalRefArgNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
+public readonly struct RangeOptionalRefArgNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : class, IComparable<TIndexKey> {
@@ -176,5 +216,16 @@ public readonly struct RangeOptionalRefArgNarrower<TKey, TValue, TIndexKey, TArg
 			new OptionalRange<TIndexKey>(OptionalRange<TIndexKey>.Bound(from is not null, from!, _fromInclusive), OptionalRange<TIndexKey>.Bound(to is not null, to!, _toInclusive)));
 	}
 
-	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, selector: _from, isParameterized: true));
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, null, _from, true, this));
+
+	IPipelineStep<TKey, TValue, TArgs>? IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options) {
+		if (options.IndexSideProbes)
+			return null;
+		var (fromSelector, toSelector, fromInclusive, toInclusive) = (_from, _to, _fromInclusive, _toInclusive);
+		return new RangeStep<TKey, TValue, TIndexKey, TArgs>(_index, args => {
+			var from = fromSelector(args);
+			var to = toSelector(args);
+			return (OptionalRange<TIndexKey>.Bound(from is not null, from!, fromInclusive), OptionalRange<TIndexKey>.Bound(to is not null, to!, toInclusive));
+		});
+	}
 }

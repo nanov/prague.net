@@ -312,15 +312,17 @@ public sealed class PqbItem : ICacheEquatable<PqbItem>, ICacheClonable<PqbItem> 
 	public int Code { get; init; }
 	public int Group { get; init; }
 	public int Tier { get; init; }
+	public int Band { get; init; }
+	public int Lane { get; init; }
 	public bool Flag { get; init; }
 	public int Score { get; init; }
 
 	public bool CacheEquals(PqbItem? other)
-		=> other is not null && other.Id == Id && other.Code == Code && other.Group == Group && other.Tier == Tier && other.Flag == Flag && other.Score == Score;
+		=> other is not null && other.Id == Id && other.Code == Code && other.Group == Group && other.Tier == Tier && other.Band == Band && other.Lane == Lane && other.Flag == Flag && other.Score == Score;
 
-	public int CacheGetHashCode() => HashCode.Combine(Id, Code, Group, Tier, Flag, Score);
+	public int CacheGetHashCode() => HashCode.Combine(Id, Code, Group, Tier, Band, Lane, Flag, Score);
 
-	public PqbItem Clone() => new() { Id = Id, Code = Code, Group = Group, Tier = Tier, Flag = Flag, Score = Score };
+	public PqbItem Clone() => new() { Id = Id, Code = Code, Group = Group, Tier = Tier, Band = Band, Lane = Lane, Flag = Flag, Score = Score };
 }
 
 public sealed class PqbOrder : ICacheEquatable<PqbOrder>, ICacheClonable<PqbOrder> {

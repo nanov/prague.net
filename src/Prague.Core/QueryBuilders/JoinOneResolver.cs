@@ -177,7 +177,9 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
 		ref var item = ref value.TUnsafeGetValAt<TRightValue>(index);
-		item = item.Clone();
+		// An outer join leaves a left without a right at its default: nothing to clone there.
+		if (item is not null)
+			item = item.Clone();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -541,7 +543,9 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
 		ref var item = ref value.TUnsafeGetValAt<TRightValue>(index);
-		item = item.Clone();
+		// An outer join leaves a left without a right at its default: nothing to clone there.
+		if (item is not null)
+			item = item.Clone();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -866,7 +870,9 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
 		ref var item = ref value.TUnsafeGetValAt<TRightValue>(index);
-		item = item.Clone();
+		// An outer join leaves a left without a right at its default: nothing to clone there.
+		if (item is not null)
+			item = item.Clone();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1126,7 +1132,9 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
 		ref var item = ref value.TUnsafeGetValAt<TRightValue>(index);
-		item = item.Clone();
+		// An outer join leaves a left without a right at its default: nothing to clone there.
+		if (item is not null)
+			item = item.Clone();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

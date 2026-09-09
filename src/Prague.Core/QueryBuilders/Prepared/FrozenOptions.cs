@@ -50,4 +50,23 @@ public sealed class FrozenOptions {
 	///   first-declared one, so a page of an unsorted query may differ from the eager builder's.
 	/// </summary>
 	public bool ReorderIndexNarrowers { get; init; }
+
+	/// <summary>
+	///   Bind a simple, unsorted plan whose index steps are all non-composite (unique / list equality
+	///   and membership, range, key-set, last-updated) to the pipeline executor: the first index step's
+	///   keys are copied out once and every later step is an O(1) probe on the key or the fetched value
+	///   — no candidate set, no intersection, one store lookup per candidate. Same rows in the same
+	///   order as the eager builder. Off → the stage-2 executor selection.
+	/// </summary>
+	public bool Pipeline { get; init; } = true;
+
+	/// <summary>
+	///   Make the pipeline's probes read the index instead of the fetched value: a list step probes its
+	///   bucket, a key-set step its key set. That is the eager step's own read and reproduces the eager
+	///   staleness window exactly (a row whose store write has landed but whose index write has not yet
+	///   is judged by the index); the default value-side probes judge the row by the value they return.
+	///   Both are inside the documented contract. A plan with a range step replays under this option
+	///   (its key-side twin is a window walk).
+	/// </summary>
+	public bool IndexSideProbes { get; init; }
 }

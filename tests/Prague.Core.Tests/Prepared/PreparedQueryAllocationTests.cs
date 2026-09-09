@@ -375,10 +375,10 @@ public class PreparedQueryAllocationTests {
 	public void Frozen_ListList_DefaultAdaptiveIntersectionAndReorder_Pooled_AllocateNoMoreThanEager() {
 		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
 		var single = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
-			.BuildFrozen(new FrozenOptions { AdaptiveIntersection = true });
+			.BuildFrozen(new FrozenOptions { AdaptiveIntersection = true, Pipeline = false });
 		var reorder = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
 			.BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true });
-		Assert.That(frozen.Plan.Optimizations, Does.Contain("CapacityHints"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(single.Plan.Executor, Is.EqualTo("IndexSteps"));
 		Assert.That(reorder.Plan.Executor, Is.EqualTo("IndexSteps"));
 		var args = (group: 13, tier: 3);

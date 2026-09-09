@@ -437,6 +437,17 @@ internal static class FrozenPlanner {
 
 		var names = new List<string>();
 		var live = new List<IPlanExplainable>();
+		// Stage 3: the pipeline takes every simple, unsorted plan of non-composite index steps. The
+		// opt-in smallest-bucket seeding stays on the index-steps executor until the pipeline's free
+		// seed lands (design §13.3).
+		if (options.Pipeline && !hasResolvers && !isSorted && !options.ReorderIndexNarrowers && TryPipeline<TKey, TValue, TArgs>(narrowers, options, out var pipelineSteps)) {
+			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
+			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
+			live.Insert(0, new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null));
+			return new FrozenQuery<TArgs, TValue, PipelineExecutor<TKey, TValue, TArgs, TResolver>>(
+				new(cache, pipelineSteps, in resolvers, filters, pipelineFused), narrowers, hasResolvers, isSorted, new(names, live));
+		}
+
 		var fused = Fuse<TValue, TArgs>(narrowers, options, names, live);
 		var hints = Hints(narrowers, options, names, live);
 
@@ -556,6 +567,51 @@ internal static class FrozenPlanner {
 			if (narrowers[i].Kind == kind)
 				return true;
 		return false;
+	}
+
+	/// <summary>
+	///   Pipeline eligibility (design §9): one to <see cref="PipelineLimits.MaxSteps" /> index steps, every
+	///   one a non-composite narrower that can build its step under the options (a key the binding can
+	///   hold; no range step when probes must be index-side), plus any number of top-level filters. A
+	///   filter-only plan has no seed source and replays; composites arrive in a later step.
+	/// </summary>
+	private static bool TryPipeline<TKey, TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers, FrozenOptions options, out IPipelineStep<TKey, TValue, TArgs>[] steps)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+		var list = new List<IPipelineStep<TKey, TValue, TArgs>>();
+		for (var i = 0; i < narrowers.Count; i++) {
+			var d = narrowers[i];
+			if (d.Kind is NarrowerKind.Filter or NarrowerKind.FilterArg)
+				continue;
+			if (d.Source is not IPipelineStepSource<TKey, TValue, TArgs> source || source.CreatePipelineStep(options) is not { } step) {
+				steps = [];
+				return false;
+			}
+
+			list.Add(step);
+		}
+
+		if (list.Count is 0 or > PipelineLimits.MaxSteps) {
+			steps = [];
+			return false;
+		}
+
+		steps = list.ToArray();
+		return true;
+	}
+
+	// Every top-level filter in build order, unboxed once; the pipeline applies them directly.
+	private static FilterStep<TValue, TArgs>[] TopLevelFilterSteps<TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers) {
+		var list = new List<FilterStep<TValue, TArgs>>();
+		for (var i = 0; i < narrowers.Count; i++) {
+			var d = narrowers[i];
+			if (d.Kind == NarrowerKind.Filter)
+				list.Add(new FilterStep<TValue, TArgs>((Predicate<TValue>)d.Filter!));
+			else if (d.Kind == NarrowerKind.FilterArg)
+				list.Add(new FilterStep<TValue, TArgs>((Func<TValue, TArgs, bool>)d.Filter!));
+		}
+
+		return list.ToArray();
 	}
 
 	private static bool TryIndexSteps<TKey, TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers, out IIndexStep<TKey, TValue, TArgs>[] steps)

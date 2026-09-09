@@ -224,7 +224,7 @@ public class PreparedQueryOptionalRangeDifferentialTests {
 	}
 
 	[Test]
-	public void Frozen_OptionalRange_ReplaysAndDescribesARangeStep() {
+	public void Frozen_OptionalRange_PipelinesAndDescribesARangeStep() {
 		var parameterized = _cache.Prepare<int, PqItem, (int? from, int? to)>().UseIndex(_codeRange, static a => a.from, static a => a.to).BuildFrozen();
 		var bound = _cache.Prepare().UseIndex(_codeRange, 1050, null, fromInclusive: false).BuildFrozen();
 		var unbounded = _cache.Prepare().UseIndex(_codeRange, (int?)null, null).BuildFrozen();
@@ -234,7 +234,7 @@ public class PreparedQueryOptionalRangeDifferentialTests {
 		AssertSame(_cache.Query().Execute(), unbounded.Execute());
 
 		Assert.Multiple(() => {
-			Assert.That(parameterized.Plan.Executor, Is.EqualTo("Replay"));
+			Assert.That(parameterized.Plan.Executor, Is.EqualTo("Pipeline"));
 			Assert.That(parameterized.Plan.Narrowers[0].Kind, Is.EqualTo(NarrowerKind.Range));
 			Assert.That(parameterized.Plan.Narrowers[0].IsParameterized, Is.True);
 			Assert.That(parameterized.Plan.Narrowers[0].Index, Is.SameAs(_codeRange));
