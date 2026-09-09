@@ -163,7 +163,11 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 		return AddIfNotPresent(item, InternalGetHashCode(item), out slot);
 	}
 
-	/// <summary>Slot of the stored item equal to <paramref name="item"/>, or -1.</summary>
+	/// <summary>
+	///   Slot of the stored item equal to <paramref name="item"/>, or -1. Production code reads slots from
+	///   <see cref="Enumerator.CurrentSlot"/> while walking the set; this is the test-side stand-in that lets
+	///   a test name a slot without enumerating.
+	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal int IndexOf(T item) => InternalIndexOf(item);
 
@@ -1735,7 +1739,10 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 		/// </summary>
 		public int CurrentSlot {
 			[MethodImpl(MethodImplOptions.AggressiveInlining)]
-			get => _index - 1;
+			get {
+				Debug.Assert(_index > 0 && _index <= _lastIndex, "CurrentSlot read outside a successful MoveNext");
+				return _index - 1;
+			}
 		}
 
 		object IEnumerator.Current {

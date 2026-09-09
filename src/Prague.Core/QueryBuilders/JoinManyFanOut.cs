@@ -1,5 +1,6 @@
 namespace Prague.Core;
 
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Prague.Core.Collections;
@@ -77,16 +78,20 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 		_nodeCount = 0;
 	}
 
-	// Not readonly: ValueSet.Count is an auto-property, so a readonly accessor would copy the whole
-	// set (inline storage included) before reading it.
-
-	/// <summary>Distinct rights recorded: the pair set's size (still readable after the hand-off).</summary>
+	/// <summary>
+	/// Distinct rights recorded — the pair set's size as recorded, before any filter narrowed the core's
+	/// copy. Still readable after the hand-off, and still the recorded count, never the surviving one.
+	/// </summary>
+	/// <remarks>
+	/// Not <c>readonly</c>, nor is <see cref="PairCount"/>: <c>ValueSet.Count</c> is an auto-property, so a
+	/// readonly accessor would copy the whole set (inline storage included) before reading it.
+	/// </remarks>
 	public int DistinctRights {
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		get => _pairs.Count;
 	}
 
-	/// <summary>(left, right) pairs recorded so far, repeat sightings excluded.</summary>
+	/// <summary>(left, right) pairs recorded so far, repeat sightings excluded. See <see cref="DistinctRights"/>.</summary>
 	public int PairCount {
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		get => _pairs.Count + _nodeCount;
@@ -109,7 +114,12 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	public ref ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>> Pairs {
 		[UnscopedRef]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		get => ref _pairs;
+		get {
+			// After the hand-off the core owns the arrays this copy still points at; a write through here
+			// would land in memory another query may have rented since.
+			Debug.Assert(_pairsOwned, "pair set accessed after the hand-off");
+			return ref _pairs;
+		}
 	}
 
 	/// <summary>
@@ -118,6 +128,7 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	/// the exact capacity the left's slot must reserve.
 	/// </summary>
 	public int RecordBucket(TLeftKey left, PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket) {
+		Debug.Assert(_pairsOwned, "recording after the hand-off");
 		ref var pairs = ref _pairs;
 		var before = pairs.Count + _nodeCount;
 		using var rights = bucket.GetEnumerator();
@@ -150,11 +161,13 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	}
 
 	/// <summary>
-	/// Records (left, right). False when the same left already recorded this right — the bucket
-	/// enumerator yielded it twice — so the caller leaves it out of the slot capacity.
+	/// Records one (left, right). False when the same left already recorded this right — the bucket
+	/// enumerator yielded it twice — so the caller leaves it out of the slot capacity. Production
+	/// records through <see cref="RecordBucket"/>; this is the test-side entry point that drives the same
+	/// <see cref="SetEmptyHead"/> / <see cref="RecordShared"/> contract one pair at a time.
 	/// </summary>
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public bool Record(TLeftKey left, TRightKey right) {
+	internal bool Record(TLeftKey left, TRightKey right) {
+		Debug.Assert(_pairsOwned, "recording after the hand-off");
 		if (_pairs.AddOrFind(new(left, right), out var slot)) {
 			if (_heads is not null)
 				SetEmptyHead(slot);
@@ -202,7 +215,12 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 	/// The pair set now belongs to the paired core that received a copy of it (the core disposes it):
 	/// <see cref="Dispose"/> leaves the pairs alone from here on and only returns the chains.
 	/// </summary>
-	public void MarkPairsHandedOff() => _pairsOwned = false;
+	public void MarkPairsHandedOff() {
+		// SingleLeftPerRight (no chain node) and HasChains (arrays rented) are two views of one fact: the
+		// first shared right rents the chains and writes its node in the same call.
+		Debug.Assert(HasChains == !SingleLeftPerRight, "chain arrays without a node, or a node without arrays");
+		_pairsOwned = false;
+	}
 
 	// Chain storage for a Delivery, valid once some right is shared (!SingleLeftPerRight); the arrays
 	// stay owned (and returned) by this instance.
@@ -261,7 +279,15 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 		var nodeNext = _nodeNext!;
 		var length = nodeLeft.Length;
 		var lefts = PragueArrayPool<TLeftKey>.Pool.Rent(length * 2);
-		var nexts = PragueArrayPool<int>.Pool.Rent(length * 2);
+		int[] nexts;
+		try {
+			nexts = PragueArrayPool<int>.Pool.Rent(length * 2);
+		} catch {
+			// The first rental has no owner yet; hand it back before the second one's failure propagates.
+			PragueArrayPool<TLeftKey>.Pool.Return(lefts, RuntimeHelpers.IsReferenceOrContainsReferences<TLeftKey>());
+			throw;
+		}
+
 		Array.Copy(nodeLeft, lefts, length);
 		Array.Copy(nodeNext, nexts, length);
 		PragueArrayPool<TLeftKey>.Pool.Return(nodeLeft, RuntimeHelpers.IsReferenceOrContainsReferences<TLeftKey>());
@@ -302,7 +328,15 @@ internal ref struct JoinManyFanOut<TLeftKey, TRightKey>
 			// The pair's JoinedKey is the first left that recorded the right; it always receives.
 			Inner.Add(firstLeft, value);
 
-			for (var node = _heads[slot]; node != NoChain; node = _nodeNext[node])
+			// Every slot the walk can report was recorded, and every recorded slot has a head (RentChains
+			// covers the slots before it, SetEmptyHead the ones after). A slot past the heads would mean a
+			// filter rebuilt the pair set — a query never fails, so the right reaches its first left only.
+			var heads = _heads;
+			Debug.Assert((uint)slot < (uint)heads.Length, "a delivered slot the recording never saw");
+			if ((uint)slot >= (uint)heads.Length)
+				return;
+
+			for (var node = heads[slot]; node != NoChain; node = _nodeNext[node])
 				Inner.Add(_nodeLeft[node], value);
 		}
 	}
