@@ -289,3 +289,79 @@ The three rows whose short-run error bars were widest, re-run with the default j
   The `3136 B` on the `Or` rows is the eager `Or` core's own cost at this candidate size (a 100k-key
   bitmap union) and is identical on both sides in the longer run.
 
+
+# Frozen queries — `BuildFrozen()` stage 1: the point-lookup fast path
+
+`FrozenQueryBenchmarks`: same data and spelling rules as `PreparedQueryBenchmarks` (raw
+`InMemoryDataCache`, 100k rows, list buckets of 1k, range windows of 1k codes; every body executes
+pooled and disposes). Each category has three rows: the eager builder (baseline), `Build()` (replay)
+and `BuildFrozen()`. The first four categories are the shapes the frozen planner binds to the
+`PointLookup` executor — a unique-index equality, bound or parameterized, followed only by filters. The
+last three (`ListWhere`, `Range`, `JoinOne`) are deliberately ineligible: their `_Frozen` rows must sit
+on the `_Prepared` rows, because the fallback *is* the replay.
+
+Apple M4 Pro, .NET 9.0.19 (osx-arm64), `--job short --inProcess` (3 iterations), `[MemoryDiagnoser]`.
+
+| Method                  | Categories     | Mean         | Error         | StdDev     | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------ |--------------- |-------------:|--------------:|-----------:|------:|--------:|----------:|------------:|
+| JoinOne_Eager           | JoinOne        | 32,221.65 ns | 13,662.724 ns | 748.900 ns |  1.00 |    0.03 |       5 B |        1.00 |
+| JoinOne_Prepared        | JoinOne        | 32,689.87 ns |  8,519.926 ns | 467.006 ns |  1.01 |    0.02 |       5 B |        1.00 |
+| JoinOne_Frozen          | JoinOne        | 32,258.69 ns |  8,732.989 ns | 478.685 ns |  1.00 |    0.02 |       5 B |        1.00 |
+| ListWhere_Eager         | ListWhere      |  8,543.20 ns |  2,685.538 ns | 147.203 ns |  1.00 |    0.02 |       1 B |        1.00 |
+| ListWhere_Prepared      | ListWhere      |  8,421.19 ns |    733.979 ns |  40.232 ns |  0.99 |    0.02 |       1 B |        1.00 |
+| ListWhere_Frozen        | ListWhere      |  8,486.40 ns |    755.602 ns |  41.417 ns |  0.99 |    0.02 |       1 B |        1.00 |
+| Range_Eager             | Range          | 13,492.41 ns |    230.372 ns |  12.627 ns |  1.00 |    0.00 |       1 B |        1.00 |
+| Range_Prepared          | Range          | 13,423.35 ns |  2,245.412 ns | 123.079 ns |  0.99 |    0.01 |       1 B |        1.00 |
+| Range_Frozen            | Range          | 13,399.89 ns |    439.864 ns |  24.110 ns |  0.99 |    0.00 |       1 B |        1.00 |
+| Unique_Eager            | Unique         |    135.24 ns |     24.882 ns |   1.364 ns |  1.00 |    0.01 |         - |          NA |
+| Unique_Prepared         | Unique         |    131.09 ns |     11.165 ns |   0.612 ns |  0.97 |    0.01 |         - |          NA |
+| Unique_Frozen           | Unique         |     26.96 ns |      0.396 ns |   0.022 ns |  0.20 |    0.00 |         - |          NA |
+| UniqueArg_Eager         | UniqueArg      |    134.19 ns |     20.892 ns |   1.145 ns |  1.00 |    0.01 |         - |          NA |
+| UniqueArg_Prepared      | UniqueArg      |    132.21 ns |     10.160 ns |   0.557 ns |  0.99 |    0.01 |         - |          NA |
+| UniqueArg_Frozen        | UniqueArg      |     18.81 ns |      2.544 ns |   0.139 ns |  0.14 |    0.00 |         - |          NA |
+| UniqueArgWhere_Eager    | UniqueArgWhere |    158.79 ns |     18.986 ns |   1.041 ns |  1.00 |    0.01 |      88 B |        1.00 |
+| UniqueArgWhere_Prepared | UniqueArgWhere |    138.19 ns |      4.343 ns |   0.238 ns |  0.87 |    0.01 |         - |        0.00 |
+| UniqueArgWhere_Frozen   | UniqueArgWhere |     19.29 ns |      2.642 ns |   0.145 ns |  0.12 |    0.00 |         - |        0.00 |
+| UniqueWhere_Eager       | UniqueWhere    |    149.62 ns |      8.429 ns |   0.462 ns |  1.00 |    0.00 |         - |          NA |
+| UniqueWhere_Prepared    | UniqueWhere    |    134.72 ns |      9.769 ns |   0.535 ns |  0.90 |    0.00 |         - |          NA |
+| UniqueWhere_Frozen      | UniqueWhere    |     24.09 ns |      0.490 ns |   0.027 ns |  0.16 |    0.00 |         - |          NA |
+
+The four eligible categories re-run with the default job (15+ iterations) for tight error bars:
+
+| Method                  | Categories     | Mean      | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|------------------------ |--------------- |----------:|---------:|---------:|------:|----------:|------------:|
+| Unique_Eager            | Unique         | 134.25 ns | 1.232 ns | 1.153 ns |  1.00 |         - |          NA |
+| Unique_Prepared         | Unique         | 130.83 ns | 1.598 ns | 1.495 ns |  0.97 |         - |          NA |
+| Unique_Frozen           | Unique         |  26.54 ns | 0.205 ns | 0.192 ns |  0.20 |         - |          NA |
+| UniqueArg_Eager         | UniqueArg      | 132.29 ns | 0.410 ns | 0.320 ns |  1.00 |         - |          NA |
+| UniqueArg_Prepared      | UniqueArg      | 130.02 ns | 1.159 ns | 1.084 ns |  0.98 |         - |          NA |
+| UniqueArg_Frozen        | UniqueArg      |  18.84 ns | 0.104 ns | 0.092 ns |  0.14 |         - |          NA |
+| UniqueArgWhere_Eager    | UniqueArgWhere | 156.11 ns | 1.572 ns | 1.313 ns |  1.00 |      88 B |        1.00 |
+| UniqueArgWhere_Prepared | UniqueArgWhere | 143.58 ns | 0.753 ns | 0.629 ns |  0.92 |         - |        0.00 |
+| UniqueArgWhere_Frozen   | UniqueArgWhere |  19.08 ns | 0.084 ns | 0.075 ns |  0.12 |         - |        0.00 |
+| UniqueWhere_Eager       | UniqueWhere    | 149.43 ns | 1.116 ns | 1.044 ns |  1.00 |         - |          NA |
+| UniqueWhere_Prepared    | UniqueWhere    | 134.41 ns | 0.888 ns | 0.831 ns |  0.90 |         - |          NA |
+| UniqueWhere_Frozen      | UniqueWhere    |  24.43 ns | 0.166 ns | 0.147 ns |  0.16 |         - |          NA |
+
+## Reading it
+
+- **The point lookup is 5–8× faster than eager and allocates nothing.** 19–27 ns against 132–156 ns.
+  What the executor skips is the eager core itself: no `ValueSet` rented and returned, no candidate
+  insert, no set walk through `TryGetValues`, no `Compose`d filter closure, no per-thread predicate box
+  for the parameterized `Where`. What remains is what a lookup fundamentally costs: the index probe,
+  the store probe, the filters, and a one-slot `QueryResults` rented from the same pool the eager
+  container rents from (so `Dispose` returns it the same way). A miss returns the shared `Empty` and
+  never touches the pool.
+- **The result is the eager result.** `TotalCount`, `Truncated`, `skip` / `take` slicing (including
+  `skip == 1`, `take == 0` and `skip > 1` over a single row), pooled vs allocated buffer source and
+  clone timing (clone-on-add without a slice, clone-in-place after one) are reproduced step for step
+  from `SimpleResultContainer`; `tests/Prague.Core.Tests/Prepared/FrozenQueryTests.cs` pins every
+  combination against both the eager builder and `Build()`.
+- **No regression on the fallback.** `ListWhere`, `Range` and `JoinOne` frozen rows are within their
+  error bars of the prepared rows: the replay executor calls the same `PreparedReplay` routine the
+  `PreparedQuery` classes call.
+- The bound (`NoArgs`) unique row is a consistent ~8 ns slower than the parameterized one (26.5 vs
+  18.8 ns) in both jobs. Inlining the `NoArgs` forwarders did not move it (27.8 ns), so it is not the
+  extension hop; left for stage 2.
+- Building a frozen query allocates the descriptor list and the executor object once; nothing on the
+  execute path reads the descriptors.

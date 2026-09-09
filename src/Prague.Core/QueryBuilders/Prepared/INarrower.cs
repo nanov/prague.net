@@ -14,6 +14,12 @@ public interface INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
+
+	/// <summary>
+	///   Appends this step's build-time description to <paramref name="plan" />. Called once by
+	///   <c>BuildFrozen()</c>; allocation is fine here, nothing on the execute path reads the result.
+	/// </summary>
+	void Describe(List<NarrowerDescriptor> plan);
 }
 
 /// <summary>
@@ -26,4 +32,7 @@ public interface INarrowerChain<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
+
+	/// <summary>Describes every recorded step in build (= replay) order.</summary>
+	void Describe(List<NarrowerDescriptor> plan);
 }

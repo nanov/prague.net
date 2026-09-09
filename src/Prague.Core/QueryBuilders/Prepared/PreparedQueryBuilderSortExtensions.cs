@@ -136,4 +136,28 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TResult : struct, IJoinResult<TValue>
 		=> new PreparedJoinedQuery<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TopJoinedPlan>(
 			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount);
+
+	// ── Frozen terminal ──────────────────────────────────────────────────────────
+
+	/// <summary>The sorted simple <c>Build()</c> with plan metadata; sorted shapes always replay in stage 1.</summary>
+	public static FrozenQuery<TArgs, TValue> BuildFrozen<TCache, TKey, TValue, TArgs, TChain, TResolver>(
+		this in CacheQueryBuilderCombined<SortedQuery<PreparedQueryDiscriminator<TCache>>,
+			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, Resolvers<TResolver>, TValue> builder)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolver : struct, IJoinResolver
+		=> FrozenPlanner.Simple<TKey, TValue, TArgs, TChain, TResolver, TopSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, true);
+
+	/// <summary>The sorted joined <c>Build()</c> with plan metadata; sorted joined shapes always replay in stage 1.</summary>
+	public static FrozenQuery<TArgs, TResult> BuildFrozen<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
+		this in CacheQueryBuilderCombined<SortedQuery<PreparedQueryDiscriminator<TCache>>,
+			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TResult : struct, IJoinResult<TValue>
+		=> FrozenPlanner.Joined<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TopJoinedPlan>(
+			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount, true);
 }

@@ -20,6 +20,8 @@ public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TAr
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _rangeBuilder);
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, selector: _rangeBuilder));
 }
 
 /// <summary>
@@ -43,4 +45,6 @@ public readonly struct RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _rangeBuilder, args);
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.Range, _index, selector: _rangeBuilder, isParameterized: true));
 }

@@ -91,32 +91,10 @@ internal sealed class PreparedJoinedQuery<TKey, TValue, TArgs, TChain, TResolver
 	public override QueryResults<TResult> ExecutePooledCloned(in TArgs args, int skip = 0, int take = int.MaxValue)
 		=> Run(in args, true, true, skip, take);
 
-	// Both the unsorted and the sorted eager joined Count terminals route to CountCoreJoined, which
-	// runs the indexed-inner narrowing so inner joins count matched lefts only.
-	// The predicate-pool mark/reset brackets the whole execution, as in the simple shape: an inner
-	// join's PrepareIndexedInner reads the filtered candidates before base execution, and the base
-	// execution applies the filter again, so a rented arg-predicate must outlive replay.
-	public override int Count(in TArgs args) {
-		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
-		try {
-			var builder = Wrap(in args);
-			return builder.CountCoreJoined<TResult>();
-		} finally {
-			ArgPredicatePool<TValue, TArgs>.Reset(mark);
-		}
-	}
-
-	private QueryResults<TResult> Run(in TArgs args, bool pool, bool clone, int skip, int take) {
-		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
-		try {
-			var builder = Wrap(in args);
-			return TPlan.Execute(ref builder, pool, clone, skip, take);
-		} finally {
-			ArgPredicatePool<TValue, TArgs>.Reset(mark);
-		}
-	}
+	public override int Count(in TArgs args)
+		=> PreparedReplay.CountJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(_cache, in _chain, in _resolvers, _manyCount, in args);
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private CacheQueryBuilderCombined<ExecutableQuery<InMemoryDataCache<TKey, TValue>>, CacheQueryBuilderCoreCombined<TKey, TValue>, TKey, TValue, TResolverChain, TResult> Wrap(in TArgs args)
-		=> new(new ExecutableQuery<InMemoryDataCache<TKey, TValue>>(_cache), PreparedReplay.Into(_cache, in _chain, in args), _resolvers, _manyCount);
+	private QueryResults<TResult> Run(in TArgs args, bool pool, bool clone, int skip, int take)
+		=> PreparedReplay.RunJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TPlan>(_cache, in _chain, in _resolvers, _manyCount, in args, pool, clone, skip, take);
 }

@@ -250,6 +250,70 @@ public class PreparedQueryAllocationTests {
 		Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
 	}
 
+	// ── Frozen: point-lookup fast path ────────────────────────────────────────────
+	//
+	// The frozen point lookup never constructs the eager core, so it must cost no more than the
+	// prepared replay and, pooled, nothing at all in Release: two dictionary probes and a one-slot
+	// buffer rented from the same pool the eager container rents from.
+
+	[Test]
+	public void Frozen_UniqueLookup_PooledBound_AllocatesNothing_AndNoMoreThanPrepared() {
+		var prepared = _cache.Prepare().UseIndex(_byCode, 1042).Build();
+		var frozen = _cache.Prepare().UseIndex(_byCode, 1042).BuildFrozen();
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("PointLookup"));
+
+		var command = Measure(() => prepared.ExecutePooled().Dispose());
+		var fast = Measure(() => frozen.ExecutePooled().Dispose());
+
+		TestContext.Out.WriteLine($"frozen unique bound: prepared {(double)command / Iterations:F1} B/op, frozen {(double)fast / Iterations:F1} B/op");
+		Assert.That(fast, Is.LessThanOrEqualTo(command + Iterations / 100));
+#if !DEBUG
+		Assert.That(fast, Is.EqualTo(0), "frozen pooled point lookup must allocate nothing in Release");
+#endif
+	}
+
+	[Test]
+	public void Frozen_UniqueLookup_PooledParameterized_AllocatesNothing_AndNoMoreThanPrepared() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, int>().UseIndex(_byCode, static c => c).Build();
+		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, int>().UseIndex(_byCode, static c => c).BuildFrozen();
+		var code = 1042;
+
+		var command = Measure(() => prepared.ExecutePooled(code).Dispose());
+		var fast = Measure(() => frozen.ExecutePooled(code).Dispose());
+		var miss = Measure(() => frozen.ExecutePooled(-1).Dispose());
+
+		TestContext.Out.WriteLine($"frozen unique arg: prepared {(double)command / Iterations:F1} B/op, frozen {(double)fast / Iterations:F1} B/op, frozen miss {(double)miss / Iterations:F1} B/op");
+		Assert.That(fast, Is.LessThanOrEqualTo(command + Iterations / 100));
+#if !DEBUG
+		Assert.That(fast, Is.EqualTo(0), "frozen pooled point lookup must allocate nothing in Release");
+		Assert.That(miss, Is.EqualTo(0), "a miss returns the shared Empty and allocates nothing");
+#endif
+	}
+
+	[Test]
+	public void Frozen_UniqueLookup_PooledParameterizedArgWhere_AllocatesNothing_AndNoMoreThanPrepared() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int code, int min)>()
+			.UseIndex(_byCode, static a => a.code)
+			.Where(static (v, a) => v.Id >= a.min)
+			.Build();
+		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int code, int min)>()
+			.UseIndex(_byCode, static a => a.code)
+			.Where(static (v, a) => v.Id >= a.min)
+			.BuildFrozen();
+		var args = (code: 1042, min: 0);
+
+		var command = Measure(() => prepared.ExecutePooled(args).Dispose());
+		var fast = Measure(() => frozen.ExecutePooled(args).Dispose());
+		var count = Measure(() => frozen.Count(args));
+
+		TestContext.Out.WriteLine($"frozen unique arg + arg-where: prepared {(double)command / Iterations:F1} B/op, frozen {(double)fast / Iterations:F1} B/op, count {(double)count / Iterations:F1} B/op");
+		Assert.That(fast, Is.LessThanOrEqualTo(command + Iterations / 100));
+#if !DEBUG
+		Assert.That(fast, Is.EqualTo(0), "frozen pooled point lookup with an arg filter must allocate nothing in Release");
+		Assert.That(count, Is.EqualTo(0), "frozen Count must allocate nothing in Release");
+#endif
+	}
+
 	// ── Joined ────────────────────────────────────────────────────────────────────
 
 	[Test]

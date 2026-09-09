@@ -39,6 +39,14 @@ public readonly struct OrNarrower<TKey, TValue, TArgs, TBranch1, TBranch2> : INa
 		core.OrWith<InMemoryDataCache<TKey, TValue>, Resolvers<BaseResolver<TKey, TValue>>, TValue, PreparedOrBranch<TKey, TValue, TArgs, TBranch1, TBranch2, TCore>>(
 			new NarrowOnlyQuery<InMemoryDataCache<TKey, TValue>>(_cache), new Resolvers<BaseResolver<TKey, TValue>>(default), in first, in second);
 	}
+
+	public void Describe(List<NarrowerDescriptor> plan) {
+		var branch1 = new List<NarrowerDescriptor>();
+		var branch2 = new List<NarrowerDescriptor>();
+		_branch1.Describe(branch1);
+		_branch2.Describe(branch2);
+		plan.Add(NarrowerDescriptor.ForComposite(NarrowerKind.Or, null, branch1, branch2));
+	}
 }
 
 /// <summary>

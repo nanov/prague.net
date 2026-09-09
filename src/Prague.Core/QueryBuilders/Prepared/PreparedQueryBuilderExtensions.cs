@@ -372,4 +372,34 @@ public static class PreparedQueryBuilderExtensions {
 		where TResult : struct, IJoinResult<TValue>
 		=> new PreparedJoinedQuery<TKey, TValue, TArgs, TChain, TResolverChain, TResult, ClassicJoinedPlan>(
 			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount);
+
+	// ── Frozen terminal ──────────────────────────────────────────────────────────
+
+	/// <summary>
+	///   <see cref="Build{TCache,TKey,TValue,TArgs,TChain,TResolver}" />, plus a build-time plan: the
+	///   chain is flattened into <see cref="PlanInfo" /> and, when it is a unique-index lookup followed
+	///   only by filters, bound to the point-lookup executor; every other shape replays exactly as
+	///   <c>Build()</c>. Results are identical either way; <see cref="FrozenQuery{TArgs,TResult}.Explain" />
+	///   says which executor was chosen.
+	/// </summary>
+	public static FrozenQuery<TArgs, TValue> BuildFrozen<TCache, TKey, TValue, TArgs, TChain, TResolver>(
+		this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
+			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, Resolvers<TResolver>, TValue> builder)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolver : struct, IJoinResolver
+		=> FrozenPlanner.Simple<TKey, TValue, TArgs, TChain, TResolver, ClassicSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, false);
+
+	/// <summary>The joined <see cref="Build{TCache,TKey,TValue,TArgs,TChain,TResolverChain,TResult}" /> with plan metadata; joined shapes always replay in stage 1.</summary>
+	public static FrozenQuery<TArgs, TResult> BuildFrozen<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
+		this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
+			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TResult : struct, IJoinResult<TValue>
+		=> FrozenPlanner.Joined<TKey, TValue, TArgs, TChain, TResolverChain, TResult, ClassicJoinedPlan>(
+			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount, false);
 }

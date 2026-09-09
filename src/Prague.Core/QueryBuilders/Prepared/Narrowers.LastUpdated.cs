@@ -30,6 +30,8 @@ public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INar
 		else if (typeof(TTime) == typeof(DateTimeOffset)) core.UseIndexInternal(_index, Unsafe.BitCast<TTime, DateTimeOffset>(_after));
 		else LastUpdatedTime.ThrowUnsupported<TTime>();
 	}
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, _after));
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> against a global last-update index, bound at build time.</summary>
@@ -57,6 +59,8 @@ public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : IN
 			core.UseIndexInternal(_index, Unsafe.BitCast<TTime, DateTimeOffset>(_after), Unsafe.BitCast<TTime, DateTimeOffset>(_untilInclusive));
 		else LastUpdatedTime.ThrowUnsupported<TTime>();
 	}
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, (_after, _untilInclusive)));
 }
 
 /// <summary><c>updatedAfter</c> (unix ms) against a global last-update index, selected from the execution arguments.</summary>
@@ -74,6 +78,8 @@ public readonly struct GlobalLastUpdatedAfterArg<TKey, TValue, TArgs> : INarrowe
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args));
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, selector: _after, isParameterized: true));
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> (unix ms) against a global last-update index, both selected from the execution arguments.</summary>
@@ -93,6 +99,8 @@ public readonly struct GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs> : INarro
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args), _untilInclusive(args));
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, selector: _after, isParameterized: true));
 }
 
 /// <summary><c>updatedAfter</c> against a raw <see cref="LastUpdatedIndex{TKey}" />, bound at build time.</summary>
@@ -115,6 +123,8 @@ public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<
 		else if (typeof(TTime) == typeof(DateTimeOffset)) core.UseIndexInternal(_index, Unsafe.BitCast<TTime, DateTimeOffset>(_after));
 		else LastUpdatedTime.ThrowUnsupported<TTime>();
 	}
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, _after));
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> against a raw <see cref="LastUpdatedIndex{TKey}" />, bound at build time.</summary>
@@ -142,6 +152,8 @@ public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrowe
 			core.UseIndexInternal(_index, Unsafe.BitCast<TTime, DateTimeOffset>(_after), Unsafe.BitCast<TTime, DateTimeOffset>(_untilInclusive));
 		else LastUpdatedTime.ThrowUnsupported<TTime>();
 	}
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, (_after, _untilInclusive)));
 }
 
 /// <summary><c>updatedAfter</c> (unix ms) against a raw <see cref="LastUpdatedIndex{TKey}" />, selected from the execution arguments.</summary>
@@ -159,6 +171,8 @@ public readonly struct LastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args));
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedAfter, _index, selector: _after, isParameterized: true));
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> (unix ms) against a raw <see cref="LastUpdatedIndex{TKey}" />, both selected from the execution arguments.</summary>
@@ -178,6 +192,8 @@ public readonly struct LastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TK
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args), _untilInclusive(args));
+
+	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.LastUpdatedBetween, _index, selector: _after, isParameterized: true));
 }
 
 internal static class LastUpdatedTime {

@@ -29,6 +29,12 @@ public readonly struct IfNarrower<TKey, TValue, TArgs, TSub> : INarrower<TKey, T
 		if (_condition(args))
 			_sub.Replay(ref core, in args);
 	}
+
+	public void Describe(List<NarrowerDescriptor> plan) {
+		var sub = new List<NarrowerDescriptor>();
+		_sub.Describe(sub);
+		plan.Add(NarrowerDescriptor.ForComposite(NarrowerKind.If, _condition, sub));
+	}
 }
 
 /// <summary>Two-way conditional narrowing: exactly one of the two recorded sub-chains replays per execution.</summary>
@@ -54,5 +60,13 @@ public readonly struct IfElseNarrower<TKey, TValue, TArgs, TThen, TElse> : INarr
 			_then.Replay(ref core, in args);
 		else
 			_else.Replay(ref core, in args);
+	}
+
+	public void Describe(List<NarrowerDescriptor> plan) {
+		var then = new List<NarrowerDescriptor>();
+		var otherwise = new List<NarrowerDescriptor>();
+		_then.Describe(then);
+		_else.Describe(otherwise);
+		plan.Add(NarrowerDescriptor.ForComposite(NarrowerKind.IfElse, _condition, then, otherwise));
 	}
 }

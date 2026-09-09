@@ -9,6 +9,8 @@ public readonly struct EmptyNarrowers<TKey, TValue, TArgs> : INarrowerChain<TKey
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> { }
+
+	public void Describe(List<NarrowerDescriptor> plan) { }
 }
 
 /// <summary>One link: everything recorded before, then this narrower. Replay order is build order.</summary>
@@ -29,5 +31,10 @@ public readonly struct NarrowerLink<TPrev, TNarrower, TKey, TValue, TArgs> : INa
 	public void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> {
 		_prev.Replay(ref core, in args);
 		_narrower.Apply(ref core, in args);
+	}
+
+	public void Describe(List<NarrowerDescriptor> plan) {
+		_prev.Describe(plan);
+		_narrower.Describe(plan);
 	}
 }

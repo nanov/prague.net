@@ -270,6 +270,8 @@ Considered and consciously left out of this branch; each is a separate PR if it 
   give a prepared query an identity (equality / hashing), make a registry of prepared queries
   possible, and open the door to an optimizer that reorders narrowers by selectivity. Not needed for
   parity or zero-alloc, and it trades away the JIT specialization the chain gets for free.
+  *Started as `BuildFrozen()` (§8): the chain is described into metadata at build time and kept, so
+  nothing is traded away; the optimizer half begins with the point-lookup executor.*
 - **Struct filter type parameter on the eager core** (`TFilter : struct, IValueFilter<TValue>` in
   `CacheQueryBuilderCoreCombined`). Replaces the per-thread `ArgPredicate` pool and also removes the
   eager `&&` closure allocation on the second chained `Where`. Invasive in the eager core, so its own
@@ -285,7 +287,99 @@ Considered and consciously left out of this branch; each is a separate PR if it 
   static branch lambdas; the prepared branches already read the execution arguments, so the overload
   is redundant there and was not mirrored.
 
-## 8. Relation to the event-loop research
+## 8. `BuildFrozen()` — stage 1
+
+> **Status:** shipped on `poc/prepared-query` after §7. Starts the "flatten / identity / optimizer"
+> item from the Deferred list without giving up the typed chain.
+
+`BuildFrozen()` is a sibling of every `Build()` overload (simple, sorted-simple, joined,
+sorted-joined) returning `FrozenQuery<TArgs,TResult> : PreparedQuery<TArgs,TResult>` — a drop-in
+with the same five terminals — that does three things at build time: flattens the recorded chain into
+inspectable metadata, picks a specialized executor when the plan shape allows, and otherwise binds
+exactly today's replay.
+
+### Descriptors
+
+`INarrower.Describe(List<NarrowerDescriptor>)` and `INarrowerChain.Describe(...)` are implemented by
+every narrower struct and by `EmptyNarrowers` / `NarrowerLink` (prev, then self, so the list is in
+replay order). A `NarrowerDescriptor` carries `Kind` (`UniqueEq`, `UniqueIn`, `ListEq`, `ListIn`,
+`ListInProjected`, `Range`, `KeySet`, `LastUpdatedAfter`, `LastUpdatedBetween`, `Filter`, `FilterArg`,
+`Or`, `If`, `IfElse`), `IsParameterized`, the index as `object` (identity), the bound value boxed, the
+selector / range builder / condition as `Delegate`, the filter delegate, and for the composites the
+sub-chains described recursively in `Children`. The descriptor also keeps an internal `Source` — the
+narrower that produced it — which is how the planner recovers `TIndexKey` without reflection: the
+unique-equality narrowers implement `IPointLookupSource<TKey,TValue,TArgs>` and construct the closed
+executor themselves.
+
+`FrozenQuery` keeps **both** the typed chain (inside the replay executor, for the fallback and for
+future executors that want JIT-specialized sub-steps) and the `PlanInfo` (descriptors, `HasResolvers`,
+`IsSorted`, `Executor` name). `Explain()` prints the ops and the chosen executor; `Plan` is internal
+(tests).
+
+### Executor selection
+
+`FrozenPlanner` decides once, in `BuildFrozen()`. The frozen class is
+`FrozenQuery<TArgs,TResult,TExecutor> where TExecutor : struct, IFrozenExecutor<TArgs,TResult>` —
+the `IPreparedSimplePlan` static-abstract strategy pattern — so the one virtual `Execute*` call lands in
+a body specialized per executor and the constrained call on the struct field devirtualizes. Executors:
+
+| Executor | Shape | Body |
+|---|---|---|
+| `PointLookupExecutor<TKey,TValue,TArgs,TIndexKey>` | simple, unsorted, ops == `[UniqueEq]` then zero or more `[Filter \| FilterArg]` | index probe → store probe → filters in order → 0/1-row `QueryResults` |
+| `ReplaySimpleExecutor<…,TPlan>` | every other simple shape (incl. sorted) | `PreparedReplay.RunSimple` — the `PreparedSimpleQuery` body |
+| `ReplayJoinedExecutor<…,TPlan>` | every joined shape | `PreparedReplay.RunJoined` — the `PreparedJoinedQuery` body |
+
+The eligibility rule is deliberately narrow: a `Where` *before* the unique step, a second index after
+it, any multi-value / range / key-set op, any `Or` / `If`, a sort or a join all fall back. Stage 1
+proves the machinery on one shape.
+
+### The point-lookup fast path
+
+`key = selector is null ? bound : selector(args)`; `index.TryGetValue(key, out entityKey)`;
+`cache.TryGet(entityKey, out value)`; the filters in build order, short-circuiting like the eager `&&`
+composition — a constant `Predicate<TValue>` called directly, a `Func<TValue,TArgs,bool>` called with
+`args` directly (no `ArgPredicatePool` box). Materialization reproduces `SimpleResultContainer` for a
+one-candidate set step for step: `skip > 1` → `EmptyWithTotalCount(1)`; otherwise a one-slot
+`QueryResults` from `PragueArrayPool<T>.Pool` (pooled) or `new T[1]`, clone-on-add when no slice was
+requested, `SliceLeaveTotalCount(skip, min(take, 1 - skip))` when one was, clone-in-place after the
+slice; a miss or a rejected row returns the shared `Empty`. `Count` is 0 or 1 with no rent at all.
+
+### Measured (Apple M4 Pro, .NET 9, default job; full tables in `benchmarks/Prague.Benchmarks/RESULTS.MD`)
+
+| Shape | Eager | `Build()` | `BuildFrozen()` | Ratio | Alloc |
+|---|---:|---:|---:|---:|---|
+| Unique, bound | 134.3 ns | 130.8 ns | 26.5 ns | 0.20 | 0 B |
+| Unique, parameterized | 132.3 ns | 130.0 ns | 18.8 ns | 0.14 | 0 B |
+| Unique + constant `Where` | 149.4 ns | 134.4 ns | 24.4 ns | 0.16 | 0 B |
+| Unique + parameterized `Where` | 156.1 ns (88 B) | 143.6 ns | 19.1 ns | 0.12 | 0 B |
+| ListWhere / Range / JoinOne (fallback) | — | 1.00 | within error bars of `Build()` | — | equal |
+
+Tests: `tests/Prague.Core.Tests/Prepared/FrozenQueryTests.cs` (executor selection, exhaustive eager /
+prepared / frozen differential over found / not-found / filter pass / fail × four `Execute*` variants
+× five `(skip,take)` pages with clone-identity checks, fallback parity on nine shapes, reuse across
+mutations, 8×2000 concurrent lookups, leak balance incl. a throwing arg filter, a `Describe` shape
+test over every narrower kind with nested `Or` / `If`) plus three frozen pins in
+`PreparedQueryAllocationTests` (frozen ≤ prepared; 0 B pooled in Release).
+
+### Stage 2
+
+In order of expected return:
+
+1. **Constant-`Where` fusion** — fold a run of constant predicates into one typed step (and, on the
+   replay executor, hand the eager core a single pre-composed predicate so the per-execution `Compose`
+   closure on the second `Where` disappears).
+2. **Capacity hints** — the descriptors know the index kind; a list-equality plan can size the
+   candidate set and the result buffer from the live bucket count instead of the defaults.
+3. **Mutation version + memoization** — a per-cache write counter lets a frozen query with bound
+   arguments return a cached materialized page while the counter is unchanged.
+4. **Materialized sets** — keep a frozen query's candidate set maintained incrementally by the
+   cache's write path (the event-loop shape of §9), so execution is a copy-out.
+
+Also open: the bound (`NoArgs`) point lookup is a consistent ~8 ns slower than the parameterized one
+and the `NoArgs` forwarders are not the cause; and `PlanInfo` is the natural seat for equality /
+hashing (the "identity" half of the deferred item).
+
+## 9. Relation to the event-loop research
 
 A `PreparedQuery<TArgs, TResult>` is exactly what a per-cache loop would dequeue: an immutable
 description plus arguments, executed on whichever thread owns the structures, producing a

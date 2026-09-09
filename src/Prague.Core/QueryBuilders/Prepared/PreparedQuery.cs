@@ -117,42 +117,19 @@ internal sealed class PreparedSimpleQuery<TKey, TValue, TArgs, TChain, TResolver
 	public override QueryResults<TValue> ExecutePooledCloned(in TArgs args, int skip = 0, int take = int.MaxValue)
 		=> Run(in args, true, true, skip, take);
 
-	// Both the unsorted and the sorted eager Count terminals route to CountCoreSimple, which is the
-	// core's Count(): a sorter never changes how many rows match.
-	// The predicate-pool mark/reset brackets the whole execution, not just the replay: the core
-	// applies its filter while counting / executing, so a rented arg-predicate must outlive replay.
-	public override int Count(in TArgs args) {
-		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
-		try {
-			var core = Replay(in args);
-			return core.Count();
-		} finally {
-			ArgPredicatePool<TValue, TArgs>.Reset(mark);
-		}
-	}
-
-	private QueryResults<TValue> Run(in TArgs args, bool pool, bool clone, int skip, int take) {
-		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
-		try {
-			// The eager path's Query() also copies the core into the combined builder; the copy inside
-			// `builder` is the one executed and disposed, `core` is not touched again.
-			var builder = new CacheQueryBuilderCombined<ExecutableQuery<InMemoryDataCache<TKey, TValue>>,
-				CacheQueryBuilderCoreCombined<TKey, TValue>, TKey, TValue, Resolvers<TResolver>, TValue>(
-				new ExecutableQuery<InMemoryDataCache<TKey, TValue>>(_cache), Replay(in args), _resolvers, 0);
-			return TPlan.Execute(ref builder, pool, clone, skip, take);
-		} finally {
-			ArgPredicatePool<TValue, TArgs>.Reset(mark);
-		}
-	}
+	public override int Count(in TArgs args) => PreparedReplay.CountSimple(_cache, in _chain, in args);
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private CacheQueryBuilderCoreCombined<TKey, TValue> Replay(in TArgs args) => PreparedReplay.Into(_cache, in _chain, in args);
+	private QueryResults<TValue> Run(in TArgs args, bool pool, bool clone, int skip, int take)
+		=> PreparedReplay.RunSimple<TKey, TValue, TArgs, TChain, TResolver, TPlan>(_cache, in _chain, in _resolvers, in args, pool, clone, skip, take);
 }
 
 /// <summary>
 ///   The one replay routine every prepared shape (simple and joined) runs: a fresh eager core, the
 ///   recorded chain applied to it in build order, and the core's rented candidates released if a
-///   narrower throws mid-replay so a throwing selector or index never strands them.
+///   narrower throws mid-replay so a throwing selector or index never strands them. The <c>Run*</c> /
+///   <c>Count*</c> routines wrap it in the execution the eager terminals run, shared by the
+///   <c>PreparedQuery</c> classes and the frozen replay executors so there is one replay path.
 /// </summary>
 internal static class PreparedReplay {
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -170,4 +147,94 @@ internal static class PreparedReplay {
 
 		return core;
 	}
+
+	// The predicate-pool mark/reset brackets the whole execution, not just the replay: the core
+	// applies its filter while counting / executing, so a rented arg-predicate must outlive replay.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal static QueryResults<TValue> RunSimple<TKey, TValue, TArgs, TChain, TResolver, TPlan>(
+		InMemoryDataCache<TKey, TValue> cache, in TChain chain, in Resolvers<TResolver> resolvers, in TArgs args, bool pool, bool clone, int skip, int take)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolver : struct, IJoinResolver
+		where TPlan : struct, IPreparedSimplePlan {
+		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
+		try {
+			// The eager path's Query() also copies the core into the combined builder; the copy inside
+			// `builder` is the one executed and disposed, the replayed core is not touched again.
+			var builder = new CacheQueryBuilderCombined<ExecutableQuery<InMemoryDataCache<TKey, TValue>>,
+				CacheQueryBuilderCoreCombined<TKey, TValue>, TKey, TValue, Resolvers<TResolver>, TValue>(
+				new ExecutableQuery<InMemoryDataCache<TKey, TValue>>(cache), Into(cache, in chain, in args), resolvers, 0);
+			return TPlan.Execute(ref builder, pool, clone, skip, take);
+		} finally {
+			ArgPredicatePool<TValue, TArgs>.Reset(mark);
+		}
+	}
+
+	// Both the unsorted and the sorted eager Count terminals route to CountCoreSimple, which is the
+	// core's Count(): a sorter never changes how many rows match.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal static int CountSimple<TKey, TValue, TArgs, TChain>(InMemoryDataCache<TKey, TValue> cache, in TChain chain, in TArgs args)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs> {
+		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
+		try {
+			var core = Into(cache, in chain, in args);
+			return core.Count();
+		} finally {
+			ArgPredicatePool<TValue, TArgs>.Reset(mark);
+		}
+	}
+
+	// Joined: the chain is replayed into the eager core FIRST, then wrapped together with a copy of the
+	// resolver chain — an inner join's PrepareIndexedInner reads the executor's candidates before base
+	// execution, so the executor the joined core sees must already be the replayed core. The mark /
+	// reset brackets the whole execution because that inner pass applies the filter too.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal static QueryResults<TResult> RunJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TPlan>(
+		InMemoryDataCache<TKey, TValue> cache, in TChain chain, in TResolverChain resolvers, int manyCount, in TArgs args, bool pool, bool clone, int skip, int take)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TResult : struct, IJoinResult<TValue>
+		where TPlan : struct, IPreparedJoinedPlan {
+		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
+		try {
+			var builder = WrapJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(cache, in chain, in resolvers, manyCount, in args);
+			return TPlan.Execute(ref builder, pool, clone, skip, take);
+		} finally {
+			ArgPredicatePool<TValue, TArgs>.Reset(mark);
+		}
+	}
+
+	// Both the unsorted and the sorted eager joined Count terminals route to CountCoreJoined, which
+	// runs the indexed-inner narrowing so inner joins count matched lefts only.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal static int CountJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
+		InMemoryDataCache<TKey, TValue> cache, in TChain chain, in TResolverChain resolvers, int manyCount, in TArgs args)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TResult : struct, IJoinResult<TValue> {
+		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
+		try {
+			var builder = WrapJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(cache, in chain, in resolvers, manyCount, in args);
+			return builder.CountCoreJoined<TResult>();
+		} finally {
+			ArgPredicatePool<TValue, TArgs>.Reset(mark);
+		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static CacheQueryBuilderCombined<ExecutableQuery<InMemoryDataCache<TKey, TValue>>, CacheQueryBuilderCoreCombined<TKey, TValue>, TKey, TValue, TResolverChain, TResult>
+		WrapJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(InMemoryDataCache<TKey, TValue> cache, in TChain chain, in TResolverChain resolvers, int manyCount, in TArgs args)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TResult : struct, IJoinResult<TValue>
+		=> new(new ExecutableQuery<InMemoryDataCache<TKey, TValue>>(cache), Into(cache, in chain, in args), resolvers, manyCount);
 }
