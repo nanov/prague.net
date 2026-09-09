@@ -1,6 +1,7 @@
 namespace Prague.Core;
 
 using System.Runtime.CompilerServices;
+using QueryBuilders;
 
 // Every narrower mirrors one eager entry point and replays through the same
 // ICandidatesFilterer method. Selector-based variants hold a delegate created once at build time
@@ -9,6 +10,7 @@ using System.Runtime.CompilerServices;
 /// <summary>Unique (1:1) index equality with a value bound at build time.</summary>
 public readonly struct UniqueIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly TIndexKey _value;
@@ -19,13 +21,14 @@ public readonly struct UniqueIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _value);
 }
 
 /// <summary>Unique (1:1) index equality with the value selected from the execution arguments.</summary>
 public readonly struct UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, TIndexKey> _selector;
@@ -36,13 +39,14 @@ public readonly struct UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarro
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _selector(args));
 }
 
 /// <summary>List (1:N) index equality with a value bound at build time.</summary>
 public readonly struct ListIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly TIndexKey _value;
@@ -53,13 +57,14 @@ public readonly struct ListIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<T
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _value);
 }
 
 /// <summary>List (1:N) index equality with the value selected from the execution arguments.</summary>
 public readonly struct ListIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, TIndexKey> _selector;
@@ -70,7 +75,7 @@ public readonly struct ListIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrowe
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _selector(args));
 }
 
@@ -81,6 +86,7 @@ public readonly struct ListIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrowe
 /// <summary>Unique (1:1) index membership in a value set bound at build time (empty set = no rows, as eager).</summary>
 public readonly struct UniqueIndexIn<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly ReadOnlyMemory<TIndexKey> _values;
@@ -91,13 +97,14 @@ public readonly struct UniqueIndexIn<TKey, TValue, TIndexKey, TArgs> : INarrower
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _values.Span);
 }
 
 /// <summary>Unique (1:1) index membership in a value set selected from the execution arguments.</summary>
 public readonly struct UniqueIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, ReadOnlyMemory<TIndexKey>> _selector;
@@ -108,13 +115,14 @@ public readonly struct UniqueIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarro
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _selector(args).Span);
 }
 
 /// <summary>List (1:N) index membership in a value set bound at build time (empty set = no rows, as eager).</summary>
 public readonly struct ListIndexIn<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly ReadOnlyMemory<TIndexKey> _values;
@@ -125,13 +133,14 @@ public readonly struct ListIndexIn<TKey, TValue, TIndexKey, TArgs> : INarrower<T
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _values.Span);
 }
 
 /// <summary>List (1:N) index membership in a value set selected from the execution arguments.</summary>
 public readonly struct ListIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, ReadOnlyMemory<TIndexKey>> _selector;
@@ -142,7 +151,7 @@ public readonly struct ListIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarrowe
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _selector(args).Span);
 }
 
@@ -152,6 +161,7 @@ public readonly struct ListIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarrowe
 /// </summary>
 public readonly struct ListIndexInProjected<TKey, TValue, TIndexKey, TOtherValue, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly ReadOnlyMemory<TOtherValue> _values;
@@ -164,19 +174,20 @@ public readonly struct ListIndexInProjected<TKey, TValue, TIndexKey, TOtherValue
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _values.Span, _keySelector);
 }
 
 /// <summary>Key-set (predicate) index: the index itself is the whole description, nothing to bind.</summary>
 public readonly struct KeySetNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly CacheKeySetIndex<TKey, TValue> _index;
 
 	public KeySetNarrower(CacheKeySetIndex<TKey, TValue> index) => _index = index;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index);
 }
 
@@ -185,13 +196,14 @@ public readonly struct KeySetNarrower<TKey, TValue, TArgs> : INarrower<TKey, TVa
 ///   For a predicate over the execution arguments see <see cref="FilterArgNarrower{TKey,TValue,TArgs}" />.
 /// </summary>
 public readonly struct FilterNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly Predicate<TValue> _predicate;
 
 	public FilterNarrower(Predicate<TValue> predicate) => _predicate = predicate;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.WhereInternal(_predicate);
 }
 
@@ -204,12 +216,13 @@ public readonly struct FilterNarrower<TKey, TValue, TArgs> : INarrower<TKey, TVa
 ///   resets the pool, which is after the core has finished executing (see <see cref="ArgPredicatePool{TValue,TArgs}" />).
 /// </summary>
 public readonly struct FilterArgNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly Func<TValue, TArgs, bool> _predicate;
 
 	public FilterArgNarrower(Func<TValue, TArgs, bool> predicate) => _predicate = predicate;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.WhereInternal(ArgPredicatePool<TValue, TArgs>.Rent(_predicate, in args));
 }

@@ -1,5 +1,7 @@
 namespace Prague.Core;
 
+using QueryBuilders;
+
 /// <summary>
 ///   One recorded narrowing step of a prepared query. <see cref="Apply{TCore}" /> replays it into an
 ///   eager core by calling the very <see cref="ICandidatesFilterer{TKey,TValue}" /> method the eager
@@ -9,8 +11,9 @@ namespace Prague.Core;
 ///   interface — and so the same narrower can later replay into Or-branch cores.
 /// </summary>
 public interface INarrower<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
-	void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>;
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
 }
 
 /// <summary>
@@ -20,6 +23,7 @@ public interface INarrower<TKey, TValue, TArgs>
 ///   value with no per-step heap object.
 /// </summary>
 public interface INarrowerChain<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
-	void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>;
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
 }

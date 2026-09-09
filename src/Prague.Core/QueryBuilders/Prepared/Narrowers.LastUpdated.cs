@@ -2,6 +2,7 @@ namespace Prague.Core;
 
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using QueryBuilders;
 
 // The eager last-updated surface is 2 index kinds x 3 time types x {after, after..until}. Rather than
 // twelve near-identical structs, each narrower is generic over the time type and dispatches on
@@ -12,6 +13,7 @@ using System.Runtime.CompilerServices;
 /// <summary><c>updatedAfter</c> against a global last-update index, bound at build time.</summary>
 public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTime : struct {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
 	private readonly TTime _after;
@@ -22,7 +24,7 @@ public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INar
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue> {
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> {
 		if (typeof(TTime) == typeof(long)) core.UseIndexInternal(_index, Unsafe.BitCast<TTime, long>(_after));
 		else if (typeof(TTime) == typeof(DateTime)) core.UseIndexInternal(_index, Unsafe.BitCast<TTime, DateTime>(_after));
 		else if (typeof(TTime) == typeof(DateTimeOffset)) core.UseIndexInternal(_index, Unsafe.BitCast<TTime, DateTimeOffset>(_after));
@@ -33,6 +35,7 @@ public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INar
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> against a global last-update index, bound at build time.</summary>
 public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTime : struct {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
 	private readonly TTime _after;
@@ -45,7 +48,7 @@ public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : IN
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue> {
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> {
 		if (typeof(TTime) == typeof(long))
 			core.UseIndexInternal(_index, Unsafe.BitCast<TTime, long>(_after), Unsafe.BitCast<TTime, long>(_untilInclusive));
 		else if (typeof(TTime) == typeof(DateTime))
@@ -58,7 +61,8 @@ public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : IN
 
 /// <summary><c>updatedAfter</c> (unix ms) against a global last-update index, selected from the execution arguments.</summary>
 public readonly struct GlobalLastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
 	private readonly Func<TArgs, long> _after;
 
@@ -68,13 +72,14 @@ public readonly struct GlobalLastUpdatedAfterArg<TKey, TValue, TArgs> : INarrowe
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args));
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> (unix ms) against a global last-update index, both selected from the execution arguments.</summary>
 public readonly struct GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
 	private readonly Func<TArgs, long> _after;
 	private readonly Func<TArgs, long> _untilInclusive;
@@ -86,13 +91,14 @@ public readonly struct GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs> : INarro
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args), _untilInclusive(args));
 }
 
 /// <summary><c>updatedAfter</c> against a raw <see cref="LastUpdatedIndex{TKey}" />, bound at build time.</summary>
 public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTime : struct {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly TTime _after;
@@ -103,7 +109,7 @@ public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue> {
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> {
 		if (typeof(TTime) == typeof(long)) core.UseIndexInternal(_index, Unsafe.BitCast<TTime, long>(_after));
 		else if (typeof(TTime) == typeof(DateTime)) core.UseIndexInternal(_index, Unsafe.BitCast<TTime, DateTime>(_after));
 		else if (typeof(TTime) == typeof(DateTimeOffset)) core.UseIndexInternal(_index, Unsafe.BitCast<TTime, DateTimeOffset>(_after));
@@ -114,6 +120,7 @@ public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> against a raw <see cref="LastUpdatedIndex{TKey}" />, bound at build time.</summary>
 public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTime : struct {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly TTime _after;
@@ -126,7 +133,7 @@ public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrowe
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue> {
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> {
 		if (typeof(TTime) == typeof(long))
 			core.UseIndexInternal(_index, Unsafe.BitCast<TTime, long>(_after), Unsafe.BitCast<TTime, long>(_untilInclusive));
 		else if (typeof(TTime) == typeof(DateTime))
@@ -139,7 +146,8 @@ public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrowe
 
 /// <summary><c>updatedAfter</c> (unix ms) against a raw <see cref="LastUpdatedIndex{TKey}" />, selected from the execution arguments.</summary>
 public readonly struct LastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly Func<TArgs, long> _after;
 
@@ -149,13 +157,14 @@ public readonly struct LastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args));
 }
 
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> (unix ms) against a raw <see cref="LastUpdatedIndex{TKey}" />, both selected from the execution arguments.</summary>
 public readonly struct LastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
-	where TKey : notnull, IEquatable<TKey> {
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly Func<TArgs, long> _after;
 	private readonly Func<TArgs, long> _untilInclusive;
@@ -167,7 +176,7 @@ public readonly struct LastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TK
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _after(args), _untilInclusive(args));
 }
 

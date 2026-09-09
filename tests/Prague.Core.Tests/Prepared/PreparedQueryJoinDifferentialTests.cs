@@ -403,15 +403,15 @@ public class PreparedQueryJoinDifferentialTests {
 	[Test]
 	public void Sort_AfterJoinOne_OverJoinedRow_LikeEager() {
 		var cmp = new ByRegionThenIdDesc();
-		var prepared = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers).Sort(cmp).Build();
+		var prepared = _orders.Prepare<int, PqOrder, (int n, string s)>().UseIndex(_byProduct, static p => p.n).JoinOne(_byCustomer, _customers).Sort(cmp).Build();
 		var bounded = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers).SortBounded(cmp).Build();
 		foreach (var (skip, take) in Pages)
 			for (var product = 0; product < Products; product++) {
-				AssertSameJoined(_orders.Query().UseIndex(_byProduct, product).JoinOne(_byCustomer, _customers).Sort(cmp).Execute(skip, take), prepared.Execute(product, skip, take), Customer);
+				AssertSameJoined(_orders.Query().UseIndex(_byProduct, product).JoinOne(_byCustomer, _customers).Sort(cmp).Execute(skip, take), prepared.Execute(( n: product, s: string.Empty), skip, take), Customer);
 				AssertSameJoined(_orders.Query().UseIndex(_byProduct, product).JoinOne(_byCustomer, _customers).SortBounded(cmp).ExecutePooled(skip, take), bounded.ExecutePooled(product, skip, take), Customer);
 			}
 
-		Assert.That(prepared.Count(1), Is.EqualTo(_orders.Query().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).Sort(cmp).Count()));
+		Assert.That(prepared.Count((n: 1, s: string.Empty)), Is.EqualTo(_orders.Query().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).Sort(cmp).Count()));
 		Assert.That(bounded.Count(1), Is.EqualTo(_orders.Query().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).SortBounded(cmp).Count()));
 	}
 

@@ -678,8 +678,16 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	void ICandidatesFilterer<TKey, TValue>.WhereInternal(Predicate<TValue> predicate) {
 		var currentFilter = _filter;
-		_filter = currentFilter == null ? predicate : v => currentFilter(v) && predicate(v);
+		_filter = currentFilter == null ? predicate : Compose(currentFilter, predicate);
 	}
+
+	// The composing lambda lives in its own method: Roslyn allocates a lambda's display class at the
+	// entry of the method that contains it, so an inline `v => current(v) && next(v)` cost 32 B on
+	// every Where, including a first Where that never composes. NoInlining keeps the JIT from hoisting
+	// the allocation back into the caller.
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static Predicate<TValue> Compose(Predicate<TValue> current, Predicate<TValue> next)
+		=> v => current(v) && next(v);
 
 	internal int Count() {
 		if (_disposed)
@@ -1561,8 +1569,16 @@ void ICandidatesExecutor<TKey, TValue>.ExecuteBase<TContainer>(ref TContainer c)
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	void ICandidatesFilterer<TKey, TValue>.WhereInternal(Predicate<TValue> predicate) {
 		var currentFilter = _filter;
-		_filter = currentFilter == null ? predicate : v => currentFilter(v) && predicate(v);
+		_filter = currentFilter == null ? predicate : Compose(currentFilter, predicate);
 	}
+
+	// The composing lambda lives in its own method: Roslyn allocates a lambda's display class at the
+	// entry of the method that contains it, so an inline `v => current(v) && next(v)` cost 32 B on
+	// every Where, including a first Where that never composes. NoInlining keeps the JIT from hoisting
+	// the allocation back into the caller.
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static Predicate<TValue> Compose(Predicate<TValue> current, Predicate<TValue> next)
+		=> v => current(v) && next(v);
 
 	/// <summary>
 	/// Executes the paired query. Projects the paired candidates to an unpaired

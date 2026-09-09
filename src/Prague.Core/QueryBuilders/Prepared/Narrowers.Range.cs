@@ -1,10 +1,12 @@
 namespace Prague.Core;
 
 using System.Runtime.CompilerServices;
+using QueryBuilders;
 
 /// <summary>Range index narrowing with the bounds fixed at build time: the range lambda is invoked at replay, as eager.</summary>
 public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : IComparable<TIndexKey>
 	where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey> {
 	private readonly CacheRangeIndex<TKey, TValue, TIndexKey> _index;
@@ -16,7 +18,7 @@ public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TAr
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _rangeBuilder);
 }
 
@@ -27,6 +29,7 @@ public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TAr
 /// </summary>
 public readonly struct RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : IComparable<TIndexKey>
 	where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey> {
 	private readonly CacheRangeIndex<TKey, TValue, TIndexKey> _index;
@@ -38,6 +41,6 @@ public readonly struct RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, 
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> core.UseIndexInternal(_index, _rangeBuilder, args);
 }

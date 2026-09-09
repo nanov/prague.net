@@ -55,8 +55,8 @@ public class PreparedQueryAllocationTests {
 		}
 	}
 
-	// Three measured windows, minimum taken. Debug builds allocate per call (the eager builder's
-	// closure composition, boxed comparers), so a window runs collections, and a gen2 collection lets
+	// Three measured windows, minimum taken. Debug builds allocate per call (closures capturing the
+	// per-call argument, boxed comparers), so a window runs collections, and a gen2 collection lets
 	// ArrayPool<T>.Shared trim its cached arrays — the next Rent then allocates a fresh array inside
 	// the window. That is one-off, positive noise on whichever side it lands; the minimum over the
 	// windows is the steady-state per-call cost either side actually has.
@@ -105,15 +105,20 @@ public class PreparedQueryAllocationTests {
 
 		TestContext.Out.WriteLine($"list+where: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
 		Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+#if !DEBUG
+		// A single Where is free on both sides: WhereInternal composes through a separate non-inlined
+		// helper, so the first filter no longer pays for the `&&` closure's display class (32 B before).
+		Assert.That(command, Is.EqualTo(0), "prepared list+where must allocate nothing in Release");
+		Assert.That(eager, Is.EqualTo(0), "eager list+where must allocate nothing in Release");
+#endif
 	}
 
 	// Parameterized Where. The eager twin is what a caller writes: a method taking the per-call
 	// argument and a lambda capturing it — Roslyn hoists the capture into a display class allocated
-	// per call and creates the delegate per call. The prepared command binds the argument into a
-	// per-thread pooled predicate box instead, so its only cost is the eager core's own floor for any
-	// filter: WhereInternal's `&&` composition closure captures `currentFilter`, and the compiler
-	// allocates that display class at method entry even on the no-composition branch (32 B in
-	// Release). Pinned both ways: strictly below eager, and nothing above the core's constant-Where floor.
+	// per call and creates the delegate per call (88 B in Release). The prepared command binds the
+	// argument into a per-thread pooled predicate box instead and a single filter costs the eager core
+	// nothing, so the prepared side is pinned at an absolute zero-ish (< 8 B/op) in Release. Debug keeps
+	// the relative pin against the constant-Where prepared command, whose per-call cost is Debug noise.
 	[Test]
 	public void ListScan_PooledParameterizedArgWhere_AllocatesLessThanEager_AndNothingAboveTheFilterFloor() {
 		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min)>()
@@ -135,7 +140,11 @@ public class PreparedQueryAllocationTests {
 
 		TestContext.Out.WriteLine($"list+arg-where: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op (constant-where floor {(double)floor / Iterations:F1} B/op)");
 		Assert.That(command, Is.LessThan(eager));
+#if DEBUG
 		Assert.That((double)(command - floor) / Iterations, Is.LessThan(8.0));
+#else
+		Assert.That((double)command / Iterations, Is.LessThan(8.0));
+#endif
 	}
 
 	// Two parameterized Wheres: the eager core ANDs them through a closure in both paths, so the pin
@@ -287,6 +296,39 @@ public class PreparedQueryAllocationTests {
 		var command = MeasureSettled(() => prepared.ExecutePooled(customer, 3, 8).Dispose());
 
 		TestContext.Out.WriteLine($"sort-bounded+join-one: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
+		Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+	}
+
+	// ── Or ────────────────────────────────────────────────────────────────────────
+
+	// The eager twin uses the state-passing Or overload with static lambdas, the zero-allocation eager
+	// spelling; the prepared branches read the same two groups from the execution arguments.
+	[Test]
+	public void Or_PooledParameterizedTwoListBranches_AllocatesNoMoreThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int g1, int g2)>()
+			.Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2))
+			.Build();
+		var state = (idx: _byGroup, g1: 13, g2: 41);
+
+		var eager = Measure(() => _cache.Query().Or(static (b, s) => b.UseIndex(s.idx, s.g1), static (b, s) => b.UseIndex(s.idx, s.g2), state).ExecutePooled().Dispose());
+		var command = Measure(() => prepared.ExecutePooled((state.g1, state.g2)).Dispose());
+
+		TestContext.Out.WriteLine($"or: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
+		Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+	}
+
+	[Test]
+	public void OrJoinOne_PooledParameterized_AllocatesNoMoreThanEager() {
+		var prepared = _orders.Prepare<int, PreparedQueryJoinDifferentialTests.PqOrder, (int c1, int c2)>()
+			.Or(b => b.UseIndex(_byCustomer, static a => a.c1), b => b.UseIndex(_byCustomer, static a => a.c2))
+			.JoinOne(_byCustomer, _customers)
+			.Build();
+		var state = (idx: _byCustomer, c1: 7, c2: 21);
+
+		var eager = MeasureSettled(() => _orders.Query().Or(static (b, s) => b.UseIndex(s.idx, s.c1), static (b, s) => b.UseIndex(s.idx, s.c2), state).JoinOne(_byCustomer, _customers).ExecutePooled().Dispose());
+		var command = MeasureSettled(() => prepared.ExecutePooled((state.c1, state.c2)).Dispose());
+
+		TestContext.Out.WriteLine($"or+join-one: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
 		Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
 	}
 }

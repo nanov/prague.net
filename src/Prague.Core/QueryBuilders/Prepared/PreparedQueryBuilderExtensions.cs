@@ -8,7 +8,11 @@ using TypeSystem;
 ///   builder whose left query carries one more <see cref="NarrowerLink{TPrev,TNarrower,TKey,TValue,TArgs}" />;
 ///   nothing touches the cache until <c>Build()</c> and then <c>Execute</c>. The builder type itself
 ///   is the ordinary <see cref="CacheQueryBuilderCombined{TDiscriminator,TLeftQuery,TLeftKey,TLeftValue,TResolverChain,TResult}" />,
-///   constructed here rather than modified, so joins reuse as-is.
+///   constructed here rather than modified, so joins reuse as-is. The narrowing overloads are generic
+///   over the discriminator (<see cref="IIndexNarrower" />, as the eager ones) so they bind both on the
+///   top-level <see cref="PreparedQueryDiscriminator{TCache}" /> and inside an <c>Or</c> branch
+///   (<see cref="PreparedNarrowOnly{TCache}" />); <c>Where</c> keeps the eager <see cref="IBaseFilterable" />
+///   gate, so a branch cannot filter.
 /// </summary>
 public static class PreparedQueryBuilderExtensions {
 	/// <summary>Starts a prepared query whose values are all bound at build time.</summary>
@@ -36,13 +40,14 @@ public static class PreparedQueryBuilderExtensions {
 
 	// Internal (not private) so the sibling range / last-updated extension classes append links the same way.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	internal static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, TNarrower, TKey, TValue, TArgs>>, TKey, TValue,
 			TResolverChain, TResult>
-		Link<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TNarrower>(
-			in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		Link<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TNarrower>(
+			in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			in TNarrower narrower)
+		where TDiscriminator : struct
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -57,14 +62,15 @@ public static class PreparedQueryBuilderExtensions {
 	}
 
 	/// <summary>Unique index equality, value bound now.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, UniqueIndexEq<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueIndex<TKey, TValue, TIndexKey> index,
 			TIndexKey value)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -73,14 +79,15 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new UniqueIndexEq<TKey, TValue, TIndexKey, TArgs>(index, value));
 
 	/// <summary>Unique index equality, value selected from the execution arguments (use a static lambda).</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueIndex<TKey, TValue, TIndexKey> index,
 			Func<TArgs, TIndexKey> selector)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -89,14 +96,15 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs>(index, selector));
 
 	/// <summary>List index equality, value bound now.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, ListIndexEq<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueListIndex<TKey, TValue, TIndexKey> index,
 			TIndexKey value)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -105,14 +113,15 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new ListIndexEq<TKey, TValue, TIndexKey, TArgs>(index, value));
 
 	/// <summary>List index equality, value selected from the execution arguments (use a static lambda).</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, ListIndexEqArg<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueListIndex<TKey, TValue, TIndexKey> index,
 			Func<TArgs, TIndexKey> selector)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -121,13 +130,14 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new ListIndexEqArg<TKey, TValue, TIndexKey, TArgs>(index, selector));
 
 	/// <summary>Value predicate bound now. Chained calls are ANDed in order, as in the eager builder.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, FilterNarrower<TKey, TValue, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		Where<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		Where<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			Predicate<TValue> predicate)
+		where TDiscriminator : struct, IBaseFilterable
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -140,13 +150,14 @@ public static class PreparedQueryBuilderExtensions {
 	///   pooled predicate box, never a closure. Overload resolution against the bound <c>Where</c> is by
 	///   lambda arity: <c>v =&gt; …</c> binds <see cref="Predicate{T}" />, <c>(v, a) =&gt; …</c> binds this.
 	/// </summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, FilterArgNarrower<TKey, TValue, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		Where<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		Where<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			Func<TValue, TArgs, bool> predicate)
+		where TDiscriminator : struct, IBaseFilterable
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -164,14 +175,15 @@ public static class PreparedQueryBuilderExtensions {
 	// overload exists so callers do not have to spell `.AsMemory()`; both feed the same narrower.
 
 	/// <summary>Unique index membership in a value set bound now. Empty set yields no rows, as in the eager span overload.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, UniqueIndexIn<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueIndex<TKey, TValue, TIndexKey> index,
 			ReadOnlyMemory<TIndexKey> values)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -180,14 +192,15 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new UniqueIndexIn<TKey, TValue, TIndexKey, TArgs>(index, values));
 
 	/// <summary>Unique index membership in an array of values bound now.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, UniqueIndexIn<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueIndex<TKey, TValue, TIndexKey> index,
 			TIndexKey[] values)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -196,14 +209,15 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new UniqueIndexIn<TKey, TValue, TIndexKey, TArgs>(index, values));
 
 	/// <summary>Unique index membership in a value set selected from the execution arguments (use a static lambda).</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, UniqueIndexInArg<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueIndex<TKey, TValue, TIndexKey> index,
 			Func<TArgs, ReadOnlyMemory<TIndexKey>> selector)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -212,14 +226,15 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new UniqueIndexInArg<TKey, TValue, TIndexKey, TArgs>(index, selector));
 
 	/// <summary>List index membership in a value set bound now. Empty set yields no rows, as in the eager span overload.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, ListIndexIn<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueListIndex<TKey, TValue, TIndexKey> index,
 			ReadOnlyMemory<TIndexKey> values)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -228,14 +243,15 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new ListIndexIn<TKey, TValue, TIndexKey, TArgs>(index, values));
 
 	/// <summary>List index membership in an array of values bound now.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, ListIndexIn<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueListIndex<TKey, TValue, TIndexKey> index,
 			TIndexKey[] values)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -244,14 +260,15 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new ListIndexIn<TKey, TValue, TIndexKey, TArgs>(index, values));
 
 	/// <summary>List index membership in a value set selected from the execution arguments (use a static lambda).</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, ListIndexInArg<TKey, TValue, TIndexKey, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueListIndex<TKey, TValue, TIndexKey> index,
 			Func<TArgs, ReadOnlyMemory<TIndexKey>> selector)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -260,15 +277,16 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new ListIndexInArg<TKey, TValue, TIndexKey, TArgs>(index, selector));
 
 	/// <summary>List index membership over bound foreign values, each projected to an index key by <paramref name="keySelector" /> at replay.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, ListIndexInProjected<TKey, TValue, TIndexKey, TOtherValue, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey, TOtherValue>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TIndexKey, TOtherValue>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeyValueListIndex<TKey, TValue, TIndexKey> index,
 			ReadOnlyMemory<TOtherValue> values,
 			Func<TOtherValue, TIndexKey> keySelector)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
@@ -277,13 +295,14 @@ public static class PreparedQueryBuilderExtensions {
 		=> Link(in builder, new ListIndexInProjected<TKey, TValue, TIndexKey, TOtherValue, TArgs>(index, values, keySelector));
 
 	/// <summary>Key-set (predicate) index.</summary>
-	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static CacheQueryBuilderCombined<TDiscriminator,
 			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, KeySetNarrower<TKey, TValue, TArgs>, TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
-		UseIndex<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
-			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+		UseIndex<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
+			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
 			CacheKeySetIndex<TKey, TValue> index)
+		where TDiscriminator : struct, IIndexNarrower
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
