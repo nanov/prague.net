@@ -750,3 +750,49 @@ Apple M4 Pro, .NET 9.0 (osx-arm64), `--inProcess`, default job, one category per
   the two bucket intersections eager runs today), the SortBounded feed (step 6) takes the survivors and
   the fused JoinOnes (step 5) fill only the page rows.
 
+
+## Lock vs lock-free (pipeline primitives) — `LockVsLockFreeBenchmarks`, `LockVsLockFreeConcurrencyBenchmarks`
+
+Question: would plain collections behind one lock per batch (`HashSet`/`List` bucket copied out under `lock`,
+`Dictionary` store read under `lock`) beat the lock-free machinery (`PooledSet` under a `ReaderGate` pin,
+`ConcurrentCacheStore`) for the frozen pipeline's seed → probe → `TryGet` pass? Apple M4 Pro, .NET 9, Release,
+`--inProcess`. Full tables: `BenchmarkDotNet.Artifacts/results/Prague.Benchmarks.LockVsLockFree*-report-github.md`.
+
+**S1 — single reader (BDN, seed 1k, probe bucket 300):**
+
+| Primitive | Lock-free | Locked (batch) | Locked (per call) |
+|---|---:|---:|---:|
+| Seed copy-out (1k) | 754 ns (`PooledSet` enumerate) | 759 ns `HashSet` / **37 ns `List`/array** | — |
+| Probe ×1k | 4,179 ns | 2,663 ns (0.64) | 4,536 ns (1.09) |
+| Composed pass | 5,443 ns | 4,420 ns `HashSet` (0.81) / 3,624 ns `List` (0.67) | — |
+
+**S2 — 8 readers, no writer** (aggregate passes/s, p50/p99 per pass):
+
+| Primitive | Lock-free | Locked (batch) |
+|---|---:|---:|
+| Seed copy `PooledSet` vs `HashSet`+`Lock` / `SpinLock` / `List`+`Lock` | 6.09M/s, p99 1.4 µs | 0.88M/s p99 178 µs / 1.29M/s p99 1.0 µs / 8.10M/s p99 6.3 µs |
+| Probe | 903k/s, p99 9.8 µs | 300k/s, p99 601 µs |
+| Store lookup | 1.84M/s, p99 7.3 µs | 152k/s, p99 1.5 ms |
+| Composed | **669k/s, p99 12.9 µs** | 318k/s p99 208 µs (`HashSet`) / 47k/s p99 3.3 ms (`List`) |
+
+**S3 — 8 readers + 1 writer at max rate** (reads/s, reader p99, writer ops/s):
+
+| Primitive | Lock-free | Locked (batch) |
+|---|---:|---:|
+| Seed copy | 1.26M/s, p99 7.3 µs, **writer 11.0M/s** | `List`: 871k/s, p99 85 µs, writer 148k/s; `HashSet`: 121k/s, p99 1.7 ms, writer 43k/s |
+| Probe | 95k/s, p99 342 µs, writer 3.06M/s | 47k/s, p99 78 µs, **writer 4.3k/s** |
+| Store lookup | 255k/s, p99 50 µs, writer 7.65M/s | 29k/s, p99 5.2 ms, writer 19k/s |
+| Composed | **69k/s, p99 827 µs, writer 2.77M/s** | 40k/s, p99 3.7 ms, **writer 6.7k/s** |
+
+**Reading.** Locks win only with a single reader (composed 0.67–0.81). With 8 readers the lock serializes the
+pass: throughput halves and p99 grows ~16×; with a writer present the writer is excluded on every reader batch
+and collapses by ~400× (2.77M → 6.7k ops/s). Against the bars (must win S1 AND lose S3 by < 10% reads /
+< 20% writer) the locked model fails S3 on both counts. **Decision: the lock-free model stays for
+one-writer / many-readers; no locks enter the pipeline.**
+
+Two things the experiment did teach: (1) a dense array copy is ~20× cheaper than `PooledSet` enumeration
+for the seed (37 vs 754 ns per 1k) — a bulk `CopyKeysTo(Span)` on `PooledSet` that reads `Tables` once and
+walks the slot array without per-slot volatile loads is a pipeline step-3 item; (2) reader p99 under a
+max-rate writer (827 µs on the composed pass, and `ConcurrentCacheStore` reads swinging 45k–325k/s) is the
+number the "one writer, many readers" acceptance run has to improve — bucket retirement and store lock
+striping are the suspects.
