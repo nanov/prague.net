@@ -38,6 +38,17 @@ Two plans, chosen by the caller (`IJoinResolver.AllowsBounded`, set by `SortBoun
 - Works inside `JoinOne` filter callbacks (paired core uses a hybrid: `IncrementalIntersecter` per-branch, `ValueSet` merge cross-branch — pairs dedup by `.Key`). Orchestrated by `IOrCapable` on both the unpaired and paired cores.
 - Canonical refs: README "OR Queries", `docs/superpowers/specs/2026-05-19-or-query-clause-design.md`.
 
+## Prepared queries — build once, execute on demand
+
+`src/Prague.Core/QueryBuilders/Prepared/`; design in `docs/superpowers/specs/2026-09-09-prepared-query-command-design.md`.
+
+- **Shape**: a recorder (`PreparedNarrowers<TKey,TValue,TArgs,TChain>`) sits in the left-query slot of the ordinary `CacheQueryBuilderCombined`; each `UseIndex` / `Where` / `Or` / `If` appends a `NarrowerLink` at the type level, joins and sorts append the usual resolvers, and `Build()` freezes it into a `PreparedQuery<TArgs,TResult>` (the one allocation). `Execute(in args)` copies the struct, replays the chain into a fresh eager core and runs the eager execution — parity is structural, pinned by `tests/Prague.Core.Tests/Prepared/` (194 differential / allocation / leak / concurrency tests).
+- **Discriminators**: `PreparedQueryDiscriminator<TCache>` (top level: narrow, filter, join, sort, `Build`; no `Execute*`), `PreparedNarrowOnly<TCache>` (`Or` branches: `UseIndex`, nested `Or`, narrow-only `If`), `PreparedConditionalBranch<TCache>` (`If`/`IfElse` branches: `UseIndex`, `Where`, `Or`, nested `If`). All are `ICacheCarrier<TCache>`.
+- **Carrier rule**: `TCache` is whatever `Prepare` was handed. `cache.Prepare()` / `Prepare<TArgs>()` on a raw `InMemoryDataCache` use the cache itself; the generated wrappers call `Cache.Prepare<XxxCache, TKey, TValue, TArgs>(this)` so `TCache = XxxCache`, which is what the generated `WithXxx` / `JoinWith{T}` constraints (`ICacheCarrier<XxxCache>`) bind on. `Build`, `Sort`, `SortBounded` are generic over `TCache` and read the cache from the recorder.
+- **Branch rule**: `Or` / `If` / `IfElse` seed their branch builders with the **enclosing** `TCache` and carrier value (`builder._discriminator.Cache`) and the enclosing recorder's cache, so generated narrowing extensions bind inside branches. C# does not infer a type argument from a constraint, so these verbs are overloaded per receiver discriminator (`PreparedQueryDiscriminator<TCache>` / `PreparedNarrowOnly<TCache>` / `PreparedConditionalBranch<TCache>`) and forward to one core each (`OrCore`, `IfCore`, `IfElseCore`; seeds in `PreparedBranchSeeds`).
+- **Parameters**: bound values, `Func<TArgs, T>` selectors (static lambdas), `Where(Func<TValue,TArgs,bool>)` through a per-thread pooled predicate box — zero allocation per execution, pinned relative to eager by `PreparedQueryAllocationTests` and `Prague.Generated.Tests/Prepared/PreparedGeneratedAllocationTests`.
+- Generated surface: [`generated.md`](generated.md) → "Prepared queries".
+
 ## Query-string API
 
 Codegen emits `TryApplyParam`, `ApplyFilter`, `StringQueryInternal` per cache (string-keyed dynamic filtering), all using the `ExecutableQuery<{cacheClassName}>` discriminator.

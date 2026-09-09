@@ -22,7 +22,7 @@ public static class PreparedQueryBuilderExtensions {
 		Prepare<TKey, TValue>(this InMemoryDataCache<TKey, TValue> cache)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		=> cache.Prepare<TKey, TValue, NoArgs>();
+		=> cache.Prepare<InMemoryDataCache<TKey, TValue>, TKey, TValue, NoArgs>(cache);
 
 	/// <summary>Starts a prepared query parameterized by <typeparamref name="TArgs" />, supplied on every execution.</summary>
 	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
@@ -31,7 +31,26 @@ public static class PreparedQueryBuilderExtensions {
 		Prepare<TKey, TValue, TArgs>(this InMemoryDataCache<TKey, TValue> cache)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		=> new(new PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>(cache),
+		=> cache.Prepare<InMemoryDataCache<TKey, TValue>, TKey, TValue, TArgs>(cache);
+
+	/// <summary>
+	///   Starts a prepared query over <paramref name="cache" /> whose discriminator carries
+	///   <paramref name="carrier" /> instead of the raw cache. This is the entry point the generated
+	///   <c>XxxCache.Prepare()</c> / <c>Prepare&lt;TArgs&gt;()</c> use, passing the wrapper as the carrier:
+	///   the generated <c>WithXxx</c> / <c>JoinWith{T}</c> extensions bind on
+	///   <see cref="ICacheCarrier{TCache}" /> of the wrapper type, exactly as the eager ones bind on
+	///   <see cref="ExecutableQuery{TCache}" />, which scopes them to that one cache. <c>Or</c> and <c>If</c>
+	///   branch builders inherit the same <typeparamref name="TCache" /> and carrier value, so the
+	///   generated narrowing extensions bind inside branches too. The raw-cache overloads pass the cache
+	///   itself as its own carrier.
+	/// </summary>
+	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
+			PreparedNarrowers<TKey, TValue, TArgs, EmptyNarrowers<TKey, TValue, TArgs>>, TKey, TValue,
+			Resolvers<BaseResolver<TKey, TValue>>, TValue>
+		Prepare<TCache, TKey, TValue, TArgs>(this InMemoryDataCache<TKey, TValue> cache, TCache carrier)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		=> new(new PreparedQueryDiscriminator<TCache>(carrier),
 			new PreparedNarrowers<TKey, TValue, TArgs, EmptyNarrowers<TKey, TValue, TArgs>>(cache, default),
 			new Resolvers<BaseResolver<TKey, TValue>>(new BaseResolver<TKey, TValue>()),
 			0);
@@ -313,10 +332,11 @@ public static class PreparedQueryBuilderExtensions {
 
 	/// <summary>
 	///   Freezes the description into a reusable command. The only allocation of a prepared query
-	///   happens here. Simple (no-join) shape: <c>TResult</c> is the cache value.
+	///   happens here. Simple (no-join) shape: <c>TResult</c> is the cache value. The terminals are
+	///   generic over the carrier type: they read the cache from the recorder, never from the discriminator.
 	/// </summary>
-	public static PreparedQuery<TArgs, TValue> Build<TKey, TValue, TArgs, TChain, TResolver>(
-		this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static PreparedQuery<TArgs, TValue> Build<TCache, TKey, TValue, TArgs, TChain, TResolver>(
+		this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
 			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, Resolvers<TResolver>, TValue> builder)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
@@ -342,8 +362,8 @@ public static class PreparedQueryBuilderExtensions {
 	///   step.
 	///   </para>
 	/// </remarks>
-	public static PreparedQuery<TArgs, TResult> Build<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
-		this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+	public static PreparedQuery<TArgs, TResult> Build<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
+		this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
 			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>

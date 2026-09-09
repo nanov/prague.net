@@ -7102,6 +7102,177 @@ public class CacheGenerator : IIncrementalGenerator {
 		}
 
 		sb.AppendLine("    }");
+
+		GeneratePreparedBuilderExtensions(sb, cacheClassName, indexedProperties, foreignKeyIndexes,
+			hasValueIndexProperties, hasNotValueIndexProperties, valueIndexProperties, noValueIndexProperties,
+			hasKeyProperty, keyPropertyName, keyPropertyAlreadyIndexed, hasGlobalKeyIndex, keyTypeName, documentTypeName);
+	}
+
+	/// <summary>
+	/// Emits the prepared-query twins of the eager With{Prop} / WithKey / UpdatedAfter extensions as a
+	/// sibling static class {CacheClassName}PreparedQueryExtensions. Each overload binds on a
+	/// CacheQueryBuilderCombined whose left query is the prepared recorder
+	/// (PreparedNarrowers&lt;TKey, TValue, TArgs, TChain&gt;) and forwards to the hand-written prepared
+	/// UseIndex overload for the wrapper's index field, so the return type grows the recorded chain by
+	/// one NarrowerLink. Scoping is the eager rule: TDiscriminator : IIndexNarrower, ICacheCarrier&lt;XxxCache&gt;,
+	/// which admits the top-level PreparedQueryDiscriminator&lt;XxxCache&gt; and the Or / If branch
+	/// discriminators (PreparedNarrowOnly / PreparedConditionalBranch over the same carrier) and rejects
+	/// every other cache's builder. Per index: bound value, Func&lt;TArgs, T&gt; selector, and — for
+	/// unique / many — ReadOnlyMemory&lt;T&gt;, T[] and Func&lt;TArgs, ReadOnlyMemory&lt;T&gt;&gt; multi-value
+	/// forms (the eager ReadOnlySpan / List forms have no recordable twin: a span cannot be stored and a
+	/// list would have to be copied); range: bound and (rb, args) builders; key-set: parameterless;
+	/// last-updated: long / DateTime / DateTimeOffset after and after-until plus Func&lt;TArgs, long&gt;
+	/// forms (the eager `out long max` forms are execution-time outputs with no home on a recorder).
+	/// FK JoinWith{T} / InnerJoinWith{T} need no twin: the eager emission binds on ICandidatesExecutor
+	/// only, which the recorder implements, and on IBaseJoinable + ICacheCarrier, which the top-level
+	/// prepared discriminator implements.
+	/// </summary>
+	private static void GeneratePreparedBuilderExtensions(
+		StringBuilder sb,
+		string cacheClassName,
+		List<(IPropertySymbol Property, AttributeData IndexAttribute, string IndexType, string IndexName, string? CustomIndexName)> indexedProperties,
+		List<(IPropertySymbol Property, string IndexType, string IndexName, bool IsSymmetric, INamedTypeSymbol? SelectorType, bool FkOnPk)> foreignKeyIndexes,
+		List<(IPropertySymbol Property, AttributeData Attribute, string IndexName)> hasValueIndexProperties,
+		List<(IPropertySymbol Property, AttributeData Attribute, string IndexName)> hasNotValueIndexProperties,
+		List<(IPropertySymbol Property, AttributeData Attribute, string IndexName, int Operation, object? Value, string ValueLiteral)> valueIndexProperties,
+		List<(IPropertySymbol Property, AttributeData Attribute, string IndexName, int Operation, object? Value, string ValueLiteral)> noValueIndexProperties,
+		bool hasKeyProperty,
+		string? keyPropertyName,
+		bool keyPropertyAlreadyIndexed,
+		bool hasGlobalKeyIndex,
+		string keyTypeName,
+		string documentTypeName)
+	{
+		var recorder = $"PreparedNarrowers<{keyTypeName}, {documentTypeName}, TArgs, TChain>";
+		var builderType = $"CacheQueryBuilderCombined<TDiscriminator, {recorder}, {keyTypeName}, {documentTypeName}, TResolverChain, TResult>";
+		var builderParam = $"this in {builderType} builder";
+		var genericParams = "TDiscriminator, TArgs, TChain, TResolverChain, TResult";
+		var constraints = $"where TDiscriminator : struct, Prague.Core.TypeSystem.IIndexNarrower, Prague.Core.TypeSystem.ICacheCarrier<{cacheClassName}>\n        where TChain : struct, INarrowerChain<{keyTypeName}, {documentTypeName}, TArgs>\n        where TResolverChain : struct, IResolvers";
+		var getDisc = $"{builderType}.GetDiscriminator(ref Unsafe.AsRef(in builder))";
+
+		string ReturnType(string narrower)
+			=> $"CacheQueryBuilderCombined<TDiscriminator, PreparedNarrowers<{keyTypeName}, {documentTypeName}, TArgs, NarrowerLink<TChain, {narrower}, {keyTypeName}, {documentTypeName}, TArgs>>, {keyTypeName}, {documentTypeName}, TResolverChain, TResult>";
+
+		string Narrower(string name, string indexKeyType)
+			=> $"{name}<{keyTypeName}, {documentTypeName}, {indexKeyType}, TArgs>";
+
+		void EmitForward(string summary, string returnType, string methodName, string extraGenericParams, string parameters, string extraConstraints, string useIndexArgs) {
+			sb.AppendLine();
+			sb.AppendLine($"        /// <summary>{summary}</summary>");
+			sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+			sb.AppendLine($"        public static {returnType}");
+			sb.AppendLine($"            {methodName}<{genericParams}{extraGenericParams}>({builderParam}{parameters})");
+			sb.AppendLine($"        {constraints}{extraConstraints}");
+			sb.AppendLine($"            => builder.UseIndex({useIndexArgs});");
+		}
+
+		sb.AppendLine();
+		sb.AppendLine($"    /// <summary>Prepared-query extension methods for {cacheClassName}: the build-once / execute-on-demand twins of the eager With… methods. Bind on <c>Prepare()</c> / <c>Prepare&lt;TArgs&gt;()</c> builders and inside their <c>Or</c> / <c>If</c> branches.</summary>");
+		sb.AppendLine($"    public static class {cacheClassName}PreparedQueryExtensions");
+		sb.AppendLine("    {");
+
+		// Helper: emit the prepared With family for one unique / many index (bound, selector, multi-value ×3).
+		void EmitWithMethods(string methodName, string indexAccess, string propertyType, bool isUnique) {
+			var eq = Narrower(isUnique ? "UniqueIndexEq" : "ListIndexEq", propertyType);
+			var eqArg = Narrower(isUnique ? "UniqueIndexEqArg" : "ListIndexEqArg", propertyType);
+			var @in = Narrower(isUnique ? "UniqueIndexIn" : "ListIndexIn", propertyType);
+			var inArg = Narrower(isUnique ? "UniqueIndexInArg" : "ListIndexInArg", propertyType);
+			var index = $"{getDisc}.Cache.{indexAccess}";
+
+			EmitForward($"{methodName}: value bound at build time.", ReturnType(eq), methodName, "",
+				$", {propertyType} value", "", $"{index}, value");
+			EmitForward($"{methodName}: value selected from the execution arguments (use a static lambda).", ReturnType(eqArg), methodName, "",
+				$", System.Func<TArgs, {propertyType}> selector", "", $"{index}, selector");
+			EmitForward($"{methodName}: membership in a value set bound at build time. An empty set yields no rows.", ReturnType(@in), methodName, "",
+				$", System.ReadOnlyMemory<{propertyType}> values", "", $"{index}, values");
+			EmitForward($"{methodName}: membership in an array of values bound at build time. An empty array yields no rows.", ReturnType(@in), methodName, "",
+				$", {propertyType}[] values", "", $"{index}, values");
+			EmitForward($"{methodName}: membership in a value set selected from the execution arguments (use a static lambda).", ReturnType(inArg), methodName, "",
+				$", System.Func<TArgs, System.ReadOnlyMemory<{propertyType}>> selector", "", $"{index}, selector");
+		}
+
+		void EmitKeySetMethod(string methodName, string indexName, string summary)
+			=> EmitForward(summary, ReturnType($"KeySetNarrower<{keyTypeName}, {documentTypeName}, TArgs>"), methodName, "", "", "", $"{getDisc}.Cache.{indexName}");
+
+		// Indexed properties
+		foreach (var indexed in indexedProperties) {
+			var prop = indexed.Property;
+			var indexType = indexed.IndexType;
+			var indexName = indexed.IndexName;
+			var propertyType = prop.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+			var methodName = $"With{indexed.CustomIndexName ?? prop.Name}";
+
+			if (indexType == "Many" && IsCollectionType(prop.Type, out var withElementType)) {
+				// Collection Many: query by a single ELEMENT against the symmetric index's forward half.
+				EmitWithMethods(methodName, $"{indexName}.Forward",
+					withElementType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), isUnique: false);
+			} else if (indexType == "Unique" || indexType == "Many") {
+				EmitWithMethods(methodName, indexName, propertyType, indexType == "Unique");
+			} else if (indexType == "Range") {
+				var rangeConstraint = $"\n        where TQueryBuilder : struct, IRangeQueryBuilder<{propertyType}>";
+				EmitForward($"{methodName}: range bounds fixed at build time, e.g. <c>rb =&gt; rb.Gte(10).Lt(20)</c>.",
+					ReturnType($"RangeNarrower<{keyTypeName}, {documentTypeName}, {propertyType}, TQueryBuilder, TArgs>"), methodName, ", TQueryBuilder",
+					$", System.Func<RangeQueryBuilder<{propertyType}>, TQueryBuilder> rangeBuilder", rangeConstraint,
+					$"{getDisc}.Cache.{indexName}, rangeBuilder");
+				EmitForward($"{methodName}: range bounds taken from the execution arguments, <c>(rb, args) =&gt; rb.Gte(args.Min)</c> (use a static lambda).",
+					ReturnType($"RangeArgNarrower<{keyTypeName}, {documentTypeName}, {propertyType}, TQueryBuilder, TArgs>"), methodName, ", TQueryBuilder",
+					$", System.Func<RangeQueryBuilder<{propertyType}>, TArgs, TQueryBuilder> rangeBuilder", rangeConstraint,
+					$"{getDisc}.Cache.{indexName}, rangeBuilder");
+			}
+		}
+
+		// Foreign key indexes (keyed by the FK property's raw type, usable as a plain filter — as eager).
+		foreach (var fkIndex in foreignKeyIndexes) {
+			if (fkIndex.IndexType != "Unique" && fkIndex.IndexType != "Many")
+				continue;
+			var propertyType = fkIndex.Property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+			EmitWithMethods($"With{fkIndex.Property.Name}", fkIndex.IndexName, propertyType, fkIndex.IndexType == "Unique");
+		}
+
+		// Key-set indexes: has-value / has-not-value / value / no-value
+		foreach (var hvIndex in hasValueIndexProperties)
+			EmitKeySetMethod($"With{hvIndex.Property.Name}", hvIndex.IndexName, $"Filters to only include items where {hvIndex.Property.Name} has a value.");
+		foreach (var hvnIndex in hasNotValueIndexProperties)
+			EmitKeySetMethod($"Without{hvnIndex.Property.Name}", hvnIndex.IndexName, $"Filters to only include items where {hvnIndex.Property.Name} is null.");
+		foreach (var vIndex in valueIndexProperties) {
+			var vMethodName = vIndex.IndexName.EndsWith("Index")
+				? $"With{vIndex.IndexName.Substring(0, vIndex.IndexName.Length - 5)}"
+				: $"With{vIndex.IndexName}";
+			EmitKeySetMethod(vMethodName, vIndex.IndexName, $"Filters to the items in the {vIndex.IndexName} key set.");
+		}
+		foreach (var nvIndex in noValueIndexProperties) {
+			var nvMethodName = nvIndex.IndexName.EndsWith("Index")
+				? $"With{nvIndex.IndexName.Substring(0, nvIndex.IndexName.Length - 5)}"
+				: $"With{nvIndex.IndexName}";
+			EmitKeySetMethod(nvMethodName, nvIndex.IndexName, $"Filters to the items in the {nvIndex.IndexName} key set.");
+		}
+
+		// WithKey methods (primary key index is a CacheKeyValueIndex → unique narrowers)
+		if (!hasKeyProperty)
+			EmitWithMethods("WithKey", "Cache.KeyIndex", keyTypeName, isUnique: true);
+		if (keyPropertyName != null && keyPropertyName != "Key" && !keyPropertyAlreadyIndexed)
+			EmitWithMethods($"With{keyPropertyName}", "Cache.KeyIndex", keyTypeName, isUnique: true);
+
+		// UpdatedAfter methods over the key's unfiltered global last-update index
+		if (hasGlobalKeyIndex) {
+			var index = $"{getDisc}.Cache._keyGlobalIndex!";
+			foreach (var (timeType, label) in new[] { ("long", "unix ms"), ("System.DateTime", "DateTime"), ("System.DateTimeOffset", "DateTimeOffset") }) {
+				EmitForward($"Rows updated strictly after <paramref name=\"updatedAfter\" /> ({label}), bound at build time.",
+					ReturnType($"GlobalLastUpdatedAfter<{keyTypeName}, {documentTypeName}, {timeType}, TArgs>"), "UpdatedAfter", "",
+					$", {timeType} updatedAfter", "", $"{index}, updatedAfter");
+				EmitForward($"Rows updated after <paramref name=\"updatedAfter\" /> up to and including <paramref name=\"updatedUntilInclusive\" /> ({label}), bound at build time.",
+					ReturnType($"GlobalLastUpdatedBetween<{keyTypeName}, {documentTypeName}, {timeType}, TArgs>"), "UpdatedAfter", "",
+					$", {timeType} updatedAfter, {timeType} updatedUntilInclusive", "", $"{index}, updatedAfter, updatedUntilInclusive");
+			}
+			EmitForward("Rows updated strictly after a unix-ms instant selected from the execution arguments (use a static lambda).",
+				ReturnType($"GlobalLastUpdatedAfterArg<{keyTypeName}, {documentTypeName}, TArgs>"), "UpdatedAfter", "",
+				", System.Func<TArgs, long> updatedAfter", "", $"{index}, updatedAfter");
+			EmitForward("Rows updated within a unix-ms window (exclusive start, inclusive end) selected from the execution arguments (use static lambdas).",
+				ReturnType($"GlobalLastUpdatedBetweenArg<{keyTypeName}, {documentTypeName}, TArgs>"), "UpdatedAfter", "",
+				", System.Func<TArgs, long> updatedAfter, System.Func<TArgs, long> updatedUntilInclusive", "", $"{index}, updatedAfter, updatedUntilInclusive");
+		}
+
+		sb.AppendLine("    }");
 	}
 
 	/// <summary>
@@ -7397,6 +7568,23 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine($"                new CacheQueryBuilderCoreCombined<{keyTypeName}, {documentTypeName}>(Cache),");
 		sb.AppendLine($"                new Resolvers<BaseResolver<{keyTypeName}, {documentTypeName}>>(new BaseResolver<{keyTypeName}, {documentTypeName}>()),");
 		sb.AppendLine("                0);");
+
+		// Prepare() / Prepare<TArgs>(): the build-once / execute-on-demand builder. The discriminator carries
+		// THIS wrapper (not the raw InMemoryDataCache), so the generated prepared WithXxx / JoinWith{T}
+		// extensions — scoped by ICacheCarrier<{cacheClassName}> exactly like the eager ones — bind on it,
+		// and on the Or / If branch builders that inherit the same carrier.
+		string PreparedBuilderType(string args)
+			=> $"CacheQueryBuilderCombined<Prague.Core.TypeSystem.PreparedQueryDiscriminator<{cacheClassName}>, PreparedNarrowers<{keyTypeName}, {documentTypeName}, {args}, EmptyNarrowers<{keyTypeName}, {documentTypeName}, {args}>>, {keyTypeName}, {documentTypeName}, Resolvers<BaseResolver<{keyTypeName}, {documentTypeName}>>, {documentTypeName}>";
+		sb.AppendLine();
+		sb.AppendLine("        /// <summary>Starts a prepared (build-once / execute-on-demand) query whose values are all bound at build time. Terminal is <c>Build()</c>.</summary>");
+		sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+		sb.AppendLine($"        public {PreparedBuilderType("NoArgs")} Prepare() =>");
+		sb.AppendLine($"            Cache.Prepare<{cacheClassName}, {keyTypeName}, {documentTypeName}, NoArgs>(this);");
+		sb.AppendLine();
+		sb.AppendLine("        /// <summary>Starts a prepared query parameterized by <typeparamref name=\"TArgs\" />, supplied on every execution. Terminal is <c>Build()</c>.</summary>");
+		sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+		sb.AppendLine($"        public {PreparedBuilderType("TArgs")} Prepare<TArgs>() =>");
+		sb.AppendLine($"            Cache.Prepare<{cacheClassName}, {keyTypeName}, {documentTypeName}, TArgs>(this);");
 	}
 
 	/// <summary>
