@@ -119,18 +119,30 @@ internal sealed class PreparedSimpleQuery<TKey, TValue, TArgs, TChain, TResolver
 
 	// Both the unsorted and the sorted eager Count terminals route to CountCoreSimple, which is the
 	// core's Count(): a sorter never changes how many rows match.
+	// The predicate-pool mark/reset brackets the whole execution, not just the replay: the core
+	// applies its filter while counting / executing, so a rented arg-predicate must outlive replay.
 	public override int Count(in TArgs args) {
-		var core = Replay(in args);
-		return core.Count();
+		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
+		try {
+			var core = Replay(in args);
+			return core.Count();
+		} finally {
+			ArgPredicatePool<TValue, TArgs>.Reset(mark);
+		}
 	}
 
 	private QueryResults<TValue> Run(in TArgs args, bool pool, bool clone, int skip, int take) {
-		// The eager path's Query() also copies the core into the combined builder; the copy inside
-		// `builder` is the one executed and disposed, `core` is not touched again.
-		var builder = new CacheQueryBuilderCombined<ExecutableQuery<InMemoryDataCache<TKey, TValue>>,
-			CacheQueryBuilderCoreCombined<TKey, TValue>, TKey, TValue, Resolvers<TResolver>, TValue>(
-			new ExecutableQuery<InMemoryDataCache<TKey, TValue>>(_cache), Replay(in args), _resolvers, 0);
-		return TPlan.Execute(ref builder, pool, clone, skip, take);
+		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
+		try {
+			// The eager path's Query() also copies the core into the combined builder; the copy inside
+			// `builder` is the one executed and disposed, `core` is not touched again.
+			var builder = new CacheQueryBuilderCombined<ExecutableQuery<InMemoryDataCache<TKey, TValue>>,
+				CacheQueryBuilderCoreCombined<TKey, TValue>, TKey, TValue, Resolvers<TResolver>, TValue>(
+				new ExecutableQuery<InMemoryDataCache<TKey, TValue>>(_cache), Replay(in args), _resolvers, 0);
+			return TPlan.Execute(ref builder, pool, clone, skip, take);
+		} finally {
+			ArgPredicatePool<TValue, TArgs>.Reset(mark);
+		}
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

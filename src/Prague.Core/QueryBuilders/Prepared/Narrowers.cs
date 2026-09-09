@@ -181,9 +181,8 @@ public readonly struct KeySetNarrower<TKey, TValue, TArgs> : INarrower<TKey, TVa
 }
 
 /// <summary>
-///   Value predicate bound at build time. Deliberately not parameterized: the eager core's filter slot
-///   is a <see cref="Predicate{T}" />, and binding <c>args</c> into one would allocate a closure per
-///   execution. Parameterized filtering goes through indexes until the core grows a struct filter slot.
+///   Value predicate bound at build time; replays through the eager <c>WhereInternal</c> unchanged.
+///   For a predicate over the execution arguments see <see cref="FilterArgNarrower{TKey,TValue,TArgs}" />.
 /// </summary>
 public readonly struct FilterNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey> {
@@ -194,4 +193,23 @@ public readonly struct FilterNarrower<TKey, TValue, TArgs> : INarrower<TKey, TVa
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
 		=> core.WhereInternal(_predicate);
+}
+
+/// <summary>
+///   Value predicate over the row and the execution arguments. The eager core's filter slot is a
+///   <see cref="Predicate{T}" />, so <c>args</c> has to be bound into one per execution; binding it
+///   through a closure would allocate on every run. Instead the narrower rents a per-thread pooled
+///   <see cref="ArgPredicate{TValue,TArgs}" /> box whose predicate was created once, so an execution
+///   costs one extra delegate hop and no allocation. The box stays bound until the owning execution
+///   resets the pool, which is after the core has finished executing (see <see cref="ArgPredicatePool{TValue,TArgs}" />).
+/// </summary>
+public readonly struct FilterArgNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
+	where TKey : notnull, IEquatable<TKey> {
+	private readonly Func<TValue, TArgs, bool> _predicate;
+
+	public FilterArgNarrower(Func<TValue, TArgs, bool> predicate) => _predicate = predicate;
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesFilterer<TKey, TValue>
+		=> core.WhereInternal(ArgPredicatePool<TValue, TArgs>.Rent(_predicate, in args));
 }

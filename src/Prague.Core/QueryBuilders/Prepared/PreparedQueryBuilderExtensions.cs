@@ -134,6 +134,25 @@ public static class PreparedQueryBuilderExtensions {
 		where TResolverChain : struct, IResolvers
 		=> Link(in builder, new FilterNarrower<TKey, TValue, TArgs>(predicate));
 
+	/// <summary>
+	///   Value predicate over the row and the execution arguments (use a static lambda), ANDed in order
+	///   with the other filters. Zero-allocation per execution: <c>args</c> is bound into a per-thread
+	///   pooled predicate box, never a closure. Overload resolution against the bound <c>Where</c> is by
+	///   lambda arity: <c>v =&gt; …</c> binds <see cref="Predicate{T}" />, <c>(v, a) =&gt; …</c> binds this.
+	/// </summary>
+	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, FilterArgNarrower<TKey, TValue, TArgs>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		Where<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
+			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<InMemoryDataCache<TKey, TValue>>,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			Func<TValue, TArgs, bool> predicate)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		=> Link(in builder, new FilterArgNarrower<TKey, TValue, TArgs>(predicate));
+
 	// ── Multi-value ──────────────────────────────────────────────────────────────
 	//
 	// Overload resolution note. The multi-value overloads share the name UseIndex with the

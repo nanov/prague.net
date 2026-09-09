@@ -107,6 +107,55 @@ public class PreparedQueryAllocationTests {
 		Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
 	}
 
+	// Parameterized Where. The eager twin is what a caller writes: a method taking the per-call
+	// argument and a lambda capturing it — Roslyn hoists the capture into a display class allocated
+	// per call and creates the delegate per call. The prepared command binds the argument into a
+	// per-thread pooled predicate box instead, so its only cost is the eager core's own floor for any
+	// filter: WhereInternal's `&&` composition closure captures `currentFilter`, and the compiler
+	// allocates that display class at method entry even on the no-composition branch (32 B in
+	// Release). Pinned both ways: strictly below eager, and nothing above the core's constant-Where floor.
+	[Test]
+	public void ListScan_PooledParameterizedArgWhere_AllocatesLessThanEager_AndNothingAboveTheFilterFloor() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min)>()
+			.UseIndex(_byGroup, static a => a.group)
+			.Where(static (v, a) => v.Id >= a.min)
+			.Build();
+		var floorPrepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, int>()
+			.UseIndex(_byGroup, static g => g)
+			.Where(static v => v.Id >= 2_000)
+			.Build();
+		var args = (group: 13, min: 2_000);
+
+		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((int group, int min) a)
+			=> _cache.Query().UseIndex(_byGroup, a.group).Where(v => v.Id >= a.min).ExecutePooled();
+
+		var eager = Measure(() => Eager(args).Dispose());
+		var floor = Measure(() => floorPrepared.ExecutePooled(args.group).Dispose());
+		var command = Measure(() => prepared.ExecutePooled(args).Dispose());
+
+		TestContext.Out.WriteLine($"list+arg-where: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op (constant-where floor {(double)floor / Iterations:F1} B/op)");
+		Assert.That(command, Is.LessThan(eager));
+		Assert.That((double)(command - floor) / Iterations, Is.LessThan(8.0));
+	}
+
+	// Two parameterized Wheres: the eager core ANDs them through a closure in both paths, so the pin
+	// is relative only.
+	[Test]
+	public void ListScan_PooledTwoParameterizedArgWheres_AllocatesNoMoreThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min, int max)>()
+			.UseIndex(_byGroup, static a => a.group)
+			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, a) => v.Id <= a.max)
+			.Build();
+		var args = (group: 13, min: 1_000, max: 4_000);
+
+		var eager = Measure(() => _cache.Query().UseIndex(_byGroup, args.group).Where(v => v.Id >= args.min).Where(v => v.Id <= args.max).ExecutePooled().Dispose());
+		var command = Measure(() => prepared.ExecutePooled(args).Dispose());
+
+		TestContext.Out.WriteLine($"list+2x arg-where: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
+		Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+	}
+
 	[Test]
 	public void Count_Parameterized_AllocatesNoMoreThanEager() {
 		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, int>().UseIndex(_byGroup, static g => g).Build();

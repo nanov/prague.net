@@ -130,6 +130,14 @@ filter is a `Predicate<TValue>`; a `Func<TValue, TArgs, bool>` becomes one only 
    (`TFilter : struct, IValueFilter<TValue>`), which also removes today's `&&` closure allocation
    in `WhereInternal`. Invasive in `CacheQueryBuilderCoreCombined`, so a separate PR.
 
+**Chosen:** a third way that keeps the core's `Predicate<TValue>` slot untouched. `Where(Func<TValue,
+TArgs, bool>)` records a `FilterArgNarrower`; at replay it rents a per-thread pooled `ArgPredicate`
+box (`[ThreadStatic]` stack in `ArgPredicatePool<TValue, TArgs>`) whose `Predicate<TValue>` was created
+once and reads `func`/`args` off the box, so binding is two field writes and no allocation. The
+execution takes a mark before replay and resets to it in a `finally` after `Execute`/`Count` (the core
+applies the filter during execution, not replay); stack discipline makes it re-entrancy-safe and
+thread-static storage makes it thread-safe. Option 2 remains the way to remove the eager `&&` closure.
+
 ## 4. Storing the command: the type-name problem
 
 The built type is unnameable in user code (`CacheQueryBuilderCombined<ExecutableQuery<…>,

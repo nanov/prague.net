@@ -93,14 +93,27 @@ internal sealed class PreparedJoinedQuery<TKey, TValue, TArgs, TChain, TResolver
 
 	// Both the unsorted and the sorted eager joined Count terminals route to CountCoreJoined, which
 	// runs the indexed-inner narrowing so inner joins count matched lefts only.
+	// The predicate-pool mark/reset brackets the whole execution, as in the simple shape: an inner
+	// join's PrepareIndexedInner reads the filtered candidates before base execution, and the base
+	// execution applies the filter again, so a rented arg-predicate must outlive replay.
 	public override int Count(in TArgs args) {
-		var builder = Wrap(in args);
-		return builder.CountCoreJoined<TResult>();
+		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
+		try {
+			var builder = Wrap(in args);
+			return builder.CountCoreJoined<TResult>();
+		} finally {
+			ArgPredicatePool<TValue, TArgs>.Reset(mark);
+		}
 	}
 
 	private QueryResults<TResult> Run(in TArgs args, bool pool, bool clone, int skip, int take) {
-		var builder = Wrap(in args);
-		return TPlan.Execute(ref builder, pool, clone, skip, take);
+		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
+		try {
+			var builder = Wrap(in args);
+			return TPlan.Execute(ref builder, pool, clone, skip, take);
+		} finally {
+			ArgPredicatePool<TValue, TArgs>.Reset(mark);
+		}
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
