@@ -4,28 +4,28 @@
       "env": {
         "cpu": "github-ubuntu",
         "os": "Ubuntu 24.04.4 LTS",
-        "dotnet": ".NET 9.0.18",
+        "dotnet": ".NET 9.0.20",
         "coreCount": 4
       },
-      "commit": "81013b8",
-      "timestampUtc": "2026-07-21T19:03:56.5613432Z",
+      "commit": "9cc7406",
+      "timestampUtc": "2026-09-09T07:56:54.8974551Z",
       "metrics": [
         {
           "id": "ingest.throughput",
           "unit": "ent/s",
-          "value": 3733693.9848366813,
+          "value": 3850489.928216339,
           "higherIsBetter": true
         },
         {
           "id": "ingest.alloc",
           "unit": "bytes",
-          "value": 254.13145454545455,
+          "value": 196.31990909090908,
           "higherIsBetter": false
         },
         {
           "id": "query.uniqueLookup.p50",
           "unit": "ns",
-          "value": 383.69053840637207,
+          "value": 374.41430033956254,
           "higherIsBetter": false
         },
         {
@@ -37,7 +37,7 @@
         {
           "id": "query.rangeScan.p50",
           "unit": "ns",
-          "value": 6040.719413757324,
+          "value": 6046.4450541178385,
           "higherIsBetter": false
         },
         {
@@ -49,7 +49,7 @@
         {
           "id": "query.joinOne.p50",
           "unit": "ns",
-          "value": 19709.362754821777,
+          "value": 19363.21578572591,
           "higherIsBetter": false
         },
         {
@@ -61,7 +61,7 @@
         {
           "id": "query.joinMany.p50",
           "unit": "ns",
-          "value": 349655.6329101563,
+          "value": 290713.5605143229,
           "higherIsBetter": false
         },
         {
@@ -73,13 +73,13 @@
         {
           "id": "query.multiJoin.p50",
           "unit": "ns",
-          "value": 368968.39404296875,
+          "value": 307464.5789713542,
           "higherIsBetter": false
         },
         {
           "id": "query.multiJoin.alloc",
           "unit": "bytes",
-          "value": 67,
+          "value": 68,
           "higherIsBetter": false
         }
       ]
@@ -88,34 +88,34 @@
       "env": {
         "cpu": "github-ubuntu",
         "os": "Ubuntu 24.04.4 LTS",
-        "dotnet": ".NET 9.0.18",
+        "dotnet": ".NET 9.0.20",
         "coreCount": 4
       },
-      "commit": "81013b8",
-      "timestampUtc": "2026-07-21T19:07:53.1122117Z",
+      "commit": "9cc7406",
+      "timestampUtc": "2026-09-09T08:02:06.8736279Z",
       "metrics": [
         {
           "id": "ingest.throughput",
           "unit": "ent/s",
-          "value": 953627.6864125393,
+          "value": 1023550.9774911834,
           "higherIsBetter": true
         },
         {
           "id": "query.multiJoin.p50",
           "unit": "ns",
-          "value": 386031,
+          "value": 301855,
           "higherIsBetter": false
         },
         {
           "id": "query.multiJoin.p99",
           "unit": "ns",
-          "value": 825919,
+          "value": 668031,
           "higherIsBetter": false
         },
         {
           "id": "query.multiJoin.p999",
           "unit": "ns",
-          "value": 1105727,
+          "value": 803935,
           "higherIsBetter": false
         }
       ]
@@ -124,34 +124,112 @@
       "env": {
         "cpu": "github-ubuntu",
         "os": "Ubuntu 24.04.4 LTS",
-        "dotnet": ".NET 9.0.18",
+        "dotnet": ".NET 9.0.20",
         "coreCount": 4
       },
-      "commit": "81013b8",
-      "timestampUtc": "2026-07-21T19:08:27.1558101Z",
+      "commit": "9cc7406",
+      "timestampUtc": "2026-09-09T08:02:40.5488495Z",
       "metrics": [
         {
           "id": "read.throughput",
           "unit": "reads/s",
-          "value": 1798093.1813540072,
+          "value": 2139853.2967448845,
           "higherIsBetter": true
         },
         {
           "id": "query.multiJoin.p50",
           "unit": "ns",
-          "value": 581535,
+          "value": 500159,
           "higherIsBetter": false
         },
         {
           "id": "query.multiJoin.p99",
           "unit": "ns",
-          "value": 13113343,
+          "value": 12929023,
           "higherIsBetter": false
         },
         {
           "id": "query.multiJoin.p999",
           "unit": "ns",
-          "value": 15152639,
+          "value": 13999103,
+          "higherIsBetter": false
+        }
+      ]
+    },
+    "core-sort": {
+      "env": {
+        "cpu": "github-ubuntu",
+        "os": "Ubuntu 24.04.4 LTS",
+        "dotnet": ".NET 9.0.20",
+        "coreCount": 4
+      },
+      "commit": "9cc7406",
+      "timestampUtc": "2026-09-09T07:58:55.2671478Z",
+      "metrics": [
+        {
+          "id": "query.sortDistinct.p50",
+          "unit": "ns",
+          "value": 29388.372382027763,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortDistinct.alloc",
+          "unit": "bytes",
+          "value": 88,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortTied.p50",
+          "unit": "ns",
+          "value": 17656.15022277832,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortTied.alloc",
+          "unit": "bytes",
+          "value": 88,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortTiedJoined.p50",
+          "unit": "ns",
+          "value": 709963.1485026042,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortTiedJoinedBoundedPage.p50",
+          "unit": "ns",
+          "value": 717410.2061244419,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortTiedLeftThenJoinClassic.p50",
+          "unit": "ns",
+          "value": 161640.36605398994,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortTiedLeftThenJoinBounded.p50",
+          "unit": "ns",
+          "value": 34261.73934500558,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortBoundedPage.p50",
+          "unit": "ns",
+          "value": 9236.274196331318,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortBoundedPage.alloc",
+          "unit": "bytes",
+          "value": 0,
+          "higherIsBetter": false
+        },
+        {
+          "id": "query.sortBoundedFullPage.p50",
+          "unit": "ns",
+          "value": 52270.27498953683,
           "higherIsBetter": false
         }
       ]
