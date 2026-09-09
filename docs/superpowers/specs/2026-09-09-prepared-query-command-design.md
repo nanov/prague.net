@@ -211,6 +211,8 @@ and `Build()` is only reachable on `IExecutableQuery`.
 > **Progress:** step 1 landed on `poc/prepared-query` — `src/Prague.Core/QueryBuilders/Prepared/` (recorder, narrowers for unique/list equality bound and parameterized, constant `Where`, `Prepare()`/`Prepare<TArgs>()`, `Build()`, simple execute/count) plus `tests/Prague.Core.Tests/Prepared/` (differential, reuse, leak, concurrency, allocation parity). No existing file was edited.
 >
 > Step 4 (`Or`) landed: `PreparedNarrowOnly<TCache>` branch discriminator, `OrNarrower` + `PreparedOrBranch` replaying the recorded sub-chains through the eager core's `OrWith`, narrowing overloads generalized over `TDiscriminator : IIndexNarrower`; `INarrower.Apply` / `INarrowerChain.Replay` now also require `IOrCapable<TKey,TValue,TCore>` on the core. Differential tests in `PreparedQueryOrDifferentialTests`.
+>
+> `If` / `IfElse` (prepared-only conditional narrowing) landed: `PreparedConditionalBranch<TCache>` branch discriminator (`IBaseFilterable`, so `UseIndex`/`Where`/`Or`/nested `If` bind, joins/sort/`Build` do not), `IfNarrower` / `IfElseNarrower` replaying a frozen sub-chain only when `condition(args)` holds, a narrow-only overload family for `If` inside an `Or` branch, and the last-updated overloads relaxed to `TDiscriminator : IIndexNarrower`. Differential tests in `PreparedQueryIfDifferentialTests`.
 
 1. `NarrowerChain` + `INarrower` + `IndexEq`/`IndexEqArg`/`Filter` + `PreparedQuery<TArgs,TResult>`
    + `cache.Prepare()` on the raw cache + `Build()` + `Execute/ExecutePooled/Count` for the

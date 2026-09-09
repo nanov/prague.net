@@ -331,4 +331,81 @@ public class PreparedQueryAllocationTests {
 		TestContext.Out.WriteLine($"or+join-one: eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
 		Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
 	}
+
+	// ── If / IfElse ───────────────────────────────────────────────────────────────
+
+	// The eager twin is what a caller writes: a method taking the per-call arguments and a C# `if`
+	// around a type-preserving UseIndex reassignment. Measured for both outcomes: the taken branch does
+	// the eager work of the extra narrowing; the skipped one costs one delegate call.
+	[Test]
+	public void If_PooledParameterized_TakenAndSkipped_AllocatesNoMoreThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (bool cond, int group, int code)>()
+			.UseIndex(_byGroup, static a => a.group)
+			.If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code))
+			.Build();
+
+		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((bool cond, int group, int code) a) {
+			var q = _cache.Query().UseIndex(_byGroup, a.group);
+			if (a.cond) q = q.UseIndex(_byCode, a.code);
+			return q.ExecutePooled();
+		}
+
+		foreach (var cond in new[] { true, false }) {
+			var args = (cond, group: 13, code: 1013 + 97 * 4);
+			var eager = Measure(() => Eager(args).Dispose());
+			var command = Measure(() => prepared.ExecutePooled(args).Dispose());
+
+			TestContext.Out.WriteLine($"if ({(cond ? "taken" : "skipped")}): eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
+			Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+		}
+	}
+
+	[Test]
+	public void IfElse_PooledParameterized_BothOutcomes_AllocatesNoMoreThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (bool cond, int group, int code)>()
+			.IfElse(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.group), b => b.UseIndex(_byCode, static a => a.code))
+			.Build();
+
+		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((bool cond, int group, int code) a) {
+			var q = _cache.Query();
+			if (a.cond) q = q.UseIndex(_byGroup, a.group);
+			else q = q.UseIndex(_byCode, a.code);
+			return q.ExecutePooled();
+		}
+
+		foreach (var cond in new[] { true, false }) {
+			var args = (cond, group: 13, code: 1042);
+			var eager = Measure(() => Eager(args).Dispose());
+			var command = Measure(() => prepared.ExecutePooled(args).Dispose());
+
+			TestContext.Out.WriteLine($"if-else ({(cond ? "then" : "else")}): eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
+			Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+		}
+	}
+
+	// Parameterized Where inside the branch: the eager twin's capturing lambda allocates a display
+	// class and delegate per call when taken; the prepared side binds the arguments into the pooled
+	// predicate box, so it stays at or below the eager cost for both outcomes.
+	[Test]
+	public void If_PooledParameterizedWhereInsideTheBranch_TakenAndSkipped_AllocatesNoMoreThanEager() {
+		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (bool cond, int group, int min)>()
+			.UseIndex(_byGroup, static a => a.group)
+			.If(static a => a.cond, b => b.Where(static (v, a) => v.Id >= a.min))
+			.Build();
+
+		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((bool cond, int group, int min) a) {
+			var q = _cache.Query().UseIndex(_byGroup, a.group);
+			if (a.cond) q = q.Where(v => v.Id >= a.min);
+			return q.ExecutePooled();
+		}
+
+		foreach (var cond in new[] { true, false }) {
+			var args = (cond, group: 13, min: 2_000);
+			var eager = Measure(() => Eager(args).Dispose());
+			var command = Measure(() => prepared.ExecutePooled(args).Dispose());
+
+			TestContext.Out.WriteLine($"if+arg-where ({(cond ? "taken" : "skipped")}): eager {(double)eager / Iterations:F1} B/op, prepared {(double)command / Iterations:F1} B/op");
+			Assert.That(command, Is.LessThanOrEqualTo(eager + Iterations / 100));
+		}
+	}
 }
