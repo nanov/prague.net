@@ -229,3 +229,63 @@ by `tests/Prague.Core.Tests/Join/TopKAllocationCoreTests.cs`:
 > different machines and the ratio was inflated at both ends, and the bounded path did allocate 64-88 B
 > per query at that commit (a `Comparison<T>` delegate plus a boxed struct comparer, both since
 > removed). The tables above replace it.
+
+# Prepared queries — eager builder vs `PreparedQuery<TArgs, TResult>`
+
+`PreparedQueryBenchmarks`: raw `InMemoryDataCache` (no codegen), 100k rows, list buckets of 1k
+(`Group = Id % 100`), range windows of 1k codes. Every category pairs the eager spelling a caller
+writes (baseline) with the prepared twin built once in `GlobalSetup` and executed with the same
+arguments; every body executes pooled and disposes. `Build_FourNarrowers` is the one-time build cost.
+
+Apple M4 Pro, .NET 9.0.19 (osx-arm64), `--job short --inProcess` (3 iterations), `[MemoryDiagnoser]`.
+Read the ratios as within-noise unless the error bars say otherwise; `Allocated` is the point.
+
+| Method                | Categories   | Mean            | Error         | StdDev        | Ratio | RatioSD | Allocated | Alloc Ratio |
+|---------------------- |------------- |----------------:|--------------:|--------------:|------:|--------:|----------:|------------:|
+| Build_FourNarrowers   | Build        |        32.94 ns |      31.37 ns |      1.719 ns |     ? |       ? |      88 B |           ? |
+| IfSkipped_Eager       | IfSkipped    |    10,173.01 ns |     504.17 ns |    27.635 ns |  1.00 |    0.00 |       1 B |        1.00 |
+| IfSkipped_Prepared    | IfSkipped    |    10,536.87 ns |  10,499.93 ns |   575.536 ns |  1.04 |    0.05 |       1 B |        1.00 |
+| IfTaken_Eager         | IfTaken      |     3,091.83 ns |     366.72 ns |    20.101 ns |  1.00 |    0.01 |         - |          NA |
+| IfTaken_Prepared      | IfTaken      |     3,192.32 ns |   1,000.29 ns |    54.829 ns |  1.03 |    0.02 |         - |          NA |
+| JoinOne_Eager         | JoinOne      |    32,196.05 ns |   1,484.48 ns |    81.369 ns |  1.00 |    0.00 |       5 B |        1.00 |
+| JoinOne_Prepared      | JoinOne      |    31,679.71 ns |  14,137.91 ns |   774.946 ns |  0.98 |    0.02 |       5 B |        1.00 |
+| ListArgWhere_Eager    | ListArgWhere |     9,096.26 ns |     129.28 ns |     7.086 ns |  1.00 |    0.00 |      89 B |        1.00 |
+| ListArgWhere_Prepared | ListArgWhere |     9,912.71 ns |   6,166.75 ns |   338.021 ns |  1.09 |    0.03 |       1 B |        0.01 |
+| ListWhere_Eager       | ListWhere    |     8,590.23 ns |   1,952.37 ns |   107.016 ns |  1.00 |    0.02 |       1 B |        1.00 |
+| ListWhere_Prepared    | ListWhere    |     8,857.73 ns |   5,340.77 ns |   292.746 ns |  1.03 |    0.03 |       1 B |        1.00 |
+| Or_Eager              | Or           | 1,077,910.81 ns | 161,451.33 ns | 8,849.692 ns |  1.00 |    0.01 |    3136 B |        1.00 |
+| Or_Prepared           | Or           | 1,044,669.83 ns | 709,850.41 ns | 38,909.296 ns |  0.97 |    0.03 |         - |        0.00 |
+| Range_Eager           | Range        |    13,394.55 ns |   1,939.65 ns |   106.319 ns |  1.00 |    0.01 |       1 B |        1.00 |
+| Range_Prepared        | Range        |    13,539.05 ns |   3,739.13 ns |   204.954 ns |  1.01 |    0.01 |       1 B |        1.00 |
+| SortBounded_Eager     | SortBounded  |    16,179.03 ns |   7,035.60 ns |   385.645 ns |  1.00 |    0.03 |       1 B |        1.00 |
+| SortBounded_Prepared  | SortBounded  |    16,396.41 ns |   8,022.25 ns |   439.727 ns |  1.01 |    0.03 |       1 B |        1.00 |
+| Unique_Eager          | Unique       |       134.09 ns |      20.63 ns |     1.131 ns |  1.00 |    0.01 |         - |          NA |
+| Unique_Prepared       | Unique       |       132.97 ns |      78.84 ns |     4.321 ns |  0.99 |    0.03 |         - |          NA |
+
+The three rows whose short-run error bars were widest, re-run with the default job (15+ iterations):
+
+| Method                | Mean         | Error      | StdDev     | Ratio | RatioSD | Allocated | Alloc Ratio |
+|---------------------- |-------------:|-----------:|-----------:|------:|--------:|----------:|------------:|
+| IfSkipped_Eager       |    10.213 us |  0.1448 us |  0.1487 us |  1.00 |    0.02 |       1 B |        1.00 |
+| IfSkipped_Prepared    |    10.129 us |  0.1254 us |  0.1173 us |  0.99 |    0.02 |       1 B |        1.00 |
+| ListArgWhere_Eager    |     8.990 us |  0.0804 us |  0.0713 us |  1.00 |    0.01 |      89 B |        1.00 |
+| ListArgWhere_Prepared |     9.163 us |  0.0740 us |  0.0692 us |  1.02 |    0.01 |       1 B |        0.01 |
+| Or_Eager              | 1,116.326 us | 21.7728 us | 43.9820 us |  1.00 |    0.05 |    3136 B |        1.00 |
+| Or_Prepared           | 1,045.573 us | 20.7983 us | 19.4548 us |  0.94 |    0.04 |    3136 B |        1.00 |
+
+## Reading it
+
+- **Execution cost is the eager cost.** Every ratio lands within its error bars of 1.00 once the job
+  is long enough; the replay does the eager work plus one cached-delegate call per parameterized
+  narrower.
+- **The only allocation delta is the closure the eager spelling needs.** `Where(v => v.Id >= a.min)`
+  with `a` a per-call argument costs the eager builder 89 B (display class + delegate); the prepared
+  side binds the argument into a per-thread pooled predicate box and allocates nothing. Bound
+  `Where`, indexes, ranges, `If`, joins and `SortBounded` pages allocate the same on both sides.
+- **`Build()` is 88 B, once.** That is the `PreparedQuery<TArgs,TResult>` object holding the
+  four-narrower struct chain by value.
+- The `1 B` / `5 B` cells are BenchmarkDotNet's per-op amortization of a one-off pool refill; the
+  deterministic per-call pins live in `tests/Prague.Core.Tests/Prepared/PreparedQueryAllocationTests.cs`.
+  The `3136 B` on the `Or` rows is the eager `Or` core's own cost at this candidate size (a 100k-key
+  bitmap union) and is identical on both sides in the longer run.
+

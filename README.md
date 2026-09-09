@@ -510,6 +510,75 @@ Sort (classic)                 8066µs             449µs             7.8ms     
                             8.6× faster       2.3× faster    1.3× slower    2.1× slower
 ```
 
+### **Prepared Queries — build once, execute on demand**
+
+A prepared query is the command form of a query: you describe it once — optionally with a
+parameter struct — store it in a field, and execute it any number of times, from any thread. Every
+execution replays the description into the same engine the eager builder uses, so the results are
+byte-identical (same rows, same order, same `Truncated`/`TotalCount`), and the pooled paths allocate
+nothing per execution. The one allocation is `Build()`.
+
+```csharp
+public sealed class ProductSearch {
+    // Unnameable closed builder type behind a storable name; one object, immutable, thread-safe.
+    private readonly PreparedQuery<(int dept, int brand, long since, decimal minPrice, bool inStockOnly),
+                                   JoinResult<Product, ProductInfo?>> _search;
+
+    public ProductSearch(ProductCache products) {
+        _search = products.Prepare<(int dept, int brand, long since, decimal minPrice, bool inStockOnly)>()
+            .Or(
+                b => b.WithDepartmentId(static a => a.dept),          // parameterized WithXxx
+                b => b.WithBrandId(static a => a.brand))
+            .WithReleaseDate(static (rb, a) => rb.Gte(a.since))        // parameterized range
+            .Where(static (p, a) => p.Price >= a.minPrice)            // parameterized Where — no closure
+            .If(static a => a.inStockOnly,                            // narrowing that applies only when the arg says so
+                b => b.Where(static p => p.Stock > 0))
+            .SortBounded(new ByReleaseDateDesc())                    // struct comparer, paged
+            .JoinWithProductInfo()                                    // FK-generated join, unchanged
+            .Build();                                                 // the only allocation
+    }
+
+    public int CountPage((int dept, int brand, long since, decimal minPrice, bool inStockOnly) args) {
+        using var page = _search.ExecutePooled(args, skip: 0, take: 20);   // 0 B, any thread
+        return page.Count;
+    }
+}
+```
+
+`Prepare()` (no arguments) and `Prepare<TArgs>()` exist on every generated cache and on the raw
+`InMemoryDataCache` (`UseIndex(index, static a => …)` instead of `WithXxx`). Each `WithXxx` /
+`WithoutXxx` / `WithKey` / `UpdatedAfter` overload has a prepared twin taking a `Func<TArgs, T>` next
+to the bound form; write the selectors as `static` lambdas so the delegate is created once at build.
+`Execute`, `ExecutePooled`, `Count` and the `*Cloned` variants take `in TArgs` plus the usual
+`skip`/`take`.
+
+**What a branch may contain:**
+- `Or(b1, b2)` branches: `WithXxx` / `UseIndex` (bound or parameterized), nested `Or`, narrow-only `If`.
+- `If(cond, b)` / `IfElse(cond, then, else)` branches: everything an `Or` branch may, plus `Where` and nested `Or`/`If`.
+- Never inside a branch: joins, `Sort`/`SortBounded`, `Build()` — these are top-level only and a
+  compile error otherwise, exactly like the eager `Or`.
+- Prepared builders have no `Execute*`; `Build()` is the only terminal and is reachable only once the
+  chain is executable.
+
+**Parity and cost.** A prepared execution copies the stored struct to the stack, replays the
+recorded narrowers into a fresh eager core (one delegate call per parameterized narrower) and runs the
+eager execution code — there is no second engine. The prepared side only *saves* where the eager
+spelling needs a closure to carry the per-call argument (`Where(v => v.X >= arg)`), because the
+argument is bound into a per-thread pooled predicate box instead. Measured on the raw cache
+(`benchmarks/Prague.Benchmarks/PreparedQueryBenchmarks.cs`, 100k rows, 1k-row list buckets, Apple M4 Pro,
+.NET 9, pooled + disposed):
+
+| Shape | Eager | Prepared | Ratio |
+|---|---:|---:|---:|
+| list index + `Where(v => v.Id >= a.min)` (argument captured) | 8.99 µs / **89 B** | 9.16 µs / **≈0 B** | 1.02 |
+| unique lookup, parameterized | 134 ns / 0 B | 133 ns / 0 B | 0.99 |
+| range, parameterized | 13.4 µs / 0 B | 13.5 µs / 0 B | 1.01 |
+| `SortBounded` page of 20 over a 1k bucket, struct comparer | 16.2 µs / 0 B | 16.4 µs / 0 B | 1.01 |
+| `JoinOne`, parameterized (1k left rows) | 32.2 µs / 5 B | 31.7 µs / 5 B | 0.98 |
+
+Design: `docs/superpowers/specs/2026-09-09-prepared-query-command-design.md`; engine notes in
+`context/query.md`, generated surface in `context/generated.md`.
+
 ### **Conditional Updates**
 
 Prague detects when data hasn't changed and avoids unnecessary work:

@@ -208,13 +208,44 @@ and `Build()` is only reachable on `IExecutableQuery`.
 
 ## 7. Steps
 
-> **Progress:** step 1 landed on `poc/prepared-query` — `src/Prague.Core/QueryBuilders/Prepared/` (recorder, narrowers for unique/list equality bound and parameterized, constant `Where`, `Prepare()`/`Prepare<TArgs>()`, `Build()`, simple execute/count) plus `tests/Prague.Core.Tests/Prepared/` (differential, reuse, leak, concurrency, allocation parity). No existing file was edited.
+> **Progress — shipped on `poc/prepared-query`.** Steps 1–6 below are done; nothing in the eager
+> builder changed behavior. What landed, in order:
 >
-> Step 4 (`Or`) landed: `PreparedNarrowOnly<TCache>` branch discriminator, `OrNarrower` + `PreparedOrBranch` replaying the recorded sub-chains through the eager core's `OrWith`, narrowing overloads generalized over `TDiscriminator : IIndexNarrower`; `INarrower.Apply` / `INarrowerChain.Replay` now also require `IOrCapable<TKey,TValue,TCore>` on the core. Differential tests in `PreparedQueryOrDifferentialTests`.
->
-> Step 5 (codegen) landed: the prepared entry points and branch seeds carry a free `TCache` (the raw cache, or a generated wrapper) — `Prepare<TCache,TKey,TValue,TArgs>(cache, carrier)`, `Build`/`Sort`/`SortBounded` generic over `TCache`, `Or`/`If`/`IfElse` overloaded per receiver discriminator (C# does not infer from constraints) seeding branches with the enclosing carrier. `CacheGenerator` emits `Prepare()` / `Prepare<TArgs>()` on every wrapper plus `XxxCachePreparedQueryExtensions` with the prepared twins of every `WithXxx` / `WithoutXxx` / `WithKey` / `UpdatedAfter` overload (bound, `Func<TArgs,T>`, `ReadOnlyMemory<T>` / `T[]` / `Func<TArgs,ReadOnlyMemory<T>>`, range bound + `(rb, args)`, key-set, last-updated after / after-until / `Func<TArgs,long>`), scoped by `ICacheCarrier<XxxCache>` so they bind at top level and inside `Or` / `If` branches. FK `JoinWith{T}` needed no change (binds on `ICandidatesExecutor` + `IBaseJoinable`). Tests in `tests/Prague.Generated.Tests/Prepared/`; docs in `context/generated.md` and `context/query.md`.
->
-> `If` / `IfElse` (prepared-only conditional narrowing) landed: `PreparedConditionalBranch<TCache>` branch discriminator (`IBaseFilterable`, so `UseIndex`/`Where`/`Or`/nested `If` bind, joins/sort/`Build` do not), `IfNarrower` / `IfElseNarrower` replaying a frozen sub-chain only when `condition(args)` holds, a narrow-only overload family for `If` inside an `Or` branch, and the last-updated overloads relaxed to `TDiscriminator : IIndexNarrower`. Differential tests in `PreparedQueryIfDifferentialTests`.
+> - **Steps 1–3 (recorder, narrowers, joined path):** `src/Prague.Core/QueryBuilders/Prepared/` —
+>   `PreparedNarrowers<TKey,TValue,TArgs,TChain>` recorder in the left-query slot of the ordinary
+>   `CacheQueryBuilderCombined`, `NarrowerLink` type chain, narrowers for unique / list / symmetric
+>   list equality, `IndexIn` (`ReadOnlyMemory<T>` / `T[]` / `Func<TArgs, ReadOnlyMemory<T>>`), range
+>   (bound and `(rb, args)`), key-set, last-updated after / after-until / `Func<TArgs,long>`, constant
+>   `Where`; `Prepare()` / `Prepare<TArgs>()` on the raw cache; `Build()` on simple, joined
+>   (`Resolvers<…>`) and sorted (`Sort` / `SortBounded`) chains, routing to `ExecuteCoreSimple` /
+>   `ExecuteCoreJoined` / `*Top`; `Execute` / `ExecuteCloned` / `ExecutePooled` / `ExecutePooledCloned` /
+>   `Count` taking `in TArgs`, plus the `NoArgs` convenience overloads.
+> - **Step 4 (`Or`):** `PreparedNarrowOnly<TCache>` branch discriminator, `OrNarrower` +
+>   `PreparedOrBranch` replaying the recorded sub-chains through the eager core's `OrWith`; narrowing
+>   overloads generalized over `TDiscriminator : IIndexNarrower`; `INarrower.Apply` / `Replay` require
+>   `IOrCapable<TKey,TValue,TCore>` on the core.
+> - **`If` / `IfElse` (prepared-only conditional narrowing):** `PreparedConditionalBranch<TCache>`
+>   discriminator (`IBaseFilterable`, so `UseIndex` / `Where` / `Or` / nested `If` bind; joins, sort
+>   and `Build` do not), `IfNarrower` / `IfElseNarrower` replaying a frozen sub-chain only when
+>   `condition(args)` holds, a narrow-only `If` family for use inside an `Or` branch.
+> - **Parameterized `Where`** — `Where(Func<TValue,TArgs,bool>)` records a `FilterArgNarrower`; at
+>   replay it binds `func`/`args` into a per-thread pooled `ArgPredicate` box (§3, "chosen"), so the
+>   eager core's `Predicate<TValue>` slot is untouched and the execution allocates nothing where the
+>   eager spelling pays 89 B for a capturing closure.
+> - **Step 5 (codegen):** prepared entry points and branch seeds carry a free `TCache` (raw cache or
+>   generated wrapper) — `Prepare<TCache,TKey,TValue,TArgs>(cache, carrier)`, `Build` / `Sort` /
+>   `SortBounded` generic over `TCache`, `Or` / `If` / `IfElse` overloaded per receiver discriminator.
+>   `CacheGenerator` emits `Prepare()` / `Prepare<TArgs>()` on every wrapper plus
+>   `XxxCachePreparedQueryExtensions` with the prepared twin of every `WithXxx` / `WithoutXxx` /
+>   `WithKey` / `UpdatedAfter` overload, scoped by `ICacheCarrier<XxxCache>` so they bind at top level
+>   and inside branches. FK `JoinWith{T}` needed no change.
+> - **Tests:** `tests/Prague.Core.Tests/Prepared/` (194: differential, reuse, leak, concurrency,
+>   allocation parity, `Or`, `If`) and `tests/Prague.Generated.Tests/Prepared/`.
+> - **Step 6 (docs + benchmark):** `context/query.md` and `context/generated.md` sections, README
+>   "Prepared Queries" section, `benchmarks/Prague.Benchmarks/PreparedQueryBenchmarks.cs` (eager vs
+>   prepared per shape, results in `benchmarks/Prague.Benchmarks/RESULTS.MD`): every ratio within noise
+>   of 1.00, allocations equal except the parameterized-`Where` shape (89 B eager → 0 B prepared),
+>   `Build()` of a four-narrower command 88 B once.
 
 1. `NarrowerChain` + `INarrower` + `IndexEq`/`IndexEqArg`/`Filter` + `PreparedQuery<TArgs,TResult>`
    + `cache.Prepare()` on the raw cache + `Build()` + `Execute/ExecutePooled/Count` for the
@@ -229,6 +260,30 @@ and `Build()` is only reachable on `IExecutableQuery`.
 
 Step 1 is the go/no-go: it proves the recorder-in-front-of-executor shape compiles against the
 existing generic constraints and hits 0 B/op.
+
+### Deferred
+
+Considered and consciously left out of this branch; each is a separate PR if it earns its place:
+
+- **Flatten `Build()` into a `NarrowOp[]` command.** Today the description is a closed generic type
+  chain; a homogeneous op array (byte-slot union + `Unsafe` reinterpretation per `TIndexKey`) would
+  give a prepared query an identity (equality / hashing), make a registry of prepared queries
+  possible, and open the door to an optimizer that reorders narrowers by selectivity. Not needed for
+  parity or zero-alloc, and it trades away the JIT specialization the chain gets for free.
+- **Struct filter type parameter on the eager core** (`TFilter : struct, IValueFilter<TValue>` in
+  `CacheQueryBuilderCoreCombined`). Replaces the per-thread `ArgPredicate` pool and also removes the
+  eager `&&` closure allocation on the second chained `Where`. Invasive in the eager core, so its own
+  change.
+- **Conditional resolvers** — joins or `Sort` / `SortBounded` inside an `If` branch. Decided against
+  for now: the resolver chain is part of the *result type*, so a conditional join would have to
+  produce a union result shape (or a nullable right side) that the eager builder does not have, and
+  parity by construction would be lost. `If` stays a narrowing-only construct.
+- **`out long max` last-updated forms.** The eager `UpdatedAfter(..., out long max)` overloads that
+  report the newest timestamp seen have no prepared twin; a prepared execution would need a
+  per-execution out-channel (a result-side field or an `ExecuteWithMax` terminal).
+- **`Or(b1, b2, arg)` state overload.** The eager zero-alloc spelling passes explicit state to
+  static branch lambdas; the prepared branches already read the execution arguments, so the overload
+  is redundant there and was not mirrored.
 
 ## 8. Relation to the event-loop research
 
