@@ -128,10 +128,10 @@ public sealed class PlanInfo {
 
 	public bool IsSorted { get; }
 
-	/// <summary>The executor <c>BuildFrozen()</c> selected: <c>PointLookup</c>, <c>Pipeline</c>, <c>IndexSteps</c> or <c>Replay</c>.</summary>
+	/// <summary>The executor <c>BuildFrozen()</c> selected: <c>PointLookup</c>, <c>Pipeline</c> or <c>Replay</c>.</summary>
 	public string Executor { get; }
 
-	/// <summary>The stage-2 optimizations active on this plan (<c>FusedFilters</c>, <c>AdaptiveFilterOrder</c>, <c>CapacityHints</c>, <c>AdaptiveIntersection</c>, <c>ReorderIndexNarrowers</c>); empty when none applies.</summary>
+	/// <summary>The optimizations active on this plan (<c>FusedFilters</c>, <c>AdaptiveFilterOrder</c>, <c>CapacityHints</c>, <c>ReorderIndexNarrowers</c>); empty when none applies.</summary>
 	public IReadOnlyList<string> Optimizations { get; }
 
 	// Live state the optimizations keep (the fused filter's current order, the capacity hint), printed by Explain.

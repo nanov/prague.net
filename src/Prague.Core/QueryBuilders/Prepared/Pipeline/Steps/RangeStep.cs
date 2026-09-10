@@ -29,6 +29,8 @@ internal sealed class RangeStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepBa
 
 	public override ProbeSide Side => ProbeSide.Value;
 
+	public override bool ExactSignal => false;
+
 	public override StepActivation Bind(in TArgs args, ref StepBinding binding) {
 		var (from, to) = _bounds(args);
 		if (from.Type == RangeValueType.None && to.Type == RangeValueType.None)
@@ -40,6 +42,15 @@ internal sealed class RangeStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepBa
 		if (to.Type != RangeValueType.None)
 			binding.Write(1, to.Value);
 		return StepActivation.Active;
+	}
+
+	// Two B+tree descents (design §3.2); the exclusive-bound exclusions are at most two keys off.
+	public override int Signal(in StepBinding binding) {
+		var fromType = (RangeValueType)binding.Int0;
+		var toType = (RangeValueType)binding.Int1;
+		var from = fromType != RangeValueType.None ? new RangeValue<TIndexKey>(fromType, binding.Read<TIndexKey>(0)) : default;
+		var to = toType != RangeValueType.None ? new RangeValue<TIndexKey>(toType, binding.Read<TIndexKey>(1)) : default;
+		return _index.EstimateCount(in from, in to);
 	}
 
 	public override void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) {

@@ -15,6 +15,7 @@ public class FrozenPipelineAllocationTests {
 	private InMemoryDataCache<int, PqItem> _cache = null!;
 	private CacheUniqueIndex<int, PqItem, int> _byCode = null!;
 	private CacheKeyValueListIndex<int, PqItem, int> _byGroup = null!;
+	private CacheKeyValueListIndex<int, PqItem, int> _byBand = null!;
 	private CacheKeyValueListIndex<int, PqItem, int> _byTier = null!;
 	private CacheRangeIndex<int, PqItem, int> _codeRange = null!;
 	private CacheKeySetIndex<int, PqItem> _flagged = null!;
@@ -25,6 +26,8 @@ public class FrozenPipelineAllocationTests {
 		_cache = new InMemoryDataCache<int, PqItem>();
 		_byCode = _cache.AddKeyValueIndex<int>(static (_, v) => v.Code);
 		_byGroup = _cache.CacheKeyValueListIndex<int>(static (_, v) => v.Group);
+		// Band 13 ⊂ group 13 (291 = 3 × 97): ~17 rows against the group's 52, so the three-list plan small-probes.
+		_byBand = _cache.CacheKeyValueListIndex<int>(static (_, v) => v.Id % 291);
 		_byTier = _cache.CacheKeyValueListIndex<int>(static (_, v) => v.Id % 10);
 		_codeRange = _cache.CacheRangeIndex<int>(static (_, v) => v.Code);
 		_flagged = _cache.AddKeySetIndex(static (_, v) => v.Flag);
@@ -71,6 +74,39 @@ public class FrozenPipelineAllocationTests {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		var args = (group: 13, tier: 3);
 		Pin("list∩list", Measure(() => prepared.ExecutePooled(args).Dispose()), Measure(() => frozen.ExecutePooled(args).Dispose()), Measure(() => frozen.Count(args)));
+	}
+
+	// Step 3: the small-probe seed (list ∩ list declared large-then-small, list ∩ list ∩ list smallest last),
+	// the free seed (Count, ReorderIndexNarrowers) and the classic Sort feed with a struct comparer.
+	[Test]
+	public void ListList_Reversed_ListListList_Reorder() {
+		var reversedPrepared = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).Build();
+		var reversed = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen();
+		var threePrepared = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).Build();
+		var three = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		var reorder = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true });
+		Assert.That(three.Plan.Executor, Is.EqualTo("Pipeline"));
+		var args = (group: 13, tier: 3);
+		var threeArgs = (group: 13, band: 13, tier: 3);
+		Pin("list(small)∩list", Measure(() => reversedPrepared.ExecutePooled(args).Dispose()), Measure(() => reversed.ExecutePooled(args).Dispose()), Measure(() => reversed.Count(args)));
+		Pin("list∩list∩list", Measure(() => threePrepared.ExecutePooled(threeArgs).Dispose()), Measure(() => three.ExecutePooled(threeArgs).Dispose()), Measure(() => three.Count(threeArgs)));
+		Pin("list∩list reorder", Measure(() => reversedPrepared.ExecutePooled(args).Dispose()), Measure(() => reorder.ExecutePooled(args).Dispose()), Measure(() => reorder.Count(args)));
+		three.ExecutePooled(threeArgs).Dispose();
+		Assert.That(three.Explain(), Does.Contain("probe: slot-sorted into step 0 ListEq"));
+	}
+
+	private readonly struct ByCode : IComparer<PqItem> {
+		public int Compare(PqItem? x, PqItem? y) => (x?.Code ?? 0).CompareTo(y?.Code ?? 0);
+	}
+
+	[Test]
+	public void Sort_ListList_StructComparer() {
+		var prepared = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Sort(new ByCode()).Build();
+		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Sort(new ByCode()).BuildFrozen();
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
+		var args = (group: 13, tier: 3);
+		Pin("sort list∩list", Measure(() => prepared.ExecutePooled(args).Dispose()), Measure(() => frozen.ExecutePooled(args).Dispose()), Measure(() => frozen.Count(args)));
+		Pin("sort list∩list page", Measure(() => prepared.ExecutePooled(args, 2, 3).Dispose()), Measure(() => frozen.ExecutePooled(args, 2, 3).Dispose()), Measure(() => frozen.Count(args)));
 	}
 
 	[Test]

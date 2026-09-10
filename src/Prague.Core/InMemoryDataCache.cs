@@ -710,10 +710,17 @@ public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, 
 	/// <summary>Live key count — a plain counter an enumeration may exceed; a cardinality signal, not a buffer size.</summary>
 	internal int Count => _keys.Count;
 
-	/// <summary>Copies every key into <paramref name="sink" /> in the set's enumeration order, under the lock <see cref="AddKeyTo" /> takes.</summary>
+	/// <summary>Copies every key into <paramref name="sink" /> in the set's enumeration order (the bulk <see cref="PooledSet{T,TKeyComparer}.CopyKeysTo{TSink}" />), under the lock <see cref="AddKeyTo" /> takes.</summary>
 	internal void CopyKeysTo<TSink>(ref TSink sink) where TSink : struct, IKeySink<TKey>, allows ref struct {
 		lock (_lock) {
-			foreach (var key in _keys) sink.Add(key);
+			_keys.CopyKeysTo(ref sink);
+		}
+	}
+
+	/// <summary>The slot <paramref name="key" /> occupies in the set (its enumeration position), under the lock <see cref="Contains" /> takes; false and -1 when absent.</summary>
+	internal bool TryGetSlot(TKey key, out int slot) {
+		lock (_lock) {
+			return _keys.TryGetSlot(key, out slot);
 		}
 	}
 

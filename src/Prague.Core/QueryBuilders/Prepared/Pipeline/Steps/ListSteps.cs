@@ -8,7 +8,8 @@ using Collections;
 ///   Probe: value-side through the index's scalar <c>KeySelector</c> on the fetched value (a field read
 ///   and a compare); key-side <c>bucket.Contains</c> for collection-backed indexes, which have no scalar
 ///   selector, and under <see cref="FrozenOptions.IndexSideProbes" /> (the eager staleness window). The
-///   key-side bucket is looked up once per execution at bind, as the eager step looks it up once.
+///   bucket is looked up once per execution at bind, as the eager step looks it up once; its live count
+///   is the step's signal and its slot order the step's seed order (the small-probe seed, design §3.4).
 /// </summary>
 internal sealed class ListEqStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepBase<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
@@ -30,24 +31,36 @@ internal sealed class ListEqStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepB
 
 	public override ProbeSide Side => _keySide ? ProbeSide.Key : ProbeSide.Value;
 
+	public override bool SlotAddressable => true;
+
 	public override StepActivation Bind(in TArgs args, ref StepBinding binding) {
 		var key = _selector is null ? _value : _selector(args);
 		if (_selector is not null)
 			binding.Write(0, key);
-		if (_keySide)
-			binding.Ref1 = _index.TryGetBucket(key, out var bucket) ? bucket : null;
+		binding.Ref1 = _index.TryGetBucket(key, out var bucket) ? bucket : null;
 		return StepActivation.Active;
 	}
 
 	private TIndexKey Key(in StepBinding binding) => _selector is null ? _value : binding.Read<TIndexKey>(0);
 
+	private static PooledSet<TKey, DefaultKeyComparer<TKey>>? Bucket(in StepBinding binding) => Unsafe.As<PooledSet<TKey, DefaultKeyComparer<TKey>>?>(binding.Ref1);
+
+	public override int Signal(in StepBinding binding) => Bucket(in binding)?.Count ?? 0;
+
 	public override void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) {
-		if (_index.TryGetBucket(Key(in binding), out var bucket))
+		if (Bucket(in binding) is { } bucket)
 			SeedBucket(bucket, ref seed, ref dedupe, false);
 	}
 
+	public override bool TryGetSlot(TKey key, in StepBinding binding, out int slot) {
+		if (Bucket(in binding) is { } bucket)
+			return bucket.TryGetSlot(key, out slot);
+		slot = -1;
+		return false;
+	}
+
 	public override bool ProbeKey(TKey key, in StepBinding binding)
-		=> binding.Ref1 is PooledSet<TKey, DefaultKeyComparer<TKey>> bucket && bucket.Contains(key);
+		=> Bucket(in binding) is { } bucket && bucket.Contains(key);
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public override bool ProbeValue(TKey key, TValue value, in StepBinding binding)
@@ -116,6 +129,15 @@ internal sealed class ListInStep<TKey, TValue, TIndexKey, TOtherValue, TArgs> : 
 	}
 
 	private ReadOnlySpan<TIndexKey> Keys(in StepBinding binding) => _selector is null && _keySelector is null ? _values.Span : BindingMemory.Read<TIndexKey>(in binding);
+
+	// The sum of the live bucket counts: an upper bound when buckets overlap (collection-backed indexes).
+	public override int Signal(in StepBinding binding) {
+		var keys = Keys(in binding);
+		var total = 0L;
+		for (var i = 0; i < keys.Length; i++)
+			total += _index.TryGetCount(keys[i]);
+		return (int)Math.Min(total, int.MaxValue);
+	}
 
 	public override void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) {
 		var keys = Keys(in binding);

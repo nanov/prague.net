@@ -39,11 +39,16 @@ internal sealed class LastUpdatedStep<TKey, TValue, TArgs> : PipelineStepBase<TK
 
 	public override ProbeSide Side => ProbeSide.Key;
 
+	public override bool ExactSignal => false;
+
 	public override StepActivation Bind(in TArgs args, ref StepBinding binding) {
 		binding.Bits[0] = _afterSelector is null ? _after : _afterSelector(args);
 		binding.Bits[1] = _untilSelector is null ? _until : _untilSelector(args);
 		return StepActivation.Active;
 	}
+
+	public override int Signal(in StepBinding binding)
+		=> _between ? _index.EstimateCount(binding.Bits[0], binding.Bits[1]) : _index.EstimateCount(binding.Bits[0]);
 
 	public override void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) {
 		var after = binding.Bits[0];

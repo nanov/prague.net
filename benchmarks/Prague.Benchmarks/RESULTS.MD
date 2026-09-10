@@ -751,6 +751,122 @@ Apple M4 Pro, .NET 9.0 (osx-arm64), `--inProcess`, default job, one category per
   the fused JoinOnes (step 5) fill only the page rows.
 
 
+# Frozen queries — `BuildFrozen()` stage 3, step 3: seed selection
+
+Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md` §3.3 / §3.4 / §8, §13 step 3.
+Apple M4 Pro, .NET 9.0 (osx-arm64), Release, `--inProcess`, default job, `[MemoryDiagnoser]`, one
+category per run (the sweep script runs the categories back to back in separate processes). Same
+100k-row store as the stage-3 tables above: group buckets 1k rows, tier buckets 100, band 333, lane 111.
+Rows: `ListListList` (1k ∩ 333 ∩ 111 — production shape A's narrowing) and `Sort_ListList` (1k ∩ 100
+under a classic `Sort`) are new; `ListList_FrozenIndexSteps` / `_FrozenEagerIntersection` are gone with
+the stage-2 executor they measured.
+
+| Method                 | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|----------------------- |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| ListList_Eager         | 9.086 us | 0.1809 us | 0.2084 us |  1.00 |    0.03 |       1 B |        1.00 |
+| ListList_Prepared      | 9.036 us | 0.1569 us | 0.1744 us |  1.00 |    0.03 |       1 B |        1.00 |
+| ListList_Frozen        | 1.721 us | 0.0153 us | 0.0143 us |  0.19 |    0.00 |         - |        0.00 |
+| ListList_FrozenReorder | 1.349 us | 0.0270 us | 0.0277 us |  0.15 |    0.00 |         - |        0.00 |
+
+
+| Method                         | Mean       | Error    | StdDev   | Ratio | Allocated | Alloc Ratio |
+|------------------------------- |-----------:|---------:|---------:|------:|----------:|------------:|
+| ListListReversed_Eager         | 1,312.9 ns |  9.22 ns |  8.63 ns |  1.00 |         - |          NA |
+| ListListReversed_Prepared      | 1,295.7 ns | 15.56 ns | 14.55 ns |  0.99 |         - |          NA |
+| ListListReversed_Frozen        |   993.5 ns |  4.55 ns |  3.80 ns |  0.76 |         - |          NA |
+| ListListReversed_FrozenReorder | 1,003.1 ns |  8.64 ns |  8.08 ns |  0.76 |         - |          NA |
+
+
+| Method                | Mean      | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|---------------------- |----------:|----------:|----------:|------:|--------:|----------:|------------:|
+| ListListList_Eager    | 11.700 us | 0.2169 us | 0.2227 us |  1.00 |    0.03 |       1 B |        1.00 |
+| ListListList_Prepared | 11.575 us | 0.1727 us | 0.1531 us |  0.99 |    0.02 |       1 B |        1.00 |
+| ListListList_Frozen   |  2.249 us | 0.0229 us | 0.0215 us |  0.19 |    0.00 |         - |        0.00 |
+
+
+| Method                  | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------ |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Count_ListList_Eager    | 8.898 us | 0.1502 us | 0.1405 us |  1.00 |    0.02 |       1 B |        1.00 |
+| Count_ListList_Prepared | 8.749 us | 0.1228 us | 0.1089 us |  0.98 |    0.02 |       1 B |        1.00 |
+| Count_ListList_Frozen   | 1.064 us | 0.0133 us | 0.0125 us |  0.12 |    0.00 |         - |        0.00 |
+
+
+| Method                 | Mean      | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|----------------------- |----------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Sort_ListList_Eager    | 10.509 us | 0.1660 us | 0.1553 us |  1.00 |    0.02 |       1 B |        1.00 |
+| Sort_ListList_Prepared | 10.385 us | 0.1303 us | 0.1219 us |  0.99 |    0.02 |       1 B |        1.00 |
+| Sort_ListList_Frozen   |  2.212 us | 0.0146 us | 0.0122 us |  0.21 |    0.00 |         - |        0.00 |
+
+
+| Method                  | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------ |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| ListWhere_Eager         | 8.474 us | 0.0611 us | 0.0542 us |  1.00 |    0.01 |       1 B |        1.00 |
+| ListWhere_Prepared      | 8.443 us | 0.0842 us | 0.0787 us |  1.00 |    0.01 |       1 B |        1.00 |
+| ListWhere_Frozen        | 7.721 us | 0.1536 us | 0.3679 us |  0.91 |    0.04 |         - |        0.00 |
+| ListWhere_FrozenNoHints | 9.656 us | 0.1919 us | 0.2987 us |  1.14 |    0.04 |         - |        0.00 |
+
+
+| Method                   | Mean     | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|------------------------- |---------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Count_ListWhere_Eager    | 6.637 us | 0.0816 us | 0.0763 us |  1.00 |    0.02 |         - |          NA |
+| Count_ListWhere_Prepared | 6.577 us | 0.0346 us | 0.0289 us |  0.99 |    0.01 |         - |          NA |
+| Count_ListWhere_Frozen   | 6.773 us | 0.1330 us | 0.1949 us |  1.02 |    0.03 |         - |          NA |
+
+
+| Method              | Mean     | Error    | StdDev   | Ratio | RatioSD | Allocated | Alloc Ratio |
+|-------------------- |---------:|---------:|---------:|------:|--------:|----------:|------------:|
+| ListKeySet_Eager    | 11.95 us | 0.067 us | 0.060 us |  1.00 |    0.01 |       1 B |        1.00 |
+| ListKeySet_Prepared | 12.00 us | 0.160 us | 0.149 us |  1.00 |    0.01 |       1 B |        1.00 |
+| ListKeySet_Frozen   | 10.37 us | 0.202 us | 0.207 us |  0.87 |    0.02 |         - |        0.00 |
+
+`ListRange` 401 → 12.5 µs, `Count_ListRange` 424 → 11.1, `ListLastUpdated` 219 → 10.8, `Range` 12.7 → 8.8,
+`OptionalRange` 12.8 → 9.1, `Unique*` 18–26 ns, the `ListTwo/ThreeWheres` rows, `JoinOne` / `Match` and the
+six production-shape rows re-measured within noise of the step-2 tables (the sweep's full tables are in
+`BenchmarkDotNet.Artifacts/results/`); the production shapes still replay (steps 5 / 6).
+
+## Reading it
+
+- **Bars (design §12, step 3).** `ListList` 9.09 → 1.72 µs (**5.3×**, bar ≥ 2×): the fixed seed now walks
+  the 100-row tier bucket, locates each survivor in the 1k group bucket with `PooledSet.TryGetSlot` and
+  sorts the survivors by slot — the eager sequence, byte for byte, at the small bucket's cost.
+  `ListList_FrozenReorder` (free seed) 1.35 µs: the slot sort is the ~0.4 µs between the two.
+  `ListListReversed` 1.31 → 0.99 µs (1.32×): already the small bucket first; the bulk seed copy and the
+  value-side tier probe are the gain. `ListListList` 11.70 → 2.25 µs (**5.2×**, bar ≥ 3×): the lane bucket
+  (111, declared last) is walked, slot-sorted into the group bucket, the band probed on the value.
+  `Count_ListList` 8.90 → 1.06 µs (**8.4×**, bar ≥ 5×): `Count` seeds free — the smallest exact signal —
+  and never sorts. `Sort_ListList` 10.51 → 2.21 µs (**4.75×**, bar ≥ 2×): a classic `Sort` seeds free and
+  the eager container's `StableSort` runs on the 100 survivors; a total comparer gives the eager
+  sequence, ties keep eager's rows per tie group in a different order inside it (`context/query.md`
+  "Sorted paging" leaves classic ties unspecified).
+- **Missed: `ListWhere`** 8.47 → 7.72 µs (1.10×, bar ≥ 1.5×) and **`ListKeySet`** 11.95 → 10.37 µs
+  (1.15×, re-measure of the step-2 1.24×). Both are one 1k bucket walked and every candidate fetched:
+  the floor is 1k × (`TryGet` ≈ 2.5 ns + one delegate call ≈ 2 ns + the container's `Add`), which no seed
+  rule touches. The bulk copy (`PooledSet.CopyKeysTo`, 546 vs 761 ns per 1k bucket in isolation, 0.72×)
+  is worth ~0.3 µs here, measured with `DOTNET_TieredPGO=0` (bulk 8.93 / enumerator 9.25 µs; `Count`
+  7.76 / 8.07). With PGO on, the `ListWhere_Frozen` row wanders in a 7.1–8.6 µs band and needed 68
+  measured iterations against the usual 15: dynamic PGO guards the predicate delegate call in the
+  pipeline's shared `Run` with the first lambda it profiles, so one `FrozenQuery` instance gets a direct
+  inlined `Flag` read and another the indirect call — `ListWhere_Frozen` and `ListWhere_FrozenNoHints`
+  are the *same* plan (hints only apply to replays) and measure 7.7 vs 9.7 µs; with PGO off both are
+  8.9 µs. A struct filter type parameter (deferred, parent spec "Planned") is the way past the delegate.
+- **`ListTwoArgWheres`** 10.88 eager / 13.59 frozen (1.25 of eager; step 2 measured 1.15): the
+  `(int group, int min, int max)` tuple is copied into each arg predicate per candidate through the fused
+  filter's `in TArgs` path, on top of the two delegate calls. Not a seed-selection matter; carried to the
+  filter/probe ordering work (design step 4's fused predicates over composites) — the eager `&&` closure
+  captures the tuple once.
+- **Executor retirement.** Every plan the stage-2 `IndexStepsExecutor` served (two or more equality steps,
+  adaptive intersection; `ReorderIndexNarrowers`) takes the pipeline: `ListList` frozen is 1.72 µs against
+  the stage-2 executor's 4.38 µs (adaptive intersection) and its `Reorder` 1.29 µs against the pipeline's
+  free seed 1.35 µs (within noise). `AdaptiveIntersection` is removed from `FrozenOptions`;
+  `ReorderIndexNarrowers` keeps its name and meaning (opt-in, changes encounter order).
+- **Seeds under a writer.** The small-probe walk judges the small step by its index and the survivors
+  by the first step's set; both are inside the documented staleness window (design §14.1) and are
+  exercised by `FrozenPipelineSeedTests` (8 readers × a churning writer, no exception, no duplicate,
+  the value-side probe on the small step's survivors). A free `Count` can miss a row whose index write
+  has not landed where the fixed `Execute` returns it through another index — never the reverse
+  (`FrozenPipelineTests.Staleness_RangeProbe_BothDirections…` pins both).
+
+
 ## Lock vs lock-free (pipeline primitives) — `LockVsLockFreeBenchmarks`, `LockVsLockFreeConcurrencyBenchmarks`
 
 Question: would plain collections behind one lock per batch (`HashSet`/`List` bucket copied out under `lock`,
@@ -796,3 +912,162 @@ walks the slot array without per-slot volatile loads is a pipeline step-3 item; 
 max-rate writer (827 µs on the composed pass, and `ConcurrentCacheStore` reads swinging 45k–325k/s) is the
 number the "one writer, many readers" acceptance run has to improve — bucket retirement and store lock
 striping are the suspects.
+
+### Full tables and per-primitive reading
+
+The complete BDN and harness tables behind the summary above, and how each primitive was modelled.
+
+Model: 100k store rows (`PqbItem`), seed bucket of 1k / 300 / 100 int keys (`i * 100`, spanning the
+store), a 300-key probe bucket hitting 30% of the seed; every reader owns its key buffers (no
+allocation per pass). Composed pass = copy the seed → probe every key against the 300-bucket → fetch
+the hits from the store. Every locked *batched* form is `lock { return Core(...) }` with the loop in a
+`NoInlining` core — a loop written inside the lock's `try` region pays the JIT's EH-write-thru spills
+on its locals (first cut: `Store_Dictionary_LockBatch` 12.4 µs vs 9.6 µs *per call*; split: 4.58 µs).
+Same split as `PooledSet.Contains` around its gate pin, so both sides get the same codegen.
+
+Apple M4 Pro (12 cores), .NET 9.0.19 (osx-arm64). S1: `--inProcess`, default job, `[MemoryDiagnoser]`
+(0 B on every row). S2 / S3: wall-clock harness hosted in BDN (`InProcessNoEmit`, 1 warmup + 5
+measured runs of 2,000 ms each, run WITHOUT `--inProcess` — the CLI flag stacks a second job on the
+class's own): 8 reader threads, `Writers = 1` adds one thread doing `Remove` + re-`Add` of a seed key
+and a probe key plus a store `AddOrUpdate` per iteration at max rate (five mutating calls = five
+writer ops; the lock-free side keeps its single-writer contract, the locked writer takes the lock per
+call). Reads/s = aggregate passes per second; p50 / p99 = per-pass latency merged over the readers
+(first 524k passes per reader sampled); each cell is the median of the 5 runs with `[min..max]`.
+
+#### S1 — single reader, no writer (BDN)
+
+| Method                       | Categories | SeedSize | Mean         | Error      | StdDev     | Ratio | RatioSD | Allocated | Alloc Ratio |
+|----------------------------- |----------- |--------- |-------------:|-----------:|-----------:|------:|--------:|----------:|------------:|
+| Composed_LockFree            | Composed   | 100      |   519.494 ns |  1.6652 ns |  1.4762 ns |  1.00 |    0.00 |         - |          NA |
+| Composed_HashSet_LockBatch   | Composed   | 100      |   429.165 ns |  1.5716 ns |  1.3932 ns |  0.83 |    0.00 |         - |          NA |
+| Composed_List_LockBatch      | Composed   | 100      |   363.597 ns |  1.3734 ns |  1.2847 ns |  0.70 |    0.00 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| Composed_LockFree            | Composed   | 300      | 1,608.989 ns |  9.8813 ns |  9.2430 ns |  1.00 |    0.01 |         - |          NA |
+| Composed_HashSet_LockBatch   | Composed   | 300      | 1,276.111 ns |  2.0400 ns |  1.5927 ns |  0.79 |    0.00 |         - |          NA |
+| Composed_List_LockBatch      | Composed   | 300      | 1,100.654 ns |  7.7577 ns |  7.2565 ns |  0.68 |    0.01 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| Composed_LockFree            | Composed   | 1000     | 5,442.531 ns | 46.0061 ns | 43.0342 ns |  1.00 |    0.01 |         - |          NA |
+| Composed_HashSet_LockBatch   | Composed   | 1000     | 4,419.575 ns | 36.9446 ns | 32.7504 ns |  0.81 |    0.01 |         - |          NA |
+| Composed_List_LockBatch      | Composed   | 1000     | 3,623.517 ns | 30.3089 ns | 28.3510 ns |  0.67 |    0.01 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| Probe_PooledSet              | Probe      | 100      |   414.240 ns |  0.8446 ns |  0.7053 ns |  1.00 |    0.00 |         - |          NA |
+| Probe_HashSet_LockPerCall    | Probe      | 100      |   444.891 ns |  2.8321 ns |  2.6491 ns |  1.07 |    0.01 |         - |          NA |
+| Probe_HashSet_LockBatch      | Probe      | 100      |   260.025 ns |  1.1393 ns |  1.0100 ns |  0.63 |    0.00 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| Probe_PooledSet              | Probe      | 300      | 1,247.270 ns |  3.3853 ns |  2.6430 ns |  1.00 |    0.00 |         - |          NA |
+| Probe_HashSet_LockPerCall    | Probe      | 300      | 1,315.270 ns |  5.4913 ns |  4.2873 ns |  1.05 |    0.00 |         - |          NA |
+| Probe_HashSet_LockBatch      | Probe      | 300      |   795.711 ns |  3.6612 ns |  3.4246 ns |  0.64 |    0.00 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| Probe_PooledSet              | Probe      | 1000     | 4,179.188 ns | 30.3245 ns | 28.3656 ns |  1.00 |    0.01 |         - |          NA |
+| Probe_HashSet_LockPerCall    | Probe      | 1000     | 4,536.305 ns | 18.7961 ns | 17.5819 ns |  1.09 |    0.01 |         - |          NA |
+| Probe_HashSet_LockBatch      | Probe      | 1000     | 2,663.319 ns | 19.6730 ns | 18.4021 ns |  0.64 |    0.01 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| SeedCopy_PooledSet           | SeedCopy   | 100      |    69.528 ns |  0.6186 ns |  0.5786 ns |  1.00 |    0.01 |         - |          NA |
+| SeedCopy_HashSet_Lock        | SeedCopy   | 100      |    81.043 ns |  0.4837 ns |  0.4524 ns |  1.17 |    0.01 |         - |          NA |
+| SeedCopy_HashSet_SpinLock    | SeedCopy   | 100      |    79.639 ns |  0.6688 ns |  0.6256 ns |  1.15 |    0.01 |         - |          NA |
+| SeedCopy_List_Lock           | SeedCopy   | 100      |     7.168 ns |  0.0815 ns |  0.0681 ns |  0.10 |    0.00 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| SeedCopy_PooledSet           | SeedCopy   | 300      |   223.238 ns |  0.6792 ns |  0.5672 ns |  1.00 |    0.00 |         - |          NA |
+| SeedCopy_HashSet_Lock        | SeedCopy   | 300      |   233.244 ns |  1.7077 ns |  1.5973 ns |  1.04 |    0.01 |         - |          NA |
+| SeedCopy_HashSet_SpinLock    | SeedCopy   | 300      |   231.598 ns |  1.4043 ns |  1.3136 ns |  1.04 |    0.01 |         - |          NA |
+| SeedCopy_List_Lock           | SeedCopy   | 300      |    13.534 ns |  0.0627 ns |  0.0587 ns |  0.06 |    0.00 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| SeedCopy_PooledSet           | SeedCopy   | 1000     |   754.503 ns |  4.8688 ns |  4.3160 ns |  1.00 |    0.01 |         - |          NA |
+| SeedCopy_HashSet_Lock        | SeedCopy   | 1000     |   758.956 ns |  6.5745 ns |  6.1498 ns |  1.01 |    0.01 |         - |          NA |
+| SeedCopy_HashSet_SpinLock    | SeedCopy   | 1000     |   758.528 ns |  5.9451 ns |  5.5611 ns |  1.01 |    0.01 |         - |          NA |
+| SeedCopy_List_Lock           | SeedCopy   | 1000     |    37.506 ns |  0.2930 ns |  0.2446 ns |  0.05 |    0.00 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| Store_ConcurrentCacheStore   | Store      | 100      |   133.328 ns |  2.2225 ns |  2.0789 ns |  1.00 |    0.02 |         - |          NA |
+| Store_Dictionary_LockPerCall | Store      | 100      |   505.231 ns |  2.4500 ns |  2.1719 ns |  3.79 |    0.06 |         - |          NA |
+| Store_Dictionary_LockBatch   | Store      | 100      |   261.328 ns |  0.6011 ns |  0.5020 ns |  1.96 |    0.03 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| Store_ConcurrentCacheStore   | Store      | 300      |   523.219 ns | 10.1621 ns |  9.5056 ns |  1.00 |    0.02 |         - |          NA |
+| Store_Dictionary_LockPerCall | Store      | 300      | 1,583.777 ns | 10.2015 ns |  9.0434 ns |  3.03 |    0.06 |         - |          NA |
+| Store_Dictionary_LockBatch   | Store      | 300      |   950.991 ns |  7.7147 ns |  7.2163 ns |  1.82 |    0.03 |         - |          NA |
+|                              |            |          |              |            |            |       |         |           |             |
+| Store_ConcurrentCacheStore   | Store      | 1000     | 2,455.723 ns | 27.2515 ns | 25.4911 ns |  1.00 |    0.01 |         - |          NA |
+| Store_Dictionary_LockPerCall | Store      | 1000     | 9,162.455 ns | 64.6387 ns | 57.3005 ns |  3.73 |    0.04 |         - |          NA |
+| Store_Dictionary_LockBatch   | Store      | 1000     | 4,584.636 ns | 87.2166 ns | 89.5650 ns |  1.87 |    0.04 |         - |          NA |
+
+#### S2 (`Writers = 0`) — 8 readers, no writer; S3 (`Writers = 1`) — 8 readers + 1 writer at max rate
+
+| Method | Writers | Reads/s | p50 | p99 | Writer ops/s |
+|------------------------------|---------|---------|-----|-----|--------------|
+| SeedCopy_PooledSet | 0 | 6,092,391 [5,885,951..6,455,593] | 1.17 us [1.17 us..1.29 us] | 1.42 us [1.29 us..1.46 us] | 0 [0..0] |
+| SeedCopy_HashSet_Lock | 0 | 882,238 [881,110..889,056] | 0.96 us [0.96 us..0.96 us] | 178.17 us [159.75 us..203.38 us] | 0 [0..0] |
+| SeedCopy_HashSet_SpinLock | 0 | 1,288,630 [1,268,922..1,292,324] | 0.75 us [0.75 us..0.75 us] | 0.96 us [0.96 us..0.96 us] | 0 [0..0] |
+| SeedCopy_List_Lock | 0 | 8,099,825 [7,947,192..8,170,468] | 0.12 us [0.08 us..0.12 us] | 6.25 us [6.04 us..6.42 us] | 0 [0..0] |
+| Probe_PooledSet | 0 | 902,556 [840,658..921,374] | 8.33 us [8.29 us..9.54 us] | 9.83 us [9.71 us..14.67 us] | 0 [0..0] |
+| Probe_HashSet_LockPerCall | 0 | 12,098 [9,475..17,184] | 672.33 us [137.54 us..886.54 us] | 1833.83 us [1772.00 us..1906.92 us] | 0 [0..0] |
+| Probe_HashSet_LockBatch | 0 | 299,653 [299,498..301,995] | 3.33 us [3.29 us..3.33 us] | 601.04 us [372.71 us..699.71 us] | 0 [0..0] |
+| Store_ConcurrentCacheStore | 0 | 1,841,011 [1,627,147..1,867,773] | 4.12 us [4.08 us..4.62 us] | 7.25 us [4.83 us..7.92 us] | 0 [0..0] |
+| Store_Dictionary_LockPerCall | 0 | 13,156 [12,336..17,996] | 597.12 us [427.21 us..628.83 us] | 1309.12 us [1228.71 us..1348.33 us] | 0 [0..0] |
+| Store_Dictionary_LockBatch | 0 | 151,796 [150,169..154,013] | 6.33 us [6.25 us..6.46 us] | 1540.33 us [1492.54 us..1609.12 us] | 0 [0..0] |
+| Composed_LockFree | 0 | 669,023 [622,508..678,609] | 12.25 us [12.21 us..12.25 us] | 12.88 us [12.71 us..17.38 us] | 0 [0..0] |
+| Composed_HashSet_LockBatch | 0 | 317,697 [48,816..346,065] | 6.04 us [5.71 us..35.75 us] | 207.62 us [88.21 us..3091.17 us] | 0 [0..0] |
+| Composed_List_LockBatch | 0 | 46,657 [36,557..55,888] | 36.04 us [33.79 us..36.17 us] | 3330.50 us [1688.50 us..4984.04 us] | 0 [0..0] |
+|------------------------------|---------|---------|-----|-----|--------------|
+| SeedCopy_PooledSet | 1 | 1,264,292 [1,139,774..1,477,700] | 5.12 us [5.12 us..5.17 us] | 7.33 us [7.08 us..7.54 us] | 10,982,151 [10,147,975..11,725,320] |
+| SeedCopy_HashSet_Lock | 1 | 120,656 [118,962..125,433] | 5.17 us [5.12 us..5.33 us] | 1717.75 us [1572.62 us..1957.25 us] | 43,433 [38,446..51,315] |
+| SeedCopy_HashSet_SpinLock | 1 | 205,632 [197,665..222,045] | 4.83 us [4.25 us..4.83 us] | 6.04 us [5.83 us..9.00 us] | 71,585 [1,172..135,172] |
+| SeedCopy_List_Lock | 1 | 870,858 [795,508..1,037,587] | 0.83 us [0.54 us..1.08 us] | 84.88 us [47.50 us..358.96 us] | 147,570 [118,270..184,540] |
+| Probe_PooledSet | 1 | 95,371 [91,700..97,866] | 42.58 us [39.62 us..43.88 us] | 341.83 us [335.54 us..402.88 us] | 3,060,856 [2,606,672..3,205,649] |
+| Probe_HashSet_LockPerCall | 1 | 13,798 [12,403..15,791] | 93.67 us [54.50 us..128.42 us] | 4720.42 us [4478.21 us..6066.25 us] | 329,019 [294,906..376,324] |
+| Probe_HashSet_LockBatch | 1 | 47,360 [44,827..48,478] | 17.38 us [17.33 us..17.46 us] | 77.83 us [59.08 us..116.00 us] | 4,304 [2,679..13,802] |
+| Store_ConcurrentCacheStore | 1 | 255,066 [44,973..324,571] | 17.75 us [16.71 us..18.17 us] | 49.58 us [47.58 us..1190.92 us] | 7,647,243 [1,510,087..9,620,842] |
+| Store_Dictionary_LockPerCall | 1 | 4,721 [2,083..5,854] | 518.96 us [82.71 us..3520.38 us] | 10880.83 us [9692.08 us..15008.96 us] | 189,466 [138,490..211,762] |
+| Store_Dictionary_LockBatch | 1 | 28,579 [25,503..29,745] | 32.00 us [31.04 us..33.21 us] | 5178.04 us [2680.54 us..7246.00 us] | 19,249 [12,544..27,467] |
+| Composed_LockFree | 1 | 69,312 [67,119..80,958] | 46.58 us [45.75 us..47.42 us] | 827.00 us [665.46 us..900.33 us] | 2,766,817 [2,508,367..3,081,300] |
+| Composed_HashSet_LockBatch | 1 | 39,980 [32,949..43,420] | 36.33 us [35.58 us..44.38 us] | 3669.21 us [3256.04 us..3778.46 us] | 6,679 [5,787..10,059] |
+| Composed_List_LockBatch | 1 | 28,607 [27,160..33,874] | 42.00 us [38.54 us..46.71 us] | 2725.17 us [1956.25 us..3535.12 us] | 10,391 [8,846..14,231] |
+
+#### Reading it
+
+- **Seed copy-out.** Single-threaded the pooled walk and the `HashSet` walk under a lock are the same
+  (0.755 vs 0.759 µs for 1k, 0.75 ns/slot); the lock costs nothing uncontended and `SpinLock` is the
+  same. The plain array (`List<int>`, a 4 KB `CopyTo`) is **20×** faster (37.5 ns) — that is a data
+  layout win, not a lock win. Eight readers: the pooled walk scales to 6.09M passes/s (p99 1.42 µs);
+  the locked `HashSet` copy serializes at 0.88M/s with a 178 µs p99 (a 1 µs critical section still
+  convoys eight threads through one `Lock`); `SpinLock` 1.29M/s. The locked array copy reaches
+  8.1M/s (1.33× the pooled walk) but its p99 is 6.25 µs (4.4× worse). Add the writer: pooled
+  1.26M/s at 11.0M writer ops/s; locked `HashSet` 0.12M/s (−90%) at 43k writer ops/s (−99.6%);
+  locked array 0.87M/s (−31%) at 148k writer ops/s (−98.7%, and that writer pays `List.Remove`'s
+  O(n) scan). The writer stall is the cost of readers holding the lock, exactly as feared.
+- **Probe (1k `Contains` against 300).** Per-call locking loses even single-threaded (1.09×): a
+  `Lock` enter/exit pair is dearer than a gate pin. Batched `HashSet.Contains` under one lock wins S1
+  at 0.64× (2.66 vs 4.18 µs — 2.7 vs 4.2 ns/key; roughly 1.5 ns of the gap is the per-call
+  `ReaderGate.Enter/Exit`, the rest `HashSet<int>`'s tighter int lookup). At 8 readers the pooled
+  probe does 903k/s (p99 9.8 µs); the batched lock 300k/s (**3× fewer**, p99 601 µs); per-call 12k/s
+  (75× fewer). With the writer: pooled 95k/s at 3.06M writer ops/s; batched lock 47k/s (−50%) at
+  **4.3k writer ops/s (−99.9%)** — a 2.7 µs critical section held by eight readers in rotation starves
+  a per-call writer completely.
+- **Store lookup (1k `TryGetValue`).** `ConcurrentCacheStore` wins every scenario: 2.46 µs vs 4.58
+  batched (1.87×) / 9.16 per-call (3.7×) single-threaded — `Dictionary<int,T>`'s lookup is simply
+  slower than the store's volatile bucket walk here, the lock is not the difference. 8 readers: 1.84M/s
+  vs 152k/s (12×) / 13k/s (140×); with the writer 255k/s at 7.6M writer ops/s vs 28.6k/s at 19k writer
+  ops/s.
+- **Composed pass (the number that matters).** S1: lock-free 5.44 µs = 0.75 copy + 4.18 probe + 0.52
+  store(300); locked `HashSet` 4.42 µs (**0.81×**) = 0.76 + 2.66 + 0.95; locked array 3.62 µs
+  (**0.67×**) = 0.04 + 2.66 + 0.95 — the whole single-threaded win is the batched probe (−1.5 µs) and
+  the array copy (−0.7 µs), minus the `Dictionary` penalty (+0.4 µs). S2: lock-free 669k passes/s
+  (p99 12.9 µs); locked `HashSet` 318k/s (**−53%**, p99 208 µs, run spread 49k..346k); locked array
+  47k/s (**−93%**, p50 36 µs, p99 3.3 ms — the near-free copy delivers all eight readers to the probe
+  lock in lockstep and the convoy is worse). S3: lock-free 69.3k/s at 2.77M writer ops/s; locked
+  `HashSet` 40.0k/s (**−42%** reads) at 6.7k writer ops/s (**−99.8%**); locked array 28.6k/s (**−59%**)
+  at 10.4k writer ops/s (**−99.6%**).
+- **Lock-free under churn.** The writer at max rate costs the lock-free side a lot too (composed 669k →
+  69k passes/s; seed copy 6.09M → 1.26M): eight readers walking the same 12 KB slot array that a
+  writer rewrites ~10M times a second is cache-line ping-pong, not gate cost (`Remove` + `Add` never
+  retires a generation). It is an adversarial rate — a 100 Hz change stream is five orders of
+  magnitude slower — and the lock-free side degrades gracefully (p50 47 µs, no starvation) where the
+  locked side starves the writer.
+
+**Verdict.** The plain-collection-plus-lock pipeline wins S1 (0.81× / 0.67×) but fails both S3 bars by a
+wide margin (reads −42% / −59% against a ≤ 10% loss bar; writer −99.8% / −99.6% against a ≤ 20% bar) and
+loses S2 outright (−53% / −93%). Not worth building. What the measurement does say is worth taking:
+(1) a **batched, gate-pinned probe** on `PooledSet` (`ContainsMany(ReadOnlySpan<T>, Span<bool>)` —
+one `ReaderGate.Enter/Exit` per batch instead of per key) would recover most of the 1.5 µs / 1k the
+locked probe wins single-threaded, with no lock and no contract change; (2) the 20× faster array
+copy-out argues for a **dense key array maintained by the writer alongside the hash slots** (swap-remove,
+published through the same `Tables` generation) so the seed copy becomes a `CopyTo` under the existing
+pin — that is a layout change inside the current reclamation model, not a locking change.

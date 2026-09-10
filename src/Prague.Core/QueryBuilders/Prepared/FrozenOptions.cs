@@ -33,30 +33,25 @@ public sealed class FrozenOptions {
 	public bool CapacityHints { get; init; } = true;
 
 	/// <summary>
-	///   For a plan of two or more equality index steps (unique, list; not key-set), intersect the
-	///   steps after the seed by walking whichever side is smaller: when a remaining step's bucket is
-	///   smaller than the seeded candidate set, mark the candidates that bucket contains on a bitmap,
-	///   prune the marks with the other steps and compact the set once; otherwise walk the candidate
-	///   set per step as the eager builder does. Bucket sizes are read per execution. Order
-	///   preserving: both ways remove by slot, so survivors keep the seed's encounter order.
-	/// </summary>
-	public bool AdaptiveIntersection { get; init; } = true;
-
-	/// <summary>
-	///   Opt-in, changes encounter order. For a plan whose index steps are all equality lookups
-	///   (unique, list, key-set), read each step's live bucket size at execute time and seed the
-	///   candidates from the smallest one, intersecting the others into it. The rows returned are the
-	///   same set with the same <c>Count</c>; their order follows the seeding bucket instead of the
-	///   first-declared one, so a page of an unsorted query may differ from the eager builder's.
+	///   Opt-in, changes encounter order. Let an unsorted <c>Execute*</c> of a pipeline plan seed from
+	///   the index step with the smallest cardinality signal for the execution's arguments (a unique
+	///   step's 0 / 1, a list bucket's live count, a key-set's count, a B+tree estimate for a range or
+	///   last-updated window — the estimate wins only when twice it is still smaller than the best exact
+	///   count), probing the other steps on each candidate. The rows returned are the same set with the
+	///   same <c>Count</c>; their order follows the seeding source instead of the first-declared step,
+	///   so a page of an unsorted query may differ from the eager builder's. <c>Count</c> and a classic
+	///   <c>Sort</c> (whose rows are fully sorted afterwards) seed this way regardless.
 	/// </summary>
 	public bool ReorderIndexNarrowers { get; init; }
 
 	/// <summary>
-	///   Bind a simple, unsorted plan whose index steps are all non-composite (unique / list equality
-	///   and membership, range, key-set, last-updated) to the pipeline executor: the first index step's
-	///   keys are copied out once and every later step is an O(1) probe on the key or the fetched value
-	///   — no candidate set, no intersection, one store lookup per candidate. Same rows in the same
-	///   order as the eager builder. Off → the stage-2 executor selection.
+	///   Bind a simple plan whose index steps are all non-composite (unique / list equality and
+	///   membership, range, key-set, last-updated), unsorted or under a classic <c>Sort</c>, to the
+	///   pipeline executor: one index step's keys are copied out once and every other step is an O(1)
+	///   probe on the key or the fetched value — no candidate set, no intersection, one store lookup
+	///   per candidate. Same rows in the same order as the eager builder for unsorted plans (the first
+	///   declared step seeds; a smaller equality step is walked instead and its survivors put back in
+	///   the first step's order when that is cheaper). Off → the replay.
 	/// </summary>
 	public bool Pipeline { get; init; } = true;
 

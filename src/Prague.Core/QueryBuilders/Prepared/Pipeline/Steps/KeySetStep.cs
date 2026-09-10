@@ -22,9 +22,15 @@ internal sealed class KeySetStep<TKey, TValue, TArgs> : PipelineStepBase<TKey, T
 
 	public override ProbeSide Side => _keySide ? ProbeSide.Key : ProbeSide.Value;
 
+	public override bool SlotAddressable => true;
+
 	public override StepActivation Bind(in TArgs args, ref StepBinding binding) => StepActivation.Active;
 
+	public override int Signal(in StepBinding binding) => _index.Count;
+
 	public override void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) => _index.CopyKeysTo(ref seed);
+
+	public override bool TryGetSlot(TKey key, in StepBinding binding, out int slot) => _index.TryGetSlot(key, out slot);
 
 	public override bool ProbeKey(TKey key, in StepBinding binding) => _index.Contains(key);
 

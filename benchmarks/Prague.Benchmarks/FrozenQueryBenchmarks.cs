@@ -80,18 +80,18 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<int, PqbItem> _listWhereFrozenNoHints = null!;
 	private PreparedQuery<(int group, int tier), PqbItem> _listListPrepared = null!;
 	private FrozenQuery<(int group, int tier), PqbItem> _listListFrozen = null!;
-	private FrozenQuery<(int group, int tier), PqbItem> _listListFrozenEagerIntersection = null!;
 	private FrozenQuery<(int group, int tier), PqbItem> _listListFrozenReorder = null!;
 	private PreparedQuery<(int group, int tier), PqbItem> _listListReversedPrepared = null!;
 	private FrozenQuery<(int group, int tier), PqbItem> _listListReversedFrozen = null!;
-	private FrozenQuery<(int group, int tier), PqbItem> _listListReversedFrozenEagerIntersection = null!;
 	private FrozenQuery<(int group, int tier), PqbItem> _listListReversedFrozenReorder = null!;
 	private PreparedQuery<(int group, int lo, int hi), PqbItem> _listRangePrepared = null!;
 	private FrozenQuery<(int group, int lo, int hi), PqbItem> _listRangeFrozen = null!;
 
 	// Stage 3 shapes.
-	private FrozenQuery<(int group, int tier), PqbItem> _listListFrozenIndexSteps = null!;
-	private FrozenQuery<(int group, int tier), PqbItem> _listListReversedFrozenIndexSteps = null!;
+	private PreparedQuery<(int group, int band, int lane), PqbItem> _listListListPrepared = null!;
+	private FrozenQuery<(int group, int band, int lane), PqbItem> _listListListFrozen = null!;
+	private PreparedQuery<(int group, int tier), PqbItem> _sortListListPrepared = null!;
+	private FrozenQuery<(int group, int tier), PqbItem> _sortListListFrozen = null!;
 	private PreparedQuery<int, PqbItem> _listKeySetPrepared = null!;
 	private FrozenQuery<int, PqbItem> _listKeySetFrozen = null!;
 	private PreparedQuery<(int group, long after), PqbItem> _listLastUpdatedPrepared = null!;
@@ -199,7 +199,6 @@ public class FrozenQueryBenchmarks {
 
 		var fixedOrder = new FrozenOptions { AdaptiveFilterOrdering = false };
 		var noHints = new FrozenOptions { CapacityHints = false };
-		var eagerIntersection = new FrozenOptions { AdaptiveIntersection = false, Pipeline = false };
 		var reorder = new FrozenOptions { ReorderIndexNarrowers = true };
 		_listTwoWheresPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Where(static v => v.Score % 10 == 0).Build();
 		_listTwoWheresFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Where(static v => v.Score % 10 == 0).BuildFrozen();
@@ -217,18 +216,17 @@ public class FrozenQueryBenchmarks {
 		_listWhereFrozenNoHints = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).BuildFrozen(noHints);
 		_listListPrepared = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Build();
 		_listListFrozen = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
-		_listListFrozenEagerIntersection = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(eagerIntersection);
 		_listListFrozenReorder = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(reorder);
 		_listListReversedPrepared = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).Build();
 		_listListReversedFrozen = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen();
-		_listListReversedFrozenEagerIntersection = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(eagerIntersection);
 		_listListReversedFrozenReorder = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(reorder);
 		_listRangePrepared = _items.Prepare<int, PqbItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).Build();
 		_listRangeFrozen = _items.Prepare<int, PqbItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen();
 
-		var stage2 = new FrozenOptions { Pipeline = false };
-		_listListFrozenIndexSteps = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(stage2);
-		_listListReversedFrozenIndexSteps = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(stage2);
+		_listListListPrepared = _items.Prepare<int, PqbItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane).Build();
+		_listListListFrozen = _items.Prepare<int, PqbItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane).BuildFrozen();
+		_sortListListPrepared = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Sort(new PqbByScore()).Build();
+		_sortListListFrozen = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Sort(new PqbByScore()).BuildFrozen();
 		_listKeySetPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).Build();
 		_listKeySetFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).BuildFrozen();
 		_listLastUpdatedPrepared = _items.Prepare<int, PqbItem, (int group, long after)>().UseIndex(_byGroup, static a => a.group).UseIndex(_itemsUpdated, static a => a.after).Build();
@@ -552,11 +550,11 @@ public class FrozenQueryBenchmarks {
 		return r.Count;
 	}
 
-	// Optimizations 2–4 on two list steps. Group buckets hold 1k rows, Tier buckets 100; group 13 ∩
-	// tier 13 is the 100 tier-13 rows. Declared large-then-small (13) and small-then-large (14).
-	// `_Frozen` is the default plan (capacity hints + adaptive intersection, optimizations 2 and 3),
-	// `_FrozenEagerIntersection` the same with adaptive intersection off (hints only), `_FrozenReorder`
-	// optimization 4 (seeds from the smaller bucket whatever the declared order).
+	// Two list steps. Group buckets hold 1k rows, Tier buckets 100; group 13 ∩ tier 13 is the 100
+	// tier-13 rows. Declared large-then-small (13) and small-then-large (14). `_Frozen` is the pipeline's
+	// fixed seed — for (13) the small-probe seed: the tier bucket walked, survivors slot-sorted into the
+	// group bucket's order, the eager sequence — and `_FrozenReorder` its free seed (ReorderIndexNarrowers:
+	// the smaller bucket seeds whatever the declared order, rows in that bucket's order).
 
 	// 13. list(1k) ∩ list(100)
 	[BenchmarkCategory("ListList"), Benchmark(Baseline = true)]
@@ -574,12 +572,6 @@ public class FrozenQueryBenchmarks {
 	[BenchmarkCategory("ListList"), Benchmark]
 	public int ListList_Frozen() {
 		using var r = _listListFrozen.ExecutePooled(_listListArgs);
-		return r.Count;
-	}
-
-	[BenchmarkCategory("ListList"), Benchmark]
-	public int ListList_FrozenEagerIntersection() {
-		using var r = _listListFrozenEagerIntersection.ExecutePooled(_listListArgs);
 		return r.Count;
 	}
 
@@ -609,28 +601,49 @@ public class FrozenQueryBenchmarks {
 	}
 
 	[BenchmarkCategory("ListListReversed"), Benchmark]
-	public int ListListReversed_FrozenEagerIntersection() {
-		using var r = _listListReversedFrozenEagerIntersection.ExecutePooled(_listListArgs);
-		return r.Count;
-	}
-
-	[BenchmarkCategory("ListListReversed"), Benchmark]
 	public int ListListReversed_FrozenReorder() {
 		using var r = _listListReversedFrozenReorder.ExecutePooled(_listListArgs);
 		return r.Count;
 	}
 
-	// Stage 3: `_Frozen` is the pipeline (fixed seed: walk the first bucket, probe the second on the value);
-	// `_FrozenIndexSteps` the stage-2 adaptive intersection (Pipeline = false) for reference.
-	[BenchmarkCategory("ListList"), Benchmark]
-	public int ListList_FrozenIndexSteps() {
-		using var r = _listListFrozenIndexSteps.ExecutePooled(_listListArgs);
+	// 14b. list(1k) ∩ list(333) ∩ list(111), largest first — production shape A's narrowing. Fixed seed:
+	// the lane bucket (smallest, declared last) is walked, its survivors slot-sorted into the group bucket's
+	// order, the band probed on the value.
+	[BenchmarkCategory("ListListList"), Benchmark(Baseline = true)]
+	public int ListListList_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _threeListArgs.group).UseIndex(_byBand, _threeListArgs.band).UseIndex(_byLane, _threeListArgs.lane).ExecutePooled();
 		return r.Count;
 	}
 
-	[BenchmarkCategory("ListListReversed"), Benchmark]
-	public int ListListReversed_FrozenIndexSteps() {
-		using var r = _listListReversedFrozenIndexSteps.ExecutePooled(_listListArgs);
+	[BenchmarkCategory("ListListList"), Benchmark]
+	public int ListListList_Prepared() {
+		using var r = _listListListPrepared.ExecutePooled(_threeListArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("ListListList"), Benchmark]
+	public int ListListList_Frozen() {
+		using var r = _listListListFrozen.ExecutePooled(_threeListArgs);
+		return r.Count;
+	}
+
+	// 14c. classic Sort (the struct PqbByScore over the random Score) over list(1k) ∩ list(100): the pipeline seeds
+	// free (the tier bucket), the container sorts the 100 rows.
+	[BenchmarkCategory("Sort_ListList"), Benchmark(Baseline = true)]
+	public int Sort_ListList_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _listListArgs.group).UseIndex(_byTier, _listListArgs.tier).Sort(new PqbByScore()).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Sort_ListList"), Benchmark]
+	public int Sort_ListList_Prepared() {
+		using var r = _sortListListPrepared.ExecutePooled(_listListArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Sort_ListList"), Benchmark]
+	public int Sort_ListList_Frozen() {
+		using var r = _sortListListFrozen.ExecutePooled(_listListArgs);
 		return r.Count;
 	}
 

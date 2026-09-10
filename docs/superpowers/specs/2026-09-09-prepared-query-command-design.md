@@ -655,6 +655,77 @@ selector / predicate / `Clone()`, pool-path seeds; executor selection and `Expla
 `Prague.Core.Tests` 1398 → 1457 per target framework, 0 failures; `Prague.Generated.Tests` unchanged and green.
 
 
+### Stage 3 — step 3: seed selection
+
+*Design:* pipeline design §3.3 (free seed), §3.4 (small-probe order-preserving seed), §8 (classic
+`Sort`), §13 step 3; the executor's docs in `Pipeline/PipelineExecutor.cs`.
+
+*What executes.* `Bind` records the active steps; `ChooseSeed` picks one of three modes (`SeedMode`):
+**fixed** — the first active step, the eager `_first` rule — and, when that step is `PooledSet`-backed
+(list equality, key-set) and another active equality step's live signal is at most half its own
+(`2 × small ≤ first`), **small-probe** — the small step is walked instead, each survivor is located in
+the first step's set with `PooledSet.TryGetSlot`, and the survivors are sorted by slot (`(slot, key)`
+scratch: 256 slots on the stack, `PragueArrayPool` above) — the first step's own sequence at the
+small step's cost; **free** — the smallest signal seeds (unique 0/1 always wins; ties → declared
+order; an exact zero is the empty result with no walk; a range / last-updated B+tree estimate replaces
+an exact count only when `2 × estimate < exact`) — for `Count` always, for `Execute*` under a classic
+`Sort` (the rows are fully sorted afterwards) or the opt-in `ReorderIndexNarrowers`. A walked step is
+index-judged; a step whose walk stands in for the first step's (the small step, a moved free seed)
+keeps its value-side probe on the survivors. `Signal` per step: unique `TryGetValue` → 0/1, unique `In`
+→ span length, list → the bound bucket's live count (the bucket is now looked up once at `Bind` for
+every list step, not only key-side ones), list `In` → the sum of bucket counts, key-set → `Count`,
+range / last-updated → `EstimateCount` (`ExactSignal = false`). `Explain()` prints the seed rule and the
+last execution's decision (`last seed: step 1 ListEq (signal 6), probe: slot-sorted into step 0 ListEq
+(signal 34)`), recorded only when the decision changes — no per-execution shared write.
+
+*Seed copy.* `PooledSet.CopyKeysTo<TSink>` copies a bucket in one gate-pinned pass: the generation once,
+`LastIndex` once (acquire), plain loads over the slots (the enumerator's per-slot `Volatile.Read` is an
+acquire load on ARM); 546 vs 761 ns per dense 1k bucket (0.72×), 169 vs 221 at 300. Multi-bucket seeds
+go through `DedupeSink` (a `ValueSet` admits each key once — the eager `UnionWith` order) into the same
+copy; `CacheKeySetIndex.CopyKeysTo` uses it under its lock. Reader safety is the enumerator's:
+the pin keeps the generation alive, the acquire of `LastIndex` orders every slot below it after its
+publication, a dead slot (HashCode < 0) or a reference key cleared by a concurrent remove is skipped,
+multi-word struct keys keep the version-guarded copy.
+
+*Planner rule.* Simple, `Pipeline = true`, one to sixteen non-composite index steps, **unsorted or
+under a classic `Sort`** (`TResolver.IsSorter && !AllowsBounded` — the sorter runs inside the eager
+`SimpleResultContainer<…, SortResolver>` the pipeline drives) → `Pipeline`, with or without
+`ReorderIndexNarrowers`. `SortBounded` (`ExecuteCoreSimpleTop`) replays until step 6. The stage-2
+`IndexStepsExecutor` and `FrozenOptions.AdaptiveIntersection` are retired: every plan they served takes
+the pipeline (§13 step 7, first half); `FrozenHints` stays for replayed plans, `FusedFilter` for both.
+
+*Not in this step.* Composites (step 4), `JoinOne` fusion (step 5), the `SortBounded` feed (step 6) —
+the production shapes A / B replay, their unsorted narrowing part is the `ListListList` row below.
+
+#### Measured (Apple M4 Pro, .NET 9, `--inProcess`, default job, one category per run; full tables in `RESULTS.MD`, "stage 3, step 3")
+
+| Row | Eager | `Build()` | `BuildFrozen()` | Ratio | Bar (§12, step 3) | Frozen alloc |
+|---|---:|---:|---:|---:|---|---|
+| `ListList` (1k ∩ 100, small-probe seed, eager order) | 9.09 µs | 9.04 µs | **1.72 µs** | 0.19 (5.3×) | ≥ 2× kept | 0 B |
+| `ListList_FrozenReorder` (free seed, tier order) | — | — | 1.35 µs | 0.15 | the slot sort is the difference | 0 B |
+| `ListListReversed` (100 ∩ 1k, fixed = small) | 1.31 µs | 1.30 µs | 0.99 µs | 0.76 (1.32×) | re-measure (step 2: 1.03) | 0 B |
+| `ListListList` (1k ∩ 333 ∩ 111, shape A narrowing) | 11.70 µs | 11.58 µs | **2.25 µs** | 0.19 (5.2×) | ≥ 3× kept | 0 B |
+| `Count_ListList` (free seed) | 8.90 µs | 8.75 µs | **1.06 µs** | 0.12 (8.4×) | ≥ 5× kept | 0 B |
+| `Sort_ListList` (classic `Sort`, free seed + container sort) | 10.51 µs | 10.39 µs | **2.21 µs** | 0.21 (4.75×) | ≥ 2× kept | 0 B |
+| `ListWhere` (1k bucket + `Flag`) | 8.47 µs | 8.44 µs | 7.72 µs | 0.91 (1.10×) | ≥ 1.5× **missed** — the 1k `TryGet` + delegate floor; PGO band 7.1–8.6 | 0 B |
+| `Count_ListWhere` | 6.64 µs | 6.58 µs | 6.77 µs | 1.02 | same floor (step 2: 5.77, PGO-favoured) | 0 B |
+| `ListKeySet` (1k ∩ a third) | 11.95 µs | 12.00 µs | 10.37 µs | 0.87 (1.15×) | re-measure; same floor | 0 B |
+| `ListRange` / `Count_` / `ListLastUpdated` / `Range` / `OptionalRange` | 401 / 424 / 219 / 12.7 / 12.8 µs | = | 12.5 / 11.1 / 10.8 / 8.8 / 9.1 µs | 0.03 / 0.03 / 0.05 / 0.69 / 0.71 | within noise of step 2 | 0 B |
+| `ListTwoArgWheres` | 10.88 µs | 13.32 µs | 13.59 µs | 1.25 | tuple args copied per candidate through the fused arg predicates (step 2: 1.15) — carried to the filter work | 0 B |
+| `Unique*`, `ListTwoWheres`, `ListThreeWheres`, `JoinOne`, `Match`, shapes A / B (+ `Count_`) | — | — | — | within noise of step 2 | replay for A / B | = |
+
+Tests: `FrozenPipelineSeedTests` (16: small-probe on every shape and every argument set against eager
+incl. unique-second, key-set-first, collection-backed overlapping buckets, list `In` + unique `In` +
+range + filters; the fixed walk kept for range / last-updated / unique first; signals followed across
+mutations; the pool path; free seed row-set equality and `Count` on every shape; classic `Sort` byte-
+identical with a total comparer and tie groups with a tie comparer across pages; `SortBounded` still
+replays; leak balance on every seed path under throwing selector / predicate / comparer / `Clone`; 8
+readers against a writer), `FrozenPipelineAllocationTests` +4 (both `list ∩ list` orders, three lists,
+`Sort`), the staleness pin extended to the free `Count`. `Prague.Core.Tests/Prepared` 373 in Release
+(net9.0), full Core suite in Debug on both frameworks and `Prague.Generated.Tests` 1210 green (numbers
+in the commit).
+
+
 ## 9. Relation to the event-loop research
 
 A `PreparedQuery<TArgs, TResult>` is exactly what a per-cache loop would dequeue: an immutable

@@ -369,33 +369,28 @@ public class PreparedQueryAllocationTests {
 #endif
 	}
 
-	// Capacity hints, single compaction and smallest-bucket seeding rent from the same pools the
-	// eager core rents from; none of them may add a per-execution allocation.
+	// The pipeline's fixed seed (small-probe: the tier bucket walked, survivors slot-sorted into the group
+	// bucket's order) and its free seed rent from the same pools the eager core rents from; neither may
+	// add a per-execution allocation.
 	[Test]
-	public void Frozen_ListList_DefaultAdaptiveIntersectionAndReorder_Pooled_AllocateNoMoreThanEager() {
+	public void Frozen_ListList_FixedAndFreeSeed_Pooled_AllocateNoMoreThanEager() {
 		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
-		var single = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
-			.BuildFrozen(new FrozenOptions { AdaptiveIntersection = true, Pipeline = false });
 		var reorder = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
 			.BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true });
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
-		Assert.That(single.Plan.Executor, Is.EqualTo("IndexSteps"));
-		Assert.That(reorder.Plan.Executor, Is.EqualTo("IndexSteps"));
+		Assert.That(reorder.Plan.Executor, Is.EqualTo("Pipeline"));
 		var args = (group: 13, tier: 3);
 
 		var eager = Measure(() => _cache.Query().UseIndex(_byGroup, args.group).UseIndex(_byTier, args.tier).ExecutePooled().Dispose());
-		var hinted = Measure(() => frozen.ExecutePooled(args).Dispose());
-		var compacted = Measure(() => single.ExecutePooled(args).Dispose());
+		var fixedSeed = Measure(() => frozen.ExecutePooled(args).Dispose());
 		var reordered = Measure(() => reorder.ExecutePooled(args).Dispose());
 
-		TestContext.Out.WriteLine($"list+list: eager {(double)eager / Iterations:F1} B/op, frozen {(double)hinted / Iterations:F1} B/op, adaptive intersection {(double)compacted / Iterations:F1} B/op, reorder {(double)reordered / Iterations:F1} B/op");
-		Assert.That(hinted, Is.LessThanOrEqualTo(eager + Iterations / 100));
-		Assert.That(compacted, Is.LessThanOrEqualTo(eager + Iterations / 100));
+		TestContext.Out.WriteLine($"list+list: eager {(double)eager / Iterations:F1} B/op, frozen {(double)fixedSeed / Iterations:F1} B/op, reorder {(double)reordered / Iterations:F1} B/op");
+		Assert.That(fixedSeed, Is.LessThanOrEqualTo(eager + Iterations / 100));
 		Assert.That(reordered, Is.LessThanOrEqualTo(eager + Iterations / 100));
 #if !DEBUG
-		Assert.That(hinted, Is.EqualTo(0), "frozen pooled list+list must allocate nothing in Release");
-		Assert.That(compacted, Is.EqualTo(0), "adaptive intersection must allocate nothing in Release");
-		Assert.That(reordered, Is.EqualTo(0), "smallest-bucket seeding must allocate nothing in Release");
+		Assert.That(fixedSeed, Is.EqualTo(0), "frozen pooled list+list must allocate nothing in Release");
+		Assert.That(reordered, Is.EqualTo(0), "free-seed list+list must allocate nothing in Release");
 #endif
 	}
 

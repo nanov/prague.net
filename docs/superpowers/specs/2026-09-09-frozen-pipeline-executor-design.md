@@ -1,7 +1,9 @@
 # Frozen queries stage 3: the pipeline executor
 
-> **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. Nothing here is
-> implemented. Stage 2 (`FrozenOptions`, `FusedFilter`, `FrozenHints`, `IndexStepsExecutor`) was
+> **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. §13 steps 1–3 are
+> shipped (step 3: the small-probe seed §3.4, the free seed §3.3 for `Count` / classic `Sort` /
+> `ReorderIndexNarrowers`, the bulk `PooledSet.CopyKeysTo` seed copy, `IndexStepsExecutor` retired —
+> parent spec §8 "Stage 3", RESULTS.MD "stage 3, step 3"); steps 4–7 are open. Stage 2 (`FrozenOptions`, `FusedFilter`, `FrozenHints`, `IndexStepsExecutor`) was
 > uncommitted in the working tree while this was written; where the design touches it, the file is
 > named and the dependency called out. Line numbers are HEAD's unless marked *(wt)* for the
 > working tree.
@@ -665,9 +667,10 @@ Allocation column: `-` (0 B) on every `Pipeline` row.
    `FrozenQuery.cs`; `Explain` output). Drives `SimpleResultContainer` (§6). Tests (a) for the
    non-composite shapes, (d), (e), (f). Rows: `ListWhere`, `ListList` (fixed walk only — expect
    ~1.3×), `ListRange`, `Range`, `OptionalRange`, `ListKeySet`, `ListLastUpdated`, `Count_*`.
-3. **Seed selection**: small-probe seed (§3.4), free seed for `Count`, `FrozenOptions.ReorderIndexNarrowers`
-   wiring, `Sort` (classic) via `SimpleResultContainer<…, SortResolver>` with free seed. Tests (b).
-   Rows: `ListList` (now ≥ 2×), `ListListReversed`, `RangeList`, `IfTaken`-style unique-second.
+3. **Seed selection** — *shipped*: small-probe seed (§3.4), free seed for `Count`, `FrozenOptions.ReorderIndexNarrowers`
+   wiring, `Sort` (classic) via `SimpleResultContainer<…, SortResolver>` with free seed, the bulk
+   `PooledSet.CopyKeysTo` seed copy. Tests (b) in `FrozenPipelineSeedTests`. Rows: `ListList` 5.3×,
+   `ListListList` 5.2×, `Count_ListList` 8.4×, `Sort_ListList` 4.75× (parent spec §8 "step 3").
 4. **Composites**: `Steps/IfSteps.cs`, `Steps/MatchStep.cs`, `Steps/OrStep.cs`; bind-time activation
    (§5.2), Or as seed with dedupe and as probe (§5.1), `FrozenOptions.OrSeed`. Tests (a)/(b) for
    Or/If/Match fixtures. Rows: `Or`, `OrAfterList`, `IfSkipped`, `IfTaken`, `Match`.
@@ -679,7 +682,8 @@ Allocation column: `-` (0 B) on every `Pipeline` row.
 6. **`SortBounded` feed**: pipeline → `TopKSimpleResultContainer` / `TopKJoinedBaseContainer` with the
    `ExecuteCoreSimpleTop` gate (§8). Tests: `PreparedQuerySortDifferentialTests` twins, pages
    partition (`SortBounded_PagesConcatenateToTheWholeResult` style). Rows: `SortBounded`, `Sort`.
-7. **Cleanup**: retire `IndexStepsExecutor` if every plan it served now takes the pipeline; keep
+7. **Cleanup** (first half done in step 3: `IndexStepsExecutor` and `AdaptiveIntersection` retired — every
+   plan they served takes the pipeline): keep
    `FusedFilter` (ordering) and `FrozenHints` (replay fallback only). Update `context/query.md` and
    the parent spec's §8 with a stage-3 section and the final tables.
 

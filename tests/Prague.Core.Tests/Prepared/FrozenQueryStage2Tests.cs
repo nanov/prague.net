@@ -4,9 +4,11 @@ using Prague.Core;
 using Prague.Core.Tests.Infrastructure;
 using static PreparedQueryDifferentialTests;
 
-// BuildFrozen() stage 2: fused filters with adaptive ordering, capacity hints, single compaction
-// and smallest-bucket seeding. Optimizations 1–3 must return the eager rows in the eager order on
-// every shape; optimization 4 is opt-in and pinned on set equality + Count. The fixtures reuse the
+// BuildFrozen() stage 2: fused filters with adaptive ordering, capacity hints and smallest-bucket
+// seeding (ReorderIndexNarrowers). Optimizations 1–2 must return the eager rows in the eager order on
+// every shape; the reorder is opt-in and pinned on set equality + Count. The stage-2 adaptive
+// intersection (IndexStepsExecutor) was retired in stage 3 step 3: its plans take the pipeline, whose
+// small-probe and free seeds cover both roles (FrozenPipelineSeedTests). The fixtures reuse the
 // stage-1 model: 240 items, Code = 1000 + Id, Group = Id % 7 (buckets of ~34), Flag = Id % 3 == 0,
 // plus Tier = Id % 40 (buckets of 6) for the two-list shapes.
 [TestFixture]
@@ -40,12 +42,10 @@ public class FrozenQueryStage2Tests {
 
 	private static readonly FrozenOptions FixedOrder = new() { AdaptiveFilterOrdering = false };
 	private static readonly FrozenOptions NoFusion = new() { FuseFilters = false };
-	// Stage 3 binds every simple unsorted non-composite plan to the pipeline; the stage-2 executors are
+	// Stage 3 binds every simple non-composite plan to the pipeline; the stage-2 replay optimizations are
 	// exercised here with the pipeline switched off, exactly as they ran when this file was written.
 	private static readonly FrozenOptions Stage2 = new() { Pipeline = false };
 	private static readonly FrozenOptions NoHints = new() { CapacityHints = false, Pipeline = false };
-	private static readonly FrozenOptions AdaptiveIntersection = new() { AdaptiveIntersection = true, Pipeline = false };
-	private static readonly FrozenOptions EagerIntersection = new() { AdaptiveIntersection = false, Pipeline = false };
 	private static readonly FrozenOptions Reorder = new() { ReorderIndexNarrowers = true };
 
 	private static void AssertSameSet(QueryResults<PqItem> eager, QueryResults<PqItem> frozen) {
@@ -331,58 +331,23 @@ public class FrozenQueryStage2Tests {
 	// ── Optimization 3 / 4: index steps ───────────────────────────────────────────
 
 	[Test]
-	public void IndexSteps_IsChosen_OnlyWhenAskedFor_AndOnlyForEqualityPlans() {
+	public void Reorder_IsThePipelinesFreeSeed_AndPipelineOffReplays() {
 		Assert.Multiple(() => {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "default options: the stage-3 pipeline");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("IndexSteps"), "pipeline off: adaptive intersection is on");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(EagerIntersection).Plan.Executor, Is.EqualTo("Replay"), "adaptive intersection off");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("IndexSteps"), "reorder");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(new FrozenOptions { AdaptiveIntersection = false, ReorderIndexNarrowers = true }).Plan.Executor, Is.EqualTo("IndexSteps"), "reorder alone");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Replay"), "one step: nothing to reorder");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_codeRange, static rb => rb.Gte(1100)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Replay"), "range is not an equality step");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byCode, new[] { 1042 }).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Replay"), "multi-value");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("Replay"), "pipeline off: the replay with hints");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Stage2).Plan.Optimizations, Does.Contain("CapacityHints"));
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "reorder");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Reorder).Plan.Optimizations, Does.Contain("ReorderIndexNarrowers"));
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "one step: the free seed is that step");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_codeRange, static rb => rb.Gte(1100)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "a range step signals an estimate");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byCode, new[] { 1042 }).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "multi-value");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Or(b => b.UseIndex(_byTier, 3), b => b.UseIndex(_byTier, 4)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Replay"), "composite");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_flagged).BuildFrozen(Reorder).Plan.Optimizations, Does.Contain("ReorderIndexNarrowers"), "key-set reorders");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_flagged).BuildFrozen(AdaptiveIntersection).Plan.Optimizations, Does.Not.Contain("AdaptiveIntersection"), "key-set keeps the eager intersection");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_flagged).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("Replay"), "key-set, stage-2 options");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("IndexSteps"), "sorted");
-			var explain = _cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Where(static v => v.Flag).Where(static v => v.Id > 0).BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true, AdaptiveIntersection = true }).Explain();
-			Assert.That(explain, Does.Contain("executor: IndexSteps").And.Contain("FusedFilters").And.Contain("CapacityHints").And.Contain("ReorderIndexNarrowers").And.Contain("AdaptiveIntersection"));
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Replay"), "SortBounded replays until the bounded feed (step 6); the reorder does not apply");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort: pipeline, free seed");
+			var explain = _cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Where(static v => v.Flag).Where(static v => v.Id > 0).BuildFrozen(Reorder).Explain();
+			Assert.That(explain, Does.Contain("executor: Pipeline").And.Contain("FusedFilters").And.Contain("ReorderIndexNarrowers").And.Contain("pipeline: seed = free for Execute"));
 		});
-	}
-
-	[Test]
-	public void AdaptiveIntersection_ListList_ListListUnique_WithFilters_LikeEager_InOrder() {
-		var listList = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(AdaptiveIntersection);
-		var withFilters = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
-			.Where(static v => v.Flag).Where(static v => v.Id > 3).BuildFrozen(AdaptiveIntersection);
-		var three = _cache.Prepare<int, PqItem, (int group, int tier, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).UseIndex(_byCode, static a => a.code).BuildFrozen(AdaptiveIntersection);
-		Assert.That(three.Plan.Executor, Is.EqualTo("IndexSteps"));
-		for (var g = -1; g < 8; g++)
-			for (var t = -1; t < 41; t++) {
-				AssertSame(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Execute(), listList.Execute((g, t)));
-				AssertSame(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Where(static v => v.Flag).Where(static v => v.Id > 3).ExecutePooled(1, 2), withFilters.ExecutePooled((g, t), 1, 2));
-				Assert.That(listList.Count((g, t)), Is.EqualTo(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Count()));
-				var code = 1000 + (g * 40 + t + 240) % 240;
-				AssertSame(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).UseIndex(_byCode, code).Execute(), three.Execute((g, t, code)));
-			}
-	}
-
-	[Test]
-	public void AdaptiveIntersection_LargeSeed_PastTheStackBitmap_LikeEager_AndNoLeak() {
-		var big = new InMemoryDataCache<int, PqItem>();
-		var byGroup = big.CacheKeyValueListIndex<int>(static (_, v) => v.Group);
-		var byTier = big.CacheKeyValueListIndex<int>(static (_, v) => v.Id % 3);
-		for (var i = 0; i < 20_000; i++)
-			big.AddOrUpdate(i, new PqItem { Id = i, Code = 1000 + i, Group = i % 2, Flag = i % 3 == 0 });
-		var frozen = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier).BuildFrozen(AdaptiveIntersection);
-		LeakAssert.Balanced(() => {
-			frozen.ExecutePooled((0, 1)).Dispose();
-			frozen.ExecutePooled((1, 5)).Dispose();
-			frozen.Count((1, 2));
-		});
-		AssertSame(big.Query().UseIndex(byGroup, 0).UseIndex(byTier, 1).Execute(), frozen.Execute((0, 1)));
-		AssertSame(big.Query().UseIndex(byGroup, 1).UseIndex(byTier, 2).Execute(), frozen.Execute((1, 2)));
 	}
 
 	[Test]
@@ -392,12 +357,9 @@ public class FrozenQueryStage2Tests {
 		var withKeySet = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).BuildFrozen(Reorder);
 		var withFilters = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
 			.Where(static v => v.Flag).Where(static (v, a) => v.Id >= a.min).BuildFrozen(Reorder);
-		var both = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
-			.BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true, AdaptiveIntersection = true });
 		for (var g = -1; g < 8; g++) {
 			for (var t = -1; t < 41; t++) {
 				AssertSameSet(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Execute(), frozen.Execute((g, t)));
-				AssertSameSet(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Execute(), both.Execute((g, t)));
 				AssertSameSet(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Where(static v => v.Flag).Where(v => v.Id >= 7).Execute(), withFilters.Execute((g, t, 7)));
 				Assert.That(frozen.Count((g, t)), Is.EqualTo(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Count()));
 			}
@@ -432,13 +394,12 @@ public class FrozenQueryStage2Tests {
 	[Test]
 	public void DefaultOptions_KeepEncounterOrder_OnEveryStage2Shape() {
 		Assert.That(FrozenOptions.Default.ReorderIndexNarrowers, Is.False);
-		Assert.That(FrozenOptions.Default.AdaptiveIntersection, Is.True);
 		var listList = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
 		var listRange = _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen();
 		Assert.That(listList.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(listRange.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(listRange.Plan.Optimizations, Is.Empty, "no filters to fuse; the pipeline needs no hint");
-		Assert.That(_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("IndexSteps"));
+		Assert.That(_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("Replay"));
 		Assert.That(_cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("Replay"));
 		for (var g = -1; g < 8; g++)
 			for (var t = -1; t < 41; t++) {

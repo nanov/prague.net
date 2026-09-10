@@ -472,14 +472,18 @@ public class FrozenPipelineTests {
 		Assert.That(Ids(valueSide.Execute()), Is.EqualTo(eager()), "after the write lands, all agree");
 		Assert.That(Ids(keySide.Execute()), Is.EqualTo(eager()));
 
-		// Direction 2: store = NEW (inside), index still OLD (outside).
+		// Direction 2: store = NEW (inside), index still OLD (outside). Count seeds free (step 3): the range
+		// window is the smaller signal, so its walk — the stale index — misses the row the fixed-seed
+		// Execute returns through the group bucket; a free seed can miss a row whose index write has not
+		// landed, never return one contradicting its value (both inside the contract).
 		RunPaused(pause, () => cache.AddOrUpdate(24, new PqItem { Id = 24, Code = 1024, Group = 3, Flag = true }), () => {
 			var eagerRows = eager();
 			Assert.That(eagerRows, Does.Not.Contain(24), "eager misses the row: the index still has it outside");
 			Assert.That(Ids(keySide.Execute()), Is.EqualTo(eagerRows));
 			var rows = Ids(valueSide.Execute());
 			Assert.That(rows, Does.Contain(24), "the value is inside the window: the pipeline returns it");
-			Assert.That(valueSide.Count(), Is.EqualTo(rows.Length));
+			Assert.That(valueSide.Count(), Is.EqualTo(rows.Length - 1), "Count walks the range index (free seed) and misses the not-yet-indexed row");
+			Assert.That(valueSide.Explain(), Does.Contain("last seed: step 1 Range").And.Contain("free: smallest signal"));
 		});
 		Assert.That(Ids(valueSide.Execute()), Is.EqualTo(eager()));
 	}
@@ -718,10 +722,10 @@ public class FrozenPipelineTests {
 			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 2)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Or");
 			Assert.That(_cache.Prepare<int, PqItem, bool>().UseIndex(_byGroup, 3).If(static c => c, b => b.UseIndex(_flagged)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "If");
 			Assert.That(_cache.Prepare<int, PqItem, int>().Match(static a => a, m => m.Case(0, b => b.UseIndex(_byGroup, 1))).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Match");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "sorted");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "sort-bounded");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort (step 3: free seed into the sorting container)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "sort-bounded (step 6)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(new FrozenOptions { Pipeline = false }).Plan.Executor, Is.EqualTo("Replay"), "pipeline off");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true }).Plan.Executor, Is.EqualTo("IndexSteps"), "reorder keeps the index-steps executor until the free seed lands");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true }).Plan.Executor, Is.EqualTo("Pipeline"), "reorder is the pipeline's free seed");
 			Assert.That(_cache.Prepare<int, PqItem, (long a, long b, long c)>().UseIndex(_byGroup, 3).UseIndex(bigKeys, static (rb, a) => rb.Gte(a)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an unmanaged key over 16 bytes replays");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(refKeys, static rb => rb.Gte(("1000", 0))).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a struct key with references replays");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_codeText, static rb => rb.Gte("001000")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a reference key runs");
@@ -737,7 +741,7 @@ public class FrozenPipelineTests {
 		var text = frozen.Explain();
 		Assert.Multiple(() => {
 			Assert.That(text, Does.Contain("executor: Pipeline"));
-			Assert.That(text, Does.Contain("pipeline: seed = first active index step (fixed order)"));
+			Assert.That(text, Does.Contain("pipeline: seed = fixed for Execute, free for Count"));
 			Assert.That(text, Does.Contain("0 ListEq probe: value-side, 1 Range probe: value-side, 2 KeySet probe: value-side, 3 LastUpdatedAfter probe: key-side"));
 			Assert.That(text, Does.Contain("filters: 2 (fused, order below)"));
 			Assert.That(text, Does.Contain("fused filters: 2"));

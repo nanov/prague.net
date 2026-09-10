@@ -14,6 +14,28 @@ internal static class PipelineLimits {
 
 	/// <summary>Stack longs the seed key buffer starts with (1 KB); larger seeds spill to the array pool.</summary>
 	internal const int SeedStackLongs = 128;
+
+	/// <summary>Stack ints the small-probe seed's slot scratch starts with (1 KB); larger survivor sets spill to the array pool.</summary>
+	internal const int SlotStackInts = 256;
+}
+
+/// <summary>How one execution chose its seed (design §3.3 / §3.4).</summary>
+internal enum SeedMode : byte {
+	/// <summary>No active index step: the store walk.</summary>
+	AllRows,
+
+	/// <summary>The first active index step, walked in its own order — the eager <c>_first</c> rule.</summary>
+	Fixed,
+
+	/// <summary>
+	///   The first active step still decides the order, but a smaller equality step is walked instead and
+	///   its survivors are sorted by the slot they occupy in the first step's set — the eager sequence at
+	///   the small step's cost.
+	/// </summary>
+	SmallProbe,
+
+	/// <summary>The step with the smallest cardinality signal; encounter order follows it.</summary>
+	Free,
 }
 
 /// <summary>Which side of the store a step probes (design §4 / §14.1).</summary>
@@ -155,6 +177,12 @@ internal ref struct SeedKeys<TKey> : IKeySink<TKey> {
 
 	internal ReadOnlySpan<TKey> Keys => _buffer[.._count];
 
+	/// <summary>The copied keys, writable: the small-probe seed compacts and reorders them in place.</summary>
+	internal Span<TKey> MutableKeys => _buffer[.._count];
+
+	/// <summary>Drops every key past <paramref name="count" /> (after an in-place compaction).</summary>
+	internal void Truncate(int count) => _count = count;
+
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Add(TKey key) {
 		var count = _count;
@@ -204,12 +232,20 @@ internal ref struct PipelineFrame<TKey> {
 	internal PipelineFrame(SeedKeys<TKey> seed) => Seed = seed;
 
 	internal StepBindings Bindings;
+	internal StepIndices Active;
 	internal StepIndices KeyProbes;
 	internal StepIndices ValueProbes;
+	internal int ActiveCount;
 	internal int KeyProbeCount;
 	internal int ValueProbeCount;
 	internal int SeedStep;
+	internal int SmallStep;
+	internal SeedMode Mode;
 	internal SeedKeys<TKey> Seed;
+
+	internal ReadOnlySpan<byte> ActiveList {
+		[UnscopedRef] get => ((ReadOnlySpan<byte>)Active)[..ActiveCount];
+	}
 
 	internal ReadOnlySpan<byte> KeyProbeList {
 		[UnscopedRef] get => ((ReadOnlySpan<byte>)KeyProbes)[..KeyProbeCount];
@@ -239,8 +275,24 @@ internal interface IPipelineStep<TKey, TValue, TArgs>
 	/// <summary>Resolves the execution arguments into <paramref name="binding" /> once (selectors, range bounds).</summary>
 	StepActivation Bind(in TArgs args, ref StepBinding binding);
 
+	/// <summary>
+	///   True when <see cref="Signal" /> is an exact live count (unique, list, key-set — the equality steps,
+	///   which may also walk as the small side of a small-probe seed); false for the B+tree estimates
+	///   (range, last-updated), which only ever pick a seed and never decide emptiness.
+	/// </summary>
+	bool ExactSignal { get; }
+
+	/// <summary>True when the step is backed by one <see cref="PooledSet{T,TKeyComparer}" /> whose slot order is the step's seed order, so <see cref="TryGetSlot" /> can reproduce it.</summary>
+	bool SlotAddressable { get; }
+
+	/// <summary>The rows this binding would seed — a live count or a B+tree estimate (design §3.1); read only when a seed has to be chosen.</summary>
+	int Signal(in StepBinding binding);
+
 	/// <summary>Copies the keys the step's index holds for the binding into <paramref name="seed" />; <paramref name="dedupe" /> is created on demand by multi-bucket seeds.</summary>
 	void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe);
+
+	/// <summary>For a <see cref="SlotAddressable" /> step: the slot <paramref name="key" /> occupies in the bound set — its position in the step's seed order — or false when absent.</summary>
+	bool TryGetSlot(TKey key, in StepBinding binding, out int slot);
 
 	bool ProbeKey(TKey key, in StepBinding binding);
 
@@ -271,9 +323,20 @@ internal abstract class PipelineStepBase<TKey, TValue, TArgs> : IPipelineStep<TK
 
 	public virtual bool NeedsRelease => false;
 
+	public virtual bool ExactSignal => true;
+
+	public virtual bool SlotAddressable => false;
+
 	public abstract StepActivation Bind(in TArgs args, ref StepBinding binding);
 
+	public abstract int Signal(in StepBinding binding);
+
 	public abstract void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe);
+
+	public virtual bool TryGetSlot(TKey key, in StepBinding binding, out int slot) {
+		slot = -1;
+		return false;
+	}
 
 	public virtual bool ProbeKey(TKey key, in StepBinding binding) => true;
 
@@ -281,19 +344,34 @@ internal abstract class PipelineStepBase<TKey, TValue, TArgs> : IPipelineStep<TK
 
 	public virtual void Release(ref StepBinding binding) { }
 
-	/// <summary>Cold-path helper: walks one list bucket into the seed, deduplicating through <paramref name="dedupe" /> when asked (the eager <c>UnionWith</c> into a set).</summary>
+	/// <summary>Copies one list bucket into the seed (the bulk <see cref="PooledSet{T,TKeyComparer}.CopyKeysTo{TSink}" />), deduplicating through <paramref name="dedupe" /> when asked (the eager <c>UnionWith</c> into a set).</summary>
 	protected static void SeedBucket(PooledSet<TKey, DefaultKeyComparer<TKey>> bucket, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe, bool dedupeKeys) {
 		if (!dedupeKeys) {
-			foreach (var key in bucket)
-				seed.Add(key);
+			bucket.CopyKeysTo(ref seed);
 			return;
 		}
 
 		if (!dedupe.IsInitlized)
 			dedupe = new ValueSet<TKey, DefaultKeyComparer<TKey>>();
-		foreach (var key in bucket)
-			if (dedupe.Add(key))
-				seed.Add(key);
+		var sink = new DedupeSink<TKey>(ref seed, ref dedupe);
+		bucket.CopyKeysTo(ref sink);
+	}
+}
+
+/// <summary>
+///   A seed sink that admits each key once through a <see cref="ValueSet{T,TKeyComparer}" /> — the
+///   eager <c>UnionWith</c> chain's first-occurrence rule for overlapping buckets. The seed is a ref
+///   struct, which a ref field cannot name (CS9050); both pointers are laundered through <c>void*</c>
+///   and the sink never outlives the copy it is passed to.
+/// </summary>
+internal unsafe ref struct DedupeSink<TKey>(ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) : IKeySink<TKey>
+	where TKey : IEquatable<TKey> {
+	private readonly void* _seed = Unsafe.AsPointer(ref seed);
+	private readonly void* _dedupe = Unsafe.AsPointer(ref dedupe);
+
+	public void Add(TKey key) {
+		if (Unsafe.AsRef<ValueSet<TKey, DefaultKeyComparer<TKey>>>(_dedupe).Add(key))
+			Unsafe.AsRef<SeedKeys<TKey>>(_seed).Add(key);
 	}
 }
 
@@ -340,22 +418,46 @@ internal static unsafe class SeedAggregators<TKey, TIndexKey>
 	}
 }
 
-/// <summary>What <c>Explain()</c> prints for a pipeline plan: the seed rule and every step's probe side.</summary>
+/// <summary>
+///   What <c>Explain()</c> prints for a pipeline plan: the seed rule, every step's probe side, and the
+///   last execution's seed decision. The decision is advisory shared state — plain int fields written
+///   only when the decision changes, so steady-state executions of one plan read a line they never
+///   write.
+/// </summary>
 internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly IPipelineStep<TKey, TValue, TArgs>[] _steps;
 	private readonly int _filters;
 	private readonly bool _fused;
+	private readonly bool _freeSeed;
+	private int _lastDecision = -1;
+	private int _lastSeedSignal;
+	private int _lastOtherSignal;
 
-	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused) {
+	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed) {
 		_steps = steps;
 		_filters = filters;
 		_fused = fused;
+		_freeSeed = freeSeed;
+	}
+
+	/// <summary>True when <c>Execute*</c> seeds from the smallest signal (a classic <c>Sort</c>, or <see cref="FrozenOptions.ReorderIndexNarrowers" />); <c>Count</c> always does.</summary>
+	internal bool FreeSeed => _freeSeed;
+
+	// Written only when the (mode, seed, small) decision changes, so the signals printed are those of the
+	// execution that last changed it — a plan executed with one set of arguments never writes here again.
+	internal void Record(SeedMode mode, int seed, int small, int seedSignal, int otherSignal) {
+		var packed = (int)mode | (seed + 1) << 8 | (small + 1) << 16;
+		if (packed == _lastDecision)
+			return;
+		_lastSeedSignal = seedSignal;
+		_lastOtherSignal = otherSignal;
+		_lastDecision = packed;
 	}
 
 	public void Explain(StringBuilder sb) {
-		sb.Append("pipeline: seed = first active index step (fixed order), steps: [");
+		sb.Append("pipeline: seed = ").Append(_freeSeed ? "free" : "fixed").Append(" for Execute, free for Count (fixed: the first active index step, walking a smaller equality step instead when 2 × its signal ≤ the first's and sorting the survivors by slot; free: the smallest signal, unique first, an estimate only when estimate × 2 < the best exact count), steps: [");
 		for (var i = 0; i < _steps.Length; i++) {
 			if (i > 0)
 				sb.Append(", ");
@@ -363,5 +465,25 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 		}
 
 		sb.Append("], filters: ").Append(_filters).Append(_fused ? " (fused, order below)" : " (direct)").AppendLine();
+		var decision = _lastDecision;
+		if (decision < 0)
+			return;
+		var mode = (SeedMode)(decision & 0xFF);
+		var seed = ((decision >> 8) & 0xFF) - 1;
+		var small = ((decision >> 16) & 0xFF) - 1;
+		sb.Append("  last seed: ");
+		switch (mode) {
+			case SeedMode.AllRows:
+				sb.AppendLine("all rows (no active index step)");
+				break;
+			case SeedMode.SmallProbe:
+				sb.Append("step ").Append(small).Append(' ').Append(_steps[small].Kind).Append(" (signal ").Append(_lastOtherSignal)
+					.Append("), probe: slot-sorted into step ").Append(seed).Append(' ').Append(_steps[seed].Kind).Append(" (signal ").Append(_lastSeedSignal).AppendLine(")");
+				break;
+			default:
+				sb.Append("step ").Append(seed).Append(' ').Append(_steps[seed].Kind).Append(" (signal ").Append(_lastSeedSignal).Append("), ")
+					.AppendLine(mode == SeedMode.Fixed ? "fixed: first active step" : "free: smallest signal");
+				break;
+		}
 	}
 }

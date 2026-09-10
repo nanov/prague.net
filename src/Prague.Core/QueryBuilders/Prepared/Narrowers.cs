@@ -8,7 +8,7 @@ using QueryBuilders;
 // (a static lambda is a cached delegate), so an execution costs one delegate call and no allocation.
 
 /// <summary>Unique (1:1) index equality with a value bound at build time.</summary>
-public readonly struct UniqueIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPointLookupSource<TKey, TValue, TArgs>, IIndexStep<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
+public readonly struct UniqueIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPointLookupSource<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
@@ -30,16 +30,12 @@ public readonly struct UniqueIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower
 	FrozenQuery<TArgs, TValue> IPointLookupSource<TKey, TValue, TArgs>.CreateFrozen(InMemoryDataCache<TKey, TValue> cache, FilterStep<TValue, TArgs>[] filters, IReadOnlyList<NarrowerDescriptor> narrowers)
 		=> new FrozenQuery<TArgs, TValue, PointLookupExecutor<TKey, TValue, TArgs, TIndexKey>>(new(cache, _index, _value, null, filters), narrowers, false, false);
 
-	int IIndexStep<TKey, TValue, TArgs>.Cardinality(in TArgs args) => _index.TryGetValue(_value, out _) ? 1 : 0;
-
-	void IIndexStep<TKey, TValue, TArgs>.Apply(ref CacheQueryBuilderCoreCombined<TKey, TValue> core, in TArgs args) => Apply(ref core, in args);
-
 	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
 		=> new UniqueEqStep<TKey, TValue, TIndexKey, TArgs>(_index, _value, null);
 }
 
 /// <summary>Unique (1:1) index equality with the value selected from the execution arguments.</summary>
-public readonly struct UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPointLookupSource<TKey, TValue, TArgs>, IIndexStep<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
+public readonly struct UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPointLookupSource<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
@@ -61,16 +57,12 @@ public readonly struct UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarro
 	FrozenQuery<TArgs, TValue> IPointLookupSource<TKey, TValue, TArgs>.CreateFrozen(InMemoryDataCache<TKey, TValue> cache, FilterStep<TValue, TArgs>[] filters, IReadOnlyList<NarrowerDescriptor> narrowers)
 		=> new FrozenQuery<TArgs, TValue, PointLookupExecutor<TKey, TValue, TArgs, TIndexKey>>(new(cache, _index, default!, _selector, filters), narrowers, false, false);
 
-	int IIndexStep<TKey, TValue, TArgs>.Cardinality(in TArgs args) => _index.TryGetValue(_selector(args), out _) ? 1 : 0;
-
-	void IIndexStep<TKey, TValue, TArgs>.Apply(ref CacheQueryBuilderCoreCombined<TKey, TValue> core, in TArgs args) => Apply(ref core, in args);
-
 	IPipelineStep<TKey, TValue, TArgs>? IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
 		=> StepBinding.CanHold<TIndexKey>() ? new UniqueEqStep<TKey, TValue, TIndexKey, TArgs>(_index, default!, _selector) : null;
 }
 
 /// <summary>List (1:N) index equality with a value bound at build time.</summary>
-public readonly struct ListIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IIndexStep<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
+public readonly struct ListIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
@@ -88,16 +80,12 @@ public readonly struct ListIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<T
 
 	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.ListEq, _index, _value, null, false, this));
 
-	int IIndexStep<TKey, TValue, TArgs>.Cardinality(in TArgs args) => _index.TryGetCount(_value);
-
-	void IIndexStep<TKey, TValue, TArgs>.Apply(ref CacheQueryBuilderCoreCombined<TKey, TValue> core, in TArgs args) => Apply(ref core, in args);
-
 	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
 		=> new ListEqStep<TKey, TValue, TIndexKey, TArgs>(_index, _value, null, options.IndexSideProbes);
 }
 
 /// <summary>List (1:N) index equality with the value selected from the execution arguments.</summary>
-public readonly struct ListIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IIndexStep<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
+public readonly struct ListIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : notnull {
@@ -114,10 +102,6 @@ public readonly struct ListIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrowe
 		=> core.UseIndexInternal(_index, _selector(args));
 
 	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.ListEq, _index, null, _selector, true, this));
-
-	int IIndexStep<TKey, TValue, TArgs>.Cardinality(in TArgs args) => _index.TryGetCount(_selector(args));
-
-	void IIndexStep<TKey, TValue, TArgs>.Apply(ref CacheQueryBuilderCoreCombined<TKey, TValue> core, in TArgs args) => Apply(ref core, in args);
 
 	IPipelineStep<TKey, TValue, TArgs>? IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
 		=> StepBinding.CanHold<TIndexKey>() ? new ListEqStep<TKey, TValue, TIndexKey, TArgs>(_index, default!, _selector, options.IndexSideProbes) : null;
@@ -248,7 +232,7 @@ public readonly struct ListIndexInProjected<TKey, TValue, TIndexKey, TOtherValue
 }
 
 /// <summary>Key-set (predicate) index: the index itself is the whole description, nothing to bind.</summary>
-public readonly struct KeySetNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IIndexStep<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
+public readonly struct KeySetNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly CacheKeySetIndex<TKey, TValue> _index;
@@ -260,10 +244,6 @@ public readonly struct KeySetNarrower<TKey, TValue, TArgs> : INarrower<TKey, TVa
 		=> core.UseIndexInternal(_index);
 
 	public void Describe(List<NarrowerDescriptor> plan) => plan.Add(NarrowerDescriptor.ForIndex(NarrowerKind.KeySet, _index, null, null, false, this));
-
-	int IIndexStep<TKey, TValue, TArgs>.Cardinality(in TArgs args) => (int)Math.Min(_index.ApproximateCount, int.MaxValue);
-
-	void IIndexStep<TKey, TValue, TArgs>.Apply(ref CacheQueryBuilderCoreCombined<TKey, TValue> core, in TArgs args) => Apply(ref core, in args);
 
 	IPipelineStep<TKey, TValue, TArgs> IPipelineStepSource<TKey, TValue, TArgs>.CreatePipelineStep(FrozenOptions options)
 		=> new KeySetStep<TKey, TValue, TArgs>(_index, options.IndexSideProbes);

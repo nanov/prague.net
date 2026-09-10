@@ -361,11 +361,11 @@ internal static class FrozenReplay {
 
 /// <summary>
 ///   <c>BuildFrozen()</c>'s planner. Flattens the typed chain through <c>Describe</c>, picks the
-///   executor — point lookup, index steps (when the options ask for a data-dependent step order or an
-///   adaptive intersection on an all-equality plan) or the replay — and attaches the stage-2
-///   optimizations the plan qualifies for: a fused filter for two or more top-level <c>Where</c>s and a
-///   capacity hint for equality-seeded plans. Everything here runs once per build; nothing is
-///   reached from an execution.
+///   executor — point lookup, the pipeline (every simple plan of non-composite index steps, unsorted
+///   or under a classic <c>Sort</c>) or the replay — and attaches the optimizations the plan qualifies
+///   for: a fused filter for two or more top-level <c>Where</c>s and, for replayed plans, a capacity
+///   hint when they are equality-seeded. Everything here runs once per build; nothing is reached from
+///   an execution.
 /// </summary>
 internal static class FrozenPlanner {
 	/// <summary>The optimizations a plan ended up with: their names for <see cref="PlanInfo" /> and their live state for <c>Explain()</c>.</summary>
@@ -392,34 +392,6 @@ internal static class FrozenPlanner {
 		return true;
 	}
 
-	/// <summary>The most equality steps an index-steps plan may have (its per-execution bucket sizes live on the stack).</summary>
-	internal const int MaxIndexSteps = 64;
-
-	/// <summary>
-	///   Index-steps eligibility: every top-level op is an equality index step (unique, list, key-set)
-	///   or a filter, with two to <see cref="MaxIndexSteps" /> index steps — one step has nothing to
-	///   reorder or to intersect adaptively.
-	/// </summary>
-	internal static bool IsIndexSteps(IReadOnlyList<NarrowerDescriptor> narrowers) {
-		var steps = 0;
-		for (var i = 0; i < narrowers.Count; i++) {
-			switch (narrowers[i].Kind) {
-				case NarrowerKind.UniqueEq:
-				case NarrowerKind.ListEq:
-				case NarrowerKind.KeySet:
-					steps++;
-					break;
-				case NarrowerKind.Filter:
-				case NarrowerKind.FilterArg:
-					break;
-				default:
-					return false;
-			}
-		}
-
-		return steps is >= 2 and <= MaxIndexSteps;
-	}
-
 	internal static FrozenQuery<TArgs, TValue> Simple<TKey, TValue, TArgs, TChain, TResolver, TPlan>(
 		InMemoryDataCache<TKey, TValue> cache, in TChain chain, in Resolvers<TResolver> resolvers, bool isSorted, FrozenOptions options)
 		where TKey : notnull, IEquatable<TKey>
@@ -437,32 +409,25 @@ internal static class FrozenPlanner {
 
 		var names = new List<string>();
 		var live = new List<IPlanExplainable>();
-		// Stage 3: the pipeline takes every simple, unsorted plan of non-composite index steps. The
-		// opt-in smallest-bucket seeding stays on the index-steps executor until the pipeline's free
-		// seed lands (design §13.3).
-		if (options.Pipeline && !hasResolvers && !isSorted && !options.ReorderIndexNarrowers && TryPipeline<TKey, TValue, TArgs>(narrowers, options, out var pipelineSteps)) {
+		// Stage 3: the pipeline takes every simple plan of non-composite index steps that is unsorted or
+		// under a classic Sort (the sorter runs inside the eager container the pipeline drives; a
+		// SortBounded page is the ExecuteCoreSimpleTop plan and replays until the design's step 6).
+		var classicSort = isSorted && TResolver.IsSorter && !resolvers.Resolver.AllowsBounded;
+		if (options.Pipeline && (!hasResolvers || classicSort) && TryPipeline<TKey, TValue, TArgs>(narrowers, options, out var pipelineSteps)) {
 			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
 			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
-			live.Insert(0, new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null));
+			if (options.ReorderIndexNarrowers)
+				names.Add("ReorderIndexNarrowers");
+			// Free seed: Count always; Execute when the rows are fully sorted afterwards (classic Sort —
+			// design §8) or the caller opted out of the eager encounter order.
+			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || classicSort);
+			live.Insert(0, plan);
 			return new FrozenQuery<TArgs, TValue, PipelineExecutor<TKey, TValue, TArgs, TResolver>>(
-				new(cache, pipelineSteps, in resolvers, filters, pipelineFused), narrowers, hasResolvers, isSorted, new(names, live));
+				new(cache, pipelineSteps, in resolvers, filters, pipelineFused, plan), narrowers, hasResolvers, isSorted, new(names, live));
 		}
 
 		var fused = Fuse<TValue, TArgs>(narrowers, options, names, live);
 		var hints = Hints(narrowers, options, names, live);
-
-		// A key-set step in intersecter mode always marks (it is written for the Or branch's first step),
-		// so a plan with one keeps the eager intersection.
-		var adaptiveIntersection = options.AdaptiveIntersection && !HasKind(narrowers, NarrowerKind.KeySet);
-		if ((options.ReorderIndexNarrowers || adaptiveIntersection) && IsIndexSteps(narrowers) && TryIndexSteps<TKey, TValue, TArgs>(narrowers, out var steps)) {
-			if (options.ReorderIndexNarrowers)
-				names.Add("ReorderIndexNarrowers");
-			if (adaptiveIntersection)
-				names.Add("AdaptiveIntersection");
-			return new FrozenQuery<TArgs, TValue, IndexStepsExecutor<TKey, TValue, TArgs, TResolver, TPlan>>(
-				new(cache, steps, in resolvers, fused, hints, options.ReorderIndexNarrowers, adaptiveIntersection), narrowers, hasResolvers, isSorted, new(names, live));
-		}
-
 		if (fused is null && hints is null)
 			return new FrozenQuery<TArgs, TValue, ReplaySimpleExecutor<TKey, TValue, TArgs, TChain, TResolver, TPlan>>(
 				new(cache, in chain, in resolvers), narrowers, hasResolvers, isSorted);
@@ -562,18 +527,11 @@ internal static class FrozenPlanner {
 		return steps > 0;
 	}
 
-	private static bool HasKind(IReadOnlyList<NarrowerDescriptor> narrowers, NarrowerKind kind) {
-		for (var i = 0; i < narrowers.Count; i++)
-			if (narrowers[i].Kind == kind)
-				return true;
-		return false;
-	}
-
 	/// <summary>
 	///   Pipeline eligibility (design §9): one to <see cref="PipelineLimits.MaxSteps" /> index steps, every
 	///   one a non-composite narrower that can build its step under the options (a key the binding can
 	///   hold; no range step when probes must be index-side), plus any number of top-level filters. A
-	///   filter-only plan has no seed source and replays; composites arrive in a later step.
+	///   filter-only plan has no seed source and replays; composites arrive in the design's step 4.
 	/// </summary>
 	private static bool TryPipeline<TKey, TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers, FrozenOptions options, out IPipelineStep<TKey, TValue, TArgs>[] steps)
 		where TKey : notnull, IEquatable<TKey>
@@ -612,26 +570,6 @@ internal static class FrozenPlanner {
 		}
 
 		return list.ToArray();
-	}
-
-	private static bool TryIndexSteps<TKey, TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers, out IIndexStep<TKey, TValue, TArgs>[] steps)
-		where TKey : notnull, IEquatable<TKey>
-		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
-		var list = new List<IIndexStep<TKey, TValue, TArgs>>();
-		for (var i = 0; i < narrowers.Count; i++) {
-			var d = narrowers[i];
-			if (d.Kind is NarrowerKind.Filter or NarrowerKind.FilterArg)
-				continue;
-			if (d.Source is not IIndexStep<TKey, TValue, TArgs> step) {
-				steps = [];
-				return false;
-			}
-
-			list.Add(step);
-		}
-
-		steps = list.ToArray();
-		return true;
 	}
 
 	// The filters after the unique step, unboxed once into typed steps the executor applies in order.

@@ -33,6 +33,8 @@ internal sealed class UniqueEqStep<TKey, TValue, TIndexKey, TArgs> : PipelineSte
 
 	private TIndexKey Key(in StepBinding binding) => _selector is null ? _value : binding.Read<TIndexKey>(0);
 
+	public override int Signal(in StepBinding binding) => _index.TryGetValue(Key(in binding), out _) ? 1 : 0;
+
 	public override void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) {
 		if (_index.TryGetValue(Key(in binding), out var entityKey))
 			seed.Add(entityKey);
@@ -74,6 +76,9 @@ internal sealed class UniqueInStep<TKey, TValue, TIndexKey, TArgs> : PipelineSte
 	}
 
 	private ReadOnlySpan<TIndexKey> Values(in StepBinding binding) => _selector is null ? _values.Span : BindingMemory.Read<TIndexKey>(in binding);
+
+	// The span length: an upper bound (a missing value maps to no row) that costs no probe.
+	public override int Signal(in StepBinding binding) => Values(in binding).Length;
 
 	public override void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) {
 		var values = Values(in binding);

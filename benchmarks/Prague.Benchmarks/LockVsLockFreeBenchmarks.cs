@@ -123,6 +123,25 @@ internal sealed class LockVsLockFreeWorld {
 		return n;
 	}
 
+	// The pipeline's seed copy since step 3: one gate pin, plain loads over the slot array.
+	public static int CopySeedPooledBulk(PooledSet<int, DefaultKeyComparer<int>> seed, Span<int> into) {
+		var sink = new SpanSink(into);
+		seed.CopyKeysTo(ref sink);
+		return sink.Count;
+	}
+
+	private ref struct SpanSink(Span<int> into) : IKeySink<int> {
+		private readonly Span<int> _into = into;
+		private int _count;
+
+		public int Count => _count;
+
+		public void Add(int key) {
+			if (_count < _into.Length)
+				_into[_count++] = key;
+		}
+	}
+
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	private static int CopySeedHashSetCore(HashSet<int> seed, Span<int> into) {
 		var n = 0;
@@ -379,6 +398,9 @@ public class LockVsLockFreeBenchmarks {
 
 	[BenchmarkCategory("SeedCopy"), Benchmark(Baseline = true)]
 	public int SeedCopy_PooledSet() => LockVsLockFreeWorld.CopySeedPooled(_seed, _seedBuffer);
+
+	[BenchmarkCategory("SeedCopy"), Benchmark]
+	public int SeedCopy_PooledSet_Bulk() => LockVsLockFreeWorld.CopySeedPooledBulk(_seed, _seedBuffer);
 
 	[BenchmarkCategory("SeedCopy"), Benchmark]
 	public int SeedCopy_HashSet_Lock() => LockVsLockFreeWorld.CopySeedHashSetLocked(_seedSet, _world.SeedLock, _seedBuffer);
