@@ -1,11 +1,13 @@
 # Frozen queries stage 3: the pipeline executor
 
-> **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. §13 steps 1–3 and 6 are
+> **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. §13 steps 1–3, 5, 6 and 7 are
 > shipped (step 3: the small-probe seed §3.4, the free seed §3.3 for `Count` / classic `Sort` /
 > `ReorderIndexNarrowers`, the bulk `PooledSet.CopyKeysTo` seed copy, `IndexStepsExecutor` retired —
 > parent spec §8 "Stage 3", RESULTS.MD "stage 3, step 3"; step 6: the `SortBounded` feed §8 for simple
 > plans and for `SortBounded` → outer-`JoinOne` joined plans, the joins unfused — parent spec §8 "step 6",
-> RESULTS.MD "stage 3, step 6"); steps 4, 5 and 7 are open. Stage 2 (`FrozenOptions`, `FusedFilter`, `FrozenHints`, `IndexStepsExecutor`) was
+> RESULTS.MD "stage 3, step 6"; step 5: `JoinOne` fusion §7.1 — parent spec §8 "step 5"; step 7: the
+> frozen bounded joined container §8 — parent spec §8 "step 7", RESULTS.MD "stage 3, step 7"); step 4
+> (composites) and step 8 (cleanup) are open. Stage 2 (`FrozenOptions`, `FusedFilter`, `FrozenHints`, `IndexStepsExecutor`) was
 > uncommitted in the working tree while this was written; where the design touches it, the file is
 > named and the dependency called out. Line numbers are HEAD's unless marked *(wt)* for the
 > working tree.
@@ -523,7 +525,11 @@ replacing the pair-set build.
 - **`SortBounded`**: pipeline → `TopKSimpleResultContainer` (`Add` stamps `_seen++` as the ordinal,
   `415-426`) with the **fixed** seed, so ordinals are eager's. The `ExecuteCoreSimpleTop` gate
   (`take != int.MaxValue && TResolver.IsSorter && AllowsBounded && OrdersByLeftValues`,
-  `1982-1993`) is reused verbatim; when it fails the classic container is used, as eager does.
+  `1982-1993`) is reused verbatim; when it fails the classic container is used, as eager does. A
+  *joined* `SortBounded` page takes the frozen-only `FrozenTopKJoinedContainer` (§13 step 7) instead of
+  the eager `TopKJoinedBaseContainer` — identical behaviour, but the sorter arrives as a struct type
+  parameter, so a comparison is the user comparer's `Compare` rather than one `__Canon`-shared hop per
+  chain link.
 
 ## 9. Fallback matrix and the planner rule
 
@@ -716,7 +722,25 @@ Allocation column: `-` (0 B) on every `Pipeline` row.
    shape A 2.2× (bar ≥ 2× kept), shape B 1.27× / 1.24× (bar ≥ 1.5× missed: the two unfused `JoinOne` fills
    are 9.4 of its 26.8 µs — step 5's baseline; the narrowing + page alone is 1.44×). Found and fixed on the way: `JoinedResultContaier.BuildResults` handed its buffer off before the
    clone, so a throwing `Clone()` on a pooled cloned joined page stranded the values array (eager too).
-7. **Cleanup** (first half done in step 3: `IndexStepsExecutor` and `AdaptiveIntersection` retired — every
+7. **The frozen bounded joined container** — *shipped*: `IResolvers.WithSorter<TVisitor>` +
+   `ISorterVisitor` (`ResolverChain.cs`, the sorter-only twin of `Execute<TExecutor>`: the same JIT-folded
+   `TResolver.IsSorter` test per link, walked **once per execution**) hand the chain's sorter to
+   `PipelineJoinedExecutor.BoundedFeeder` statically typed, and the bounded flow's heap runs in the new
+   `FrozenTopKJoinedContainer<TKey,TValue,TSorter>` (`Pipeline/FrozenTopKJoinedContainer.cs`) whose
+   `TopKSorterPairComparer` holds the sorter itself. Behaviourally the eager
+   `TopKJoinedBaseContainer` line for line — same heap-vs-collect-all plan, same encounter ordinals, same
+   `Seal` total, same `Drain` contract, same "the heap buffer never transfers ownership" rule — and the
+   eager container is untouched (the only eager edit is the two additive `WithSorter` implementations on
+   `Resolvers<…>`). *Why:* `IResolvers.CompareLeftValues<TLeft>` is a generic method over a reference
+   `TLeft`, so each chain link is a constrained call into a `__Canon`-shared body that never inlines
+   through to the user comparer — ~2-4 ns per link per comparison. Measured on the shapes' own bounded
+   workload (`BoundedComparerProbeBenchmarks`, 100 candidates into a heap of 40 plus the drain): 3.86 µs
+   through the sorter, 4.99 / 7.44 / 9.61 through a 1 / 2 / 3-link chain. Rows: shape A 3.50× (bar ≥ 2.5×
+   kept), shape B 1.89× and B-range 2.10× (bar ≥ 1.5× kept); a joined bounded page now costs what the
+   simple one costs (B 17.85 µs against 17.62 without its joins). Tests: `FrozenPipelineJoinTests` +1,
+   `FrozenPipelineAllocationTests` +2 pins; every existing joined `SortBounded` suite now runs through the
+   new container (parent spec §8 "step 7", RESULTS "stage 3, step 7").
+8. **Cleanup** (first half done in step 3: `IndexStepsExecutor` and `AdaptiveIntersection` retired — every
    plan they served takes the pipeline): keep
    `FusedFilter` (ordering) and `FrozenHints` (replay fallback only). Update `context/query.md` and
    the parent spec's §8 with a stage-3 section and the final tables.

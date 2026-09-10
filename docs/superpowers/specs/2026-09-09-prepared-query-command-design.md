@@ -912,6 +912,76 @@ assertions updated for the shapes that now fuse. `Prague.Core.Tests/Prepared` 39
 397 + 1106 in Debug on net9.0, `Prague.Generated.Tests` 1214 green.
 
 
+### Stage 3 — step 7: the frozen bounded joined container
+
+*Design:* pipeline design §8 (`SortBounded` → the bounded containers), §7.3 (sort after join), §13 step
+7; the container's doc in `QueryBuilders/Prepared/Pipeline/FrozenTopKJoinedContainer.cs`, the chain hook
+in `QueryBuilders/ResolverChain.cs` (`IResolvers.WithSorter`, `ISorterVisitor`).
+
+*The problem, measured first.* Step 5 read shape B as `Count` **12.60** → the *simple* bounded page
+**17.63** (+5.03) → the *joined* bounded page with both fused fills **24.73** (+7.10), and put ≈6.6 µs of
+that on the eager joined bounded container's comparison path. Reproduced on this tree before any change:
+12.60 → 17.67 → 23.98 (+6.31). A throwaway probe (`BoundedComparerProbeBenchmarks`, kept) runs exactly
+the shapes' bounded workload — 100 candidates into a heap of 40 plus the ascending drain, ~600
+comparisons — through each comparer alone: **3.86 µs** with the sorter as a struct type parameter, 4.99
+through a one-link chain, 7.44 through two (shape A's) and **9.61** through three (shape B's). The
+3-link penalty, +5.75 µs, plus the join-free row's 17.67, is 23.42 against the 23.98 measured; the ≈0.6
+µs left over is `MaterializeTopK`, the 40 page lookups and the joined `BuildResults`. So the attribution
+was right in substance and slightly wrong in detail: `MaterializeTopK` is *not* a meaningful part of it,
+the per-link generic hop is. `IResolvers.CompareLeftValues<TLeft>` is a generic method over a reference
+`TLeft`, so each link is a constrained call into a `__Canon`-shared body that needs its generic context
+and never inlines through to the user comparer — ~2-4 ns per link per comparison. Carrying the key in
+the heap triple costs nothing (3.86 vs 3.91 µs).
+
+*What executes.* `IResolvers` gains `WithSorter<TVisitor>(ref TVisitor)`, the sorter-only twin of
+`Execute<TExecutor>`: the same JIT-folded `TResolver.IsSorter` test per link that `CompareLeftValues`
+uses, walked **once per execution** instead of once per link per comparison, handing the sorter to an
+`ISorterVisitor` statically typed. `PipelineJoinedExecutor.ExecuteTop` now builds a `BoundedFeeder` (a
+ref struct holding the pass's spans, the args by `ref readonly`, the chain by `ref` and the joined
+container as a laundered pointer) and calls `chain.WithSorter(ref feeder)`; inside `Visit<TSorter>` the
+whole comparison-bound half runs — `FrozenTopKJoinedContainer<TKey,TValue,TSorter>.Init`, the pass (or,
+with an inner fused join, the pooled `RowBuffer` collect + narrow), `Drain`, `MaterializeTopK` — with
+every compare going through `TopKSorterPairComparer`, which holds the sorter itself. The new container
+is the eager `TopKJoinedBaseContainer` line for line otherwise: the same heap-vs-collect-all plan choice,
+the same encounter ordinals, the same `Seal` total, the same `Drain` contract, the same
+"the heap buffer never transfers ownership" rule. The eager container is untouched and still serves
+`ExecuteCoreJoinedTop`; the only edits to eager types are the two additive `WithSorter` implementations
+on `Resolvers<…>`. The gate is unchanged — an unbounded or negative page still takes the classic joined
+flow — and so is the inner-narrowing-before-the-heap rule, so tie ordinals stay eager's.
+
+*Not in this step.* `JoinMany` (design §7.2), composites (step 4), the `SortBounded` simple row's 1.1×
+floor (RESULTS, step 6).
+
+#### Measured (Apple M4 Pro, .NET 9, `--inProcess`, default job, one category per run; full tables in `RESULTS.MD`, "stage 3, step 7")
+
+| Row | Eager | `Build()` | `BuildFrozen()` | Ratio | Bar | Frozen alloc |
+|---|---:|---:|---:|---:|---|---|
+| Shape A `ListListListSortBoundedJoinOne` | 17.06 µs | 16.85 µs | **4.88 µs** | 0.29 (**3.50×**) | ≥ 2.5× **kept** (step 5: 2.37×) | 0 B |
+| Shape B `TimeWindowListListSortBoundedJoinTwo` | 33.81 µs | 33.64 µs | **17.85 µs** | 0.53 (**1.89×**) | ≥ 1.5× **kept** (step 5: 1.37×) | 0 B |
+| Shape B-range `TimeRangeListListSortBoundedJoinTwo` | 37.10 µs | 37.07 µs | **17.65 µs** | 0.48 (**2.10×**) | ≥ 1.5× **kept** (step 5: 1.51×) | 0 B |
+| Shape B without its joins | 25.23 µs | — | 17.62 µs | 0.70 | unchanged — and shape B is now 0.23 µs above it | 0 B |
+| `Count_` shape A / B / B-range | 10.74 / 21.66 / 24.50 µs | = | 1.42 / 12.99 / 17.13 µs | 0.13 / 0.60 / 0.70 | no container on this path; drift only | 0 B |
+| Shape B `_FrozenIndexSide` | — | — | 20.03 µs | 1.12 vs frozen | still slower — value-side default stands | 0 B |
+| `JoinOne` / `InnerJoinOne` / `JoinOneChained` / `JoinOneFiltered` | 30.51 / 33.80 / 44.49 / 21.40 µs | = | 19.97 / 17.69 / 26.79 / 19.76 µs | 0.65 / 0.52 / 0.60 / 0.92 | classic flow, untouched — within noise of step 5 | 0 B |
+| `SortBounded` / `SortBounded_ListList` / `ListListList` | 16.12 / 11.62 / 11.37 µs | = | 14.74 / 3.85 / 2.21 µs | 0.91 / 0.33 / 0.19 | simple containers, untouched | 0 B |
+
+The headline: **a joined bounded page now costs what the simple one costs.** Shape B with two joins is
+17.85 µs against 17.62 for the same narrowing and page without joins.
+
+Tests: `FrozenPipelineJoinTests` +1 (step 7 — a class comparer and a tying class comparer as the
+innermost bounded sorter, one join and a three-join chain, the mixed `fused: 1, unfused: 1` step-6 mask,
+all four `Execute*` variants × eight pages incl. `take = int.MaxValue` (the classic fallback), a page past
+the end and `take = 0`, byte-identical to eager and to prepared on rows and every joined slot with clone
+identity of both sides, `Count` three ways, pages of 1 / 3 / 7 partitioning the eager whole; and a
+throwing class comparer on the heap page, the collect-all page and the unbounded classic page with the
+eager twin, under `LeakAssert.Balanced`), `FrozenPipelineAllocationTests` +2 pins (the joined bounded page
+and its collect-all page with a class comparer — 0 B). Every existing joined `SortBounded` test
+(`FrozenPipelineSortBoundedTests`' shapes A / B, ties, pages-partition, leak and 8-reader suites;
+`FrozenPipelineJoinTests`' bounded inner / chained / tie-comparer suites; the generated twins) now runs
+through the new container unchanged. `Prague.Core.Tests/Prepared` 398 in Release (net9.0), 398 + 1106 in
+Debug on net9.0, `Prague.Generated.Tests` 1214 green. No codegen or T4 change.
+
+
 ## 9. Relation to the event-loop research
 
 A `PreparedQuery<TArgs, TResult>` is exactly what a per-cache loop would dequeue: an immutable

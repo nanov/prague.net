@@ -1287,3 +1287,110 @@ The production shapes (the joined bounded flow: the fused lookups fill the page 
   after fusion too; the value-side default stands.
 - **No regressions.** The narrowing-only rows are unchanged within noise (B without joins 17.63 vs 17.44
   at step 6; shape A's `Count` 1.50 vs 1.41), and the shapes that already took the pipeline are untouched.
+
+
+# Frozen queries — `BuildFrozen()` stage 3, step 7: the frozen bounded joined container
+
+Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md` §8 (`SortBounded`), §7.3
+(sort after join), §13 step 7. Apple M4 Pro, .NET 9.0 (osx-arm64), Release, `--inProcess`, default job,
+`[MemoryDiagnoser]`, one category per run. Same stores and rows as step 5. The only change under test:
+a joined `SortBounded` page now selects its top-k in `FrozenTopKJoinedContainer`, which the resolver
+chain hands its sorter as a **struct type parameter** (`IResolvers.WithSorter`), instead of in the eager
+`TopKJoinedBaseContainer`, which compares through `IResolvers.CompareLeftValues` — one constrained,
+`__Canon`-shared hop per chain link per comparison. Everything else (the pass, the fused fills, the
+page materialization, the eager containers) is untouched.
+
+## The diagnosis, measured — `BoundedComparerProbeBenchmarks`
+
+The same bounded workload the production shapes run (100 candidates pushed into a heap of K = 40, then
+the ascending drain — ~600 comparisons), driven through each comparer in isolation. `Link` is a
+placeholder `IJoinResolver` standing in for a `JoinOne`; only the chain's shape matters here.
+
+| Method               | Mean     | Ratio | Δ vs sorter | Allocated |
+|--------------------- |---------:|------:|------------:|----------:|
+| ValueComparer_Sorter | 3.906 us |  1.00 |           — |         - |
+| PairComparer_Sorter  | 3.861 us |  0.99 |    −0.05 us |         - |
+| PairComparer_Chain1  | 4.992 us |  1.28 |    +1.13 us |         - |
+| PairComparer_Chain2  | 7.435 us |  1.90 |    +3.57 us |         - |
+| PairComparer_Chain3  | 9.612 us |  2.46 |    +5.75 us |         - |
+
+## The production shapes
+
+| Method                                               | Mean         | Ratio | Step 5 | Allocated |
+|----------------------------------------------------- |-------------:|------:|-------:|----------:|
+| ListListListSortBoundedJoinOne_Eager (shape A)       | 17.06 us     |  1.00 | 17.23  |         - |
+| ListListListSortBoundedJoinOne_Prepared              | 16.85 us     |  0.99 | 16.99  |         - |
+| ListListListSortBoundedJoinOne_Frozen                | **4.88 us**  |  0.29 | 7.27   |         - |
+| Count_ListListListSortBoundedJoinOne_Eager           | 10.74 us     |  1.00 | 10.87  |         - |
+| Count_ListListListSortBoundedJoinOne_Frozen          | **1.42 us**  |  0.13 | 1.50   |         - |
+|                                                      |              |       |        |           |
+| TimeWindowListListSortBoundedJoinTwo_Eager (shape B) | 33.81 us     |  1.00 | 33.93  |         - |
+| TimeWindowListListSortBoundedJoinTwo_Prepared        | 33.64 us     |  0.99 | 33.69  |         - |
+| TimeWindowListListSortBoundedJoinTwo_Frozen          | **17.85 us** |  0.53 | 24.73  |         - |
+| TimeWindowListListSortBoundedJoinTwo_FrozenIndexSide | 20.03 us     |  0.59 | 25.69  |         - |
+| TimeWindowListListSortBounded_Eager (B, no joins)    | 25.23 us     |  1.00 | 24.96  |         - |
+| TimeWindowListListSortBounded_Frozen                 | 17.62 us     |  0.70 | 17.63  |         - |
+| Count_TimeWindowListListSortBoundedJoinTwo_Eager     | 21.66 us     |  1.00 | 21.69  |         - |
+| Count_TimeWindowListListSortBoundedJoinTwo_Frozen    | **12.99 us** |  0.60 | 12.60  |         - |
+|                                                      |              |       |        |           |
+| TimeRangeListListSortBoundedJoinTwo_Eager (B-range)  | 37.10 us     |  1.00 | 36.97  |         - |
+| TimeRangeListListSortBoundedJoinTwo_Prepared         | 37.07 us     |  1.00 | 36.78  |         - |
+| TimeRangeListListSortBoundedJoinTwo_Frozen           | **17.65 us** |  0.48 | 24.49  |         - |
+| Count_TimeRangeListListSortBoundedJoinTwo_Eager      | 24.50 us     |  1.00 | —      |         - |
+| Count_TimeRangeListListSortBoundedJoinTwo_Frozen     | **17.13 us** |  0.70 | 16.76¹ |         - |
+
+¹ step 6's number; step 5 did not re-measure the B-range `Count`.
+
+## The rows that must not move
+
+| Method                        | Mean         | Ratio | Step 5 | Allocated |
+|------------------------------ |-------------:|------:|-------:|----------:|
+| JoinOne_Frozen                | 19.97 us     |  0.65 | 20.57  |         - |
+| InnerJoinOne_Frozen           | 17.69 us     |  0.52 | 17.68  |         - |
+| JoinOneChained_Frozen         | 26.79 us     |  0.60 | 26.83  |         - |
+| JoinOneFiltered_Frozen        | 19.76 us     |  0.92 | 19.77  |         - |
+| SortBounded_Frozen            | 14.74 us     |  0.91 | 14.96² |         - |
+| SortBounded_ListList_Frozen   | 3.85 us      |  0.33 | 3.66²  |         - |
+| ListListList_Frozen           | 2.21 us      |  0.19 | 2.18²  |         - |
+
+² step 6's number (step 5 did not re-measure the simple rows).
+
+## Reading it
+
+- **The step-5 attribution was right, and the probe pins it exactly.** Step 5 decomposed shape B as
+  `Count` 12.60 → the *simple* bounded page 17.63 (+5.03) → the *joined* bounded page with both fused
+  fills 24.73 (+7.10), and attributed ≈6.6 µs of that to the joined container's comparer path.
+  Reproduced on this tree before any change: 12.60 → 17.67 → 23.98 (+6.31). The probe says the joined
+  container's 3-link chain costs **+5.75 µs** over a sorter-typed comparer on exactly this workload, and
+  `17.67 + 5.75 = 23.42` against the 23.98 measured — the remaining ≈0.6 µs is `MaterializeTopK`, the 40
+  page lookups and the joined `BuildResults`. So the comparer hop is not *part* of the gap, it is
+  essentially all of it; `MaterializeTopK` is noise by comparison, which corrects step 5's "plus
+  `MaterializeTopK`" wording. Shape A's 2-link chain costs +3.57 µs on 100 rows, and shape A moved
+  7.28 → 4.88 (−2.40 on its 111 rows) — the same effect at the same scale.
+- **The chain hop is per link, and it is linear.** 3.86 (sorter) → 4.99 (1 link) → 7.44 (2) → 9.61 (3):
+  ≈1.1 µs for the first link and ≈2.3 µs for each further one, over ~600 comparisons, i.e. ~2-4 ns per
+  link per comparison. `CompareLeftValues<TLeft>` is a generic method over a reference `TLeft`, so every
+  link is a constrained call into a `__Canon`-shared body that needs its generic context and cannot be
+  inlined through; the sorter-typed comparer collapses the whole hop into the user comparer's `Compare`.
+  Carrying the key in the heap triple costs nothing (`PairComparer_Sorter` 3.86 vs `ValueComparer_Sorter`
+  3.91) — the tuple width was never the problem.
+- **Bars.** Shape A `ListListListSortBoundedJoinOne` 17.06 → 4.88 (**3.50×**, bar ≥ 2.5× — step 5 missed
+  it at 2.37×). Shape B `TimeWindowListListSortBoundedJoinTwo` 33.81 → 17.85 (**1.89×**, bar ≥ 1.5× —
+  step 5 missed it at 1.37×). B-range 37.10 → 17.65 (**2.10×**, bar ≥ 1.5×). Every pipeline row 0 B.
+- **The joined page now costs what the simple page costs.** Shape B with two joins is 17.85 µs against
+  17.62 for the same narrowing and page *without* joins: the joined bounded container is no longer more
+  expensive than the simple one, and the 0.23 µs left is the two fused fills over 20 page rows plus the
+  page materialization. That is the floor this shape has — the remaining 17.6 µs is the narrowing
+  (`Count` 12.99) plus the top-k over ~100 rows, exactly what the simple row pays.
+- **B-range gains more than B.** 24.49 → 17.65 (−6.84) against B's −6.13, and its frozen time is now
+  *below* B's despite a slower eager, because the range seed pays no last-updated tree walk on the free
+  count path.
+- **Key-side probing still loses**, by less: `_FrozenIndexSide` 20.03 vs 17.85 (step 5: 25.69 vs 24.73).
+  The value-side default stands (design §2.3, §14.1).
+- **No regressions.** The unsorted / classic joined rows (`JoinOne`, `InnerJoinOne`, `JoinOneChained`,
+  `JoinOneFiltered`) take the classic flow, which step 7 does not touch, and land within noise of step 5;
+  the simple containers (`SortBounded`, `SortBounded_ListList`, `ListListList`) are untouched. Both
+  `Count` rows of shape B moved up ~0.4 µs (12.60 → 12.99, 16.76 → 17.13) — the count path has no
+  container and no chain hop, so this is run-to-run drift, and their eager baselines moved with them.
+  One `InnerJoinOne` run landed at 18.61 µs and re-measured at 17.69; single in-process runs on this
+  machine carry ~5% between-run spread, which is why every claim above rests on a gap far larger than it.

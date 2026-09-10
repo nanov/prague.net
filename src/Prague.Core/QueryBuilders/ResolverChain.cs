@@ -35,6 +35,25 @@ public interface IResolvers {
 	/// </summary>
 	int CompareLeftValues<TLeft>(TLeft a, TLeft b)
 		=> throw new InvalidOperationException("Resolver chain has no sorter");
+
+	/// <summary>
+	///   Hands the chain's sorter to <paramref name="visitor" /> as a struct type parameter, so the work
+	///   the visitor does per comparison calls the sorter directly instead of hopping the chain
+	///   (<see cref="CompareLeftValues{TLeft}" />) once per link per compare. Walked once per execution;
+	///   the frozen bounded joined page (pipeline design §8, step 7) is its only caller, and it must have
+	///   probed that the chain has exactly one sorter and that it orders by the left value.
+	/// </summary>
+	internal void WithSorter<TVisitor>(ref TVisitor visitor)
+		where TVisitor : struct, ISorterVisitor, allows ref struct
+		=> throw new InvalidOperationException("Resolver chain has no sorter");
+}
+
+/// <summary>
+///   Receives a resolver chain's sorter statically typed (<see cref="IResolvers.WithSorter{TVisitor}" />).
+///   The twin of <see cref="IResolverExecutor" />, which walks every link; this one stops at the sorter.
+/// </summary>
+internal interface ISorterVisitor {
+	void Visit<TSorter>(ref TSorter sorter) where TSorter : struct, IJoinResolver;
 }
 
 public interface IResolverExecutor {
@@ -68,6 +87,9 @@ public struct Resolvers<TResolver> : IResolvers, IFlippedResolvers
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public int CompareLeftValues<TLeft>(TLeft a, TLeft b) => _resolver.CompareLeftValues(a, b);
+
+	// Chain base: position 0, the only place an innermost sorter can sit.
+	void IResolvers.WithSorter<TVisitor>(ref TVisitor visitor) => visitor.Visit(ref _resolver);
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -102,6 +124,15 @@ public struct Resolvers<TPrev, TResolver> : IResolvers, IFlippedResolvers
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public int CompareLeftValues<TLeft>(TLeft a, TLeft b)
 		=> TResolver.IsSorter ? _resolver.CompareLeftValues(a, b) : _prev.CompareLeftValues(a, b);
+
+	// The same JIT-folded per-link test CompareLeftValues uses, paid once per execution instead of once
+	// per link per comparison.
+	void IResolvers.WithSorter<TVisitor>(ref TVisitor visitor) {
+		if (TResolver.IsSorter)
+			visitor.Visit(ref _resolver);
+		else
+			_prev.WithSorter(ref visitor);
+	}
 }
 
 internal struct ResolveChainCloner<TResolvers, TLeftValue, TResult> : ICloner<TResult>

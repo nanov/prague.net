@@ -575,6 +575,97 @@ public class FrozenPipelineJoinTests {
 		Assert.That(innerF.Explain(), Does.Contain("sort: bounded").And.Contain("joins: 1 (fused: 1, unfused: 0"));
 	}
 
+	// ── (h) Step 7: the frozen bounded joined container ───────────────────────────
+
+	// A class comparer: the sorter reaches the frozen bounded container as its own struct type, and its
+	// comparer is a reference type — a different instantiation from the struct-comparer shapes above.
+	private sealed class ByQtyThenIdClass : IComparer<PqOrder> {
+		public int Compare(PqOrder? x, PqOrder? y) {
+			var c = (x?.Qty ?? 0).CompareTo(y?.Qty ?? 0);
+			return c != 0 ? c : (x?.Id ?? 0).CompareTo(y?.Id ?? 0);
+		}
+	}
+
+	// Ties on purpose: the page is byte-identical only because the encounter ordinals are eager's.
+	private sealed class ByQtyClass : IComparer<PqOrder> {
+		public int Compare(PqOrder? x, PqOrder? y) => (x?.Qty ?? 0).CompareTo(y?.Qty ?? 0);
+	}
+
+	private sealed class BombLeft : IComparer<PqOrder> {
+		public int Compare(PqOrder? x, PqOrder? y)
+			=> x?.CustomerId == 7 || y?.CustomerId == 7 ? throw new InvalidOperationException("compare boom") : (x?.Id ?? 0).CompareTo(y?.Id ?? 0);
+	}
+
+	/// <summary>
+	///   Step 7: a joined <c>SortBounded</c> page runs through <c>FrozenTopKJoinedContainer</c>, which the
+	///   chain hands its sorter through <c>IResolvers.WithSorter</c> instead of comparing through the chain.
+	///   The dispatch has to find the same sorter whatever the chain's depth and whatever the comparer's
+	///   own kind, and the page it produces has to stay eager's byte for byte — rows, joined slots,
+	///   <c>TotalCount</c>, <c>Truncated</c>, ties, paging, clone identity — on the heap plan (a small
+	///   page), the collect-all plan (a page near the bucket size) and the classic fallback
+	///   (<c>take = int.MaxValue</c>), with the pooled heap balanced when a user comparer throws on any of
+	///   the three.
+	/// </summary>
+	[Test]
+	public void Step7_BoundedJoinedContainer_ClassComparer_DeepChain_MixedMask_ByteIdentical_AndLeakBalanced() {
+		var one = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers);
+		var ties = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyClass()).JoinOne(_byCustomer, _customers);
+		var deep = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).JoinOne(_shipments, _shipmentByOrder);
+		var mixed = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU"));
+		var (oneP, oneF) = (one.Build(), one.BuildFrozen());
+		var (tiesP, tiesF) = (ties.Build(), ties.BuildFrozen());
+		var (deepP, deepF) = (deep.Build(), deep.BuildFrozen());
+		var (mixedP, mixedF) = (mixed.Build(), mixed.BuildFrozen());
+		Assert.Multiple(() => {
+			Assert.That(deepF.Explain(), Does.Contain("sort: bounded").And.Contain("joins: 3 (fused: 3, unfused: 0"));
+			Assert.That(mixedF.Explain(), Does.Contain("sort: bounded").And.Contain("joins: 2 (fused: 1, unfused: 1"));
+		});
+		foreach (var p in new[] { 0, 2, 5 }) {
+			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers).Count(),
+				oneP, oneF, p, Customer, "class comparer, one join " + p, identity: (rows, clone, tag) => AssertIdentity(rows, clone, _customers, static c => c.Id, tag));
+			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_byCustomer, _customers), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_byCustomer, _customers).Count(),
+				tiesP, tiesF, p, Customer, "class tie comparer, one join " + p);
+			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).JoinOne(_shipments, _shipmentByOrder), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).JoinOne(_shipments, _shipmentByOrder).Count(),
+				deepP, deepF, p, Three, "class comparer, three joins " + p);
+			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Count(),
+				mixedP, mixedF, p, InvoiceCustomer, "class tie comparer, fused + unfused " + p);
+
+			// Consecutive pages of the tying deep chain partition the eager whole — the bounded contract.
+			using var whole = _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_byCustomer, _customers).ExecutePooled(0, N);
+			var expected = new string[whole.Count];
+			for (var i = 0; i < whole.Count; i++) expected[i] = Customer(whole[i]);
+			foreach (var size in new[] { 1, 3, 7 }) {
+				var paged = new List<string>();
+				for (var skip = 0; skip < whole.Count + size; skip += size) {
+					using var page = tiesF.ExecutePooled(p, skip, size);
+					Assert.That(page.TotalCount, Is.EqualTo(whole.Count), "TotalCount");
+					for (var i = 0; i < page.Count; i++) paged.Add(Customer(page[i]));
+				}
+
+				Assert.That(paged, Is.EqualTo(expected).AsCollection, $"product {p} pages of {size} partition the whole");
+			}
+		}
+
+		// A throwing class comparer on all three container plans plus the eager twin: the heap and the
+		// page buffer go back either way. Customer 7 owns orders 7, 17, … so every product bucket has one.
+		var bomb = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new BombLeft()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).BuildFrozen();
+		Assert.That(bomb.Plan.Executor, Is.EqualTo("Pipeline"));
+		LeakAssert.Balanced(() => {
+			Assert.Throws<InvalidOperationException>(() => bomb.ExecutePooled(1, 0, 3).Dispose());
+			Assert.Throws<InvalidOperationException>(() => bomb.ExecutePooledCloned(1, 2, 3).Dispose());
+			Assert.Throws<InvalidOperationException>(() => bomb.ExecutePooled(1, 2, 100).Dispose());
+			Assert.Throws<InvalidOperationException>(() => bomb.ExecutePooled(1).Dispose());
+			Assert.Throws<InvalidOperationException>(() => bomb.Execute(1, 3, int.MaxValue).Dispose());
+			Assert.Throws<InvalidOperationException>(() => _orders.Query().UseIndex(_byProduct, 1).SortBounded(new BombLeft()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).ExecutePooled(0, 3).Dispose());
+			Assert.Throws<InvalidOperationException>(() => _orders.Query().UseIndex(_byProduct, 1).SortBounded(new BombLeft()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).ExecutePooled(2, 100).Dispose());
+			Assert.That(bomb.Count(1), Is.GreaterThanOrEqualTo(0), "Count never compares");
+		});
+	}
+
 	// ── (e) Executor selection and Explain ────────────────────────────────────────
 
 	[Test]

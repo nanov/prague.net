@@ -153,6 +153,21 @@ public class FrozenPipelineAllocationTests {
 		Pin("shape A page", Measure(() => aPrepared.ExecutePooled(aArgs, 0, 5).Dispose()), Measure(() => a.ExecutePooled(aArgs, 0, 5).Dispose()), Measure(() => a.Count(aArgs)));
 		Pin("shape A unbounded (classic)", Measure(() => aPrepared.ExecutePooled(aArgs).Dispose()), Measure(() => a.ExecutePooled(aArgs).Dispose()), Measure(() => a.Count(aArgs)));
 		Pin("shape B page", Measure(() => bPrepared.ExecutePooled(bArgs, 0, 5).Dispose()), Measure(() => b.ExecutePooled(bArgs, 0, 5).Dispose()), Measure(() => b.Count(bArgs)));
+
+		// Step 7: the frozen bounded joined container on both of its plans (a small page → the heap, a page
+		// near the bucket size → collect + select in place) with a class comparer — the comparer reaches it
+		// through the sorter's own type, so nothing is boxed and no Comparison delegate is created.
+		var classPrepared = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier)
+			.SortBounded(new ByCodeClass()).JoinOne(_bySym, _customers).JoinOne(_details).Build();
+		var classFrozen = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier)
+			.SortBounded(new ByCodeClass()).JoinOne(_bySym, _customers).JoinOne(_details).BuildFrozen();
+		Assert.That(classFrozen.Plan.Executor, Is.EqualTo("Pipeline"));
+		Pin("joined bounded page, class comparer", Measure(() => classPrepared.ExecutePooled(aArgs, 0, 5).Dispose()), Measure(() => classFrozen.ExecutePooled(aArgs, 0, 5).Dispose()), Measure(() => classFrozen.Count(aArgs)));
+		Pin("joined bounded collect-all page", Measure(() => classPrepared.ExecutePooled(aArgs, 0, 200).Dispose()), Measure(() => classFrozen.ExecutePooled(aArgs, 0, 200).Dispose()), Measure(() => classFrozen.Count(aArgs)));
+	}
+
+	private sealed class ByCodeClass : IComparer<PqItem> {
+		public int Compare(PqItem? x, PqItem? y) => (x?.Code ?? 0).CompareTo(y?.Code ?? 0);
 	}
 
 	[Test]
