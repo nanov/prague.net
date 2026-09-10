@@ -73,10 +73,23 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void Release(scoped ref PipelineFrame<TKey> frame) => Release(_steps, ref frame);
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal int Count(in TArgs args) {
+		var counter = new CountContainer();
+		return Count(in args, ref counter);
+	}
+
+	/// <summary>
+	///   The counting pass (free seed, no result container) into <paramref name="container" />: every row
+	///   that passes the probes and predicates is offered to it, and the pass's own count is returned. A
+	///   joined plan with inner fused joins counts through a container that probes the inner rights and
+	///   keeps its own tally (design §7.1: a left without a right is not counted).
+	/// </summary>
 	// SkipLocalsInit: the seed's stack buffer is written before it is read; the frame's constructor
 	// zeroes the rest (its bindings hold references and an activation state the steps read back).
 	[SkipLocalsInit]
-	internal int Count(in TArgs args) {
+	internal int Count<TContainer>(in TArgs args, ref TContainer container)
+		where TContainer : struct, IJoinedResultContainer<TKey, TValue>, allows ref struct {
 		Span<long> stack = stackalloc long[PipelineLimits.SeedStackLongs];
 		var frame = new PipelineFrame<TKey>(SeedKeys<TKey>.Over(stack));
 		var steps = _steps;
@@ -84,8 +97,7 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 			if (!Bind(steps, in args, ref frame) || !ChooseSeed(steps, ref frame, true) || !Seed(steps, ref frame))
 				return 0;
 			var sampled = BeginSampling();
-			var counter = new CountContainer();
-			var count = Walk(steps, in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref counter);
+			var count = Walk(steps, in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref container);
 			EndSampling(sampled);
 			return count;
 		} finally {

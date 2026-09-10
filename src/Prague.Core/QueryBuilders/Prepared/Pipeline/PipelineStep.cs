@@ -444,17 +444,19 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	private readonly bool _freeSeed;
 	private readonly PipelineSort _sort;
 	private readonly int _joins;
+	private readonly int _fusedJoins;
 	private int _lastDecision = -1;
 	private int _lastSeedSignal;
 	private int _lastOtherSignal;
 
-	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed, PipelineSort sort, int joins) {
+	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed, PipelineSort sort, int joins, int fusedJoins = 0) {
 		_steps = steps;
 		_filters = filters;
 		_fused = fused;
 		_freeSeed = freeSeed;
 		_sort = sort;
 		_joins = joins;
+		_fusedJoins = fusedJoins;
 	}
 
 	/// <summary>True when <c>Execute*</c> seeds from the smallest signal (a classic <c>Sort</c>, or <see cref="FrozenOptions.ReorderIndexNarrowers" />); <c>Count</c> always does.</summary>
@@ -490,7 +492,8 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 		}
 
 		if (_joins > 0)
-			sb.Append(", joins: ").Append(_joins).Append(" (outer, filled over the page rows after the pass)");
+			sb.Append(", joins: ").Append(_joins).Append(" (fused: ").Append(_fusedJoins).Append(", unfused: ").Append(_joins - _fusedJoins)
+				.Append("; fused: one right lookup per row in the pass, an inner miss drops the row; unfused: the resolver's paired read after the pass)");
 		sb.AppendLine();
 		var decision = _lastDecision;
 		if (decision < 0)

@@ -219,4 +219,39 @@ public class FrozenPipelineAllocationTests {
 		var args = (group: 13, min: 500);
 		Pin("list + 3 filters (fused)", Measure(() => prepared.ExecutePooled(args).Dispose()), Measure(() => frozen.ExecutePooled(args).Dispose()), Measure(() => frozen.Count(args)));
 	}
+
+	private readonly struct ByJoinedId : IComparer<JoinResult<PqItem, PqCustomer?>> {
+		public int Compare(JoinResult<PqItem, PqCustomer?> x, JoinResult<PqItem, PqCustomer?> y) => x.Left.Id.CompareTo(y.Left.Id);
+	}
+
+	// Step 5: the fused JoinOne fill — an outer left-symmetric join, an inner PK join, two chained joins
+	// (outer + inner), a classic Sort after the join over the joined row (struct comparer) and a SortBounded
+	// page before an inner join: 0 B per pooled execution and per Count.
+	[Test]
+	public void FusedJoinOne_Outer_Inner_Chained_SortAfterJoin_SortBoundedInner() {
+		var outerPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).JoinOne(_bySym, _customers).Build();
+		var outer = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).JoinOne(_bySym, _customers).BuildFrozen();
+		var innerPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).InnerJoinOne(_details).Build();
+		var inner = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).InnerJoinOne(_details).BuildFrozen();
+		var chainedPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).JoinOne(_bySym, _customers).InnerJoinOne(_details).Build();
+		var chained = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).JoinOne(_bySym, _customers).InnerJoinOne(_details).BuildFrozen();
+		var sortedPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).JoinOne(_details).Sort(new ByJoinedId()).Build();
+		var sorted = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).JoinOne(_details).Sort(new ByJoinedId()).BuildFrozen();
+		var boundedPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).InnerJoinOne(_details).Build();
+		var bounded = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).InnerJoinOne(_details).BuildFrozen();
+		Assert.Multiple(() => {
+			Assert.That(outer.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(inner.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(chained.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(sorted.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(bounded.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(chained.Explain(), Does.Contain("joins: 2 (fused: 2, unfused: 0"));
+		});
+		var group = 13;
+		Pin("fused outer left-sym", Measure(() => outerPrepared.ExecutePooled(group).Dispose()), Measure(() => outer.ExecutePooled(group).Dispose()), Measure(() => outer.Count(group)));
+		Pin("fused inner pk", Measure(() => innerPrepared.ExecutePooled(group).Dispose()), Measure(() => inner.ExecutePooled(group).Dispose()), Measure(() => inner.Count(group)));
+		Pin("fused chained outer+inner", Measure(() => chainedPrepared.ExecutePooled(group).Dispose()), Measure(() => chained.ExecutePooled(group).Dispose()), Measure(() => chained.Count(group)));
+		Pin("sort after fused join", Measure(() => sortedPrepared.ExecutePooled(group).Dispose()), Measure(() => sorted.ExecutePooled(group).Dispose()), Measure(() => sorted.Count(group)));
+		Pin("sort-bounded page → fused inner", Measure(() => boundedPrepared.ExecutePooled(group, 0, 20).Dispose()), Measure(() => bounded.ExecutePooled(group, 0, 20).Dispose()), Measure(() => bounded.Count(group)));
+	}
 }

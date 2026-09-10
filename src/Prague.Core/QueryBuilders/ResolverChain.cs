@@ -196,12 +196,27 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		return 0;
 	}
 
+	/// <summary>
+	///   The frozen pipeline's fused <c>JoinOne</c> fill (design §7.1): every resolver in
+	///   <paramref name="fusedMask" /> writes its right slot of every row with one point lookup per row
+	///   (<see cref="IJoinResolver.UnsafeFillFusedRows{TAccessor}" />); an inner one drops the rows without
+	///   a right. <paramref name="recount" />: the total becomes the surviving row count (the classic flow,
+	///   where the total is the rows added so far); the bounded flow keeps its narrowing's total.
+	/// </summary>
+	internal void FillFused(int fusedMask, bool recount) {
+		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(
+			ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: false, skipSorter: true, fusedMask, fillFused: true);
+		_chainedResolvers.Execute(ref p);
+		if (p.Pruned && recount)
+			_totalCont = _results.Count;
+	}
+
 	public readonly ReadOnlySpan<TLeftKey> Keys => _results.Keys;
 
-	/// <summary>Execute joins for resolver 1 (reverse joins only — forward joins resolved in Add when active).</summary>
-	public void ExecuteJoins() {
+	/// <summary>Execute joins for resolver 1 (reverse joins only — forward joins resolved in Add when active). <paramref name="fusedMask" />: a bit per chain position whose slot the frozen pipeline filled in its pass — skipped here; the sorter always runs.</summary>
+	public void ExecuteJoins(int fusedMask = 0) {
 		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(
-			ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: false, skipSorter: false);
+			ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: false, skipSorter: false, fusedMask);
 		_chainedResolvers.Execute(ref p);
 		if (!p.DidSort && (_skip > 0 || _take < int.MaxValue))
 			_results.Crop(_skip, _take);
@@ -253,9 +268,9 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	///   Join fill for the bounded path: fills inner AND reverse slots, for the page rows only.
 	///   The sorter is skipped (rows are already ordered and cropped) and no fallback Crop runs.
 	/// </summary>
-	public void ExecuteJoinsBounded() {
+	public void ExecuteJoinsBounded(int fusedMask = 0) {
 		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(
-			ref _results, 0, int.MaxValue, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: true, skipSorter: true);
+			ref _results, 0, int.MaxValue, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: true, skipSorter: true, fusedMask);
 		_chainedResolvers.Execute(ref p);
 	}
 

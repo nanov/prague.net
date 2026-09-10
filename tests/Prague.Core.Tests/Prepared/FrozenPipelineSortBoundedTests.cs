@@ -323,17 +323,20 @@ public class FrozenPipelineSortBoundedTests {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded → outer JoinOne LeftSym");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).JoinOne(_bySym, _customers).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded → two outer JoinOnes (shape B)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinOne(_details).BuildFrozen(NoPipeline).Plan.Executor, Is.EqualTo("Replay"), "joined, pipeline off");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an inner join narrows through the eager candidate set");
+			// Step 5: fused JoinOnes open the inner, classic-Sort, sort-after-join and unsorted joined shapes
+			// (FrozenPipelineJoinTests pins them); JoinMany and the seedless chain still replay.
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "an inner fused join probes the right per left (step 5)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric join regroups its rows (opt in with FuseSymmetricInnerJoins)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinMany(_lines, _lineByItem).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "JoinMany (design §7.2)");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).JoinOne(_details).SortBounded(new ByLeftCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a sort after the join is not innermost");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "classic Sort → join (step 5 opens the joined classic shapes)");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unsorted join (step 5)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).JoinOne(_details).SortBounded(new ByLeftCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a sort after the fused join runs in the classic joined container (step 5)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort → fused join (step 5)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unsorted fused join (step 5)");
 			Assert.That(_cache.Prepare().SortBounded(new ByCode()).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "joined, no seed source");
 		});
 		var simple = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Where(static v => v.Id > 0).SortBounded(new ByCode()).BuildFrozen();
 		Assert.That(simple.Explain(), Does.Contain("executor: Pipeline").And.Contain("pipeline: seed = fixed for Execute").And.Contain("sort: bounded").And.Contain("filters: 1 (direct)").And.Not.Contain("joins:"));
 		var joined = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).JoinOne(_bySym, _customers).JoinOne(_details).BuildFrozen();
-		Assert.That(joined.Explain(), Does.Contain("executor: Pipeline").And.Contain("sort: bounded").And.Contain("joins: 2 (outer").And.Contain("resolvers: yes, sorted: yes"));
+		Assert.That(joined.Explain(), Does.Contain("executor: Pipeline").And.Contain("sort: bounded").And.Contain("joins: 2 (fused: 2, unfused: 0").And.Contain("resolvers: yes, sorted: yes"));
 		var classic = _cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen();
 		Assert.That(classic.Explain(), Does.Contain("sort: classic"));
 	}

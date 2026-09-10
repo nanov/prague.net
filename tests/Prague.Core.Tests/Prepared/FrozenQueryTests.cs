@@ -175,7 +175,8 @@ public class FrozenQueryTests {
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort: the pipeline drives the sorting container");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded: the pipeline feeds the top-k container (step 6)");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).SortBounded(new ByCode()).BuildFrozen(stage2).Plan.Executor, Is.EqualTo("Replay"), "sort-bounded, stage 2");
-			Assert.That(_orders.Prepare().UseIndex(_byCustomer, 3).JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "joined");
+			Assert.That(_orders.Prepare().UseIndex(_byCustomer, 3).JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "joined: a fusable JoinOne after a pipeline narrowing (step 5)");
+			Assert.That(_orders.Prepare().UseIndex(_byCustomer, 3).JoinOne(_byCustomer, _customers).BuildFrozen(stage2).Plan.Executor, Is.EqualTo("Replay"), "joined, pipeline off");
 			Assert.That(_orders.Prepare().JoinOne(_byCustomer, _customers).Sort(new ByQty()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "sorted joined");
 		});
 	}
@@ -421,8 +422,9 @@ public class FrozenQueryTests {
 	[Test]
 	public void Fallback_JoinOne_FrozenEqualsPreparedEqualsEager() {
 		var prepared = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).Build();
+		// Since step 5 a fusable JoinOne after a pipeline narrowing takes the pipeline; the same rows either way.
 		var frozen = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(frozen.Plan.HasResolvers, Is.True);
 		AssertSameJoined(_orders.Query().UseIndex(_byCustomer, 3).JoinOne(_byCustomer, _customers).Execute(), frozen.Execute(3), Customer);
 		AssertSameJoined(_orders.Query().UseIndex(_byCustomer, 8).JoinOne(_byCustomer, _customers).Execute(), frozen.Execute(8), Customer); // missing customer

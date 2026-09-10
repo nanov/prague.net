@@ -476,7 +476,14 @@ add a `fusedMask` (a bit per resolver position) to `ExecuteWithAccessorProcessor
 unfused ones (typically none; a sorter still runs). Cloning on `ExecuteCloned` is the container's
 `ResolveChainCloner` (`ResolverChain.cs:106-118`), unchanged.
 
-Fusable in v1: all four families, identity or key-selector, outer or inner, **`NoFilter` only**.
+Fusable in v1: all four families, identity or key-selector, outer or inner, **`NoFilter` only** — with one
+exception found in implementation: an **inner left-symmetric** join is *not* fused by default. Its pair set
+is keyed by the lookup key, so the fan-out creates the rows grouped by right (every left of a bucket
+together) while a per-left lookup keeps the seed's order; the two agree as sets, never as sequences. Rather
+than break stage 3's rule that the frozen sequence is eager's unless the caller opts out, such a chain
+replays, and `FrozenOptions.FuseSymmetricInnerJoins` opts into the fused-and-reordered form the way
+`ReorderIndexNarrowers` does for the seed. An *outer* left-symmetric join is unaffected — its rows already
+exist and the fan-out only fills them.
 Fallback to replay: any `JoinOneFilter` / `JoinOneFilterWithArg` (the filter is `Func<TBuilder,TBuilder>`
 over a paired core — `JoinOneResolver.cs:32-60`), chained joins deeper than the T4 emits handle
 today, and any chain containing a `JoinMany`.
@@ -676,11 +683,28 @@ Allocation column: `-` (0 B) on every `Pipeline` row.
 4. **Composites**: `Steps/IfSteps.cs`, `Steps/MatchStep.cs`, `Steps/OrStep.cs`; bind-time activation
    (§5.2), Or as seed with dedupe and as probe (§5.1), `FrozenOptions.OrSeed`. Tests (a)/(b) for
    Or/If/Match fixtures. Rows: `Or`, `OrAfterList`, `IfSkipped`, `IfTaken`, `Match`.
-5. **`JoinOne` fusion**: `IFusableJoinOne` on the four resolvers (`JoinOneResolver.cs`), `fusedMask`
-   in `ExecuteWithAccessorProcessor` (`ResolverChain.cs`), the pipeline driving `JoinedResultContaier`
-   (§7.1), `FrozenPlanner.Joined` rule. Tests: `PreparedQueryJoinDifferentialTests` twins for
-   outer/inner × identity/selector × four families, filtered → fallback, chained fused pairs,
-   `Sort` after fused join. Rows: `JoinOne`, `InnerJoinOne`, `JoinOneFiltered`, `JoinMany`.
+5. **`JoinOne` fusion** — *shipped*: `IFusableJoinOne` (`QueryBuilders/IFusableJoinOne.cs`) on the four
+   resolvers with `IJoinFilter.IsNoOp` deciding `CanFuse`; `fusedMask` in `ExecuteWithAccessorProcessor`
+   plus a **fill walk** (`JoinResults.tt`), so the fused resolvers are skipped in the ordinary walk and
+   are the only ones run in the fill; `JoinedResultContaier.FillFused`. The fill is **per resolver, not
+   per row** (`UnsafeFillFusedRows` writes this resolver's slot of every row and prunes an inner join's
+   misses; `UnsafeNarrowFused` compacts a collected run to the lefts that have a right): the per-row
+   chain-walk variant measured *slower than the unfused paired read* (`JoinOne` 42.8 µs against eager's
+   31.3) because the chain dispatch over a generic `TLeft` is a per-call `__Canon` lookup, so it is paid
+   once per resolver instead. `PipelineJoinedExecutor` gained the classic flow (fill → sorter → crop) and
+   the inner narrowing of the bounded flow (a pooled `RowBuffer`, compacted per inner resolver, then the
+   heap — the ordinals stay eager's); `FrozenPlanner.Joined` dropped its `isSorted` requirement. Found on
+   the way: the four resolvers' inner paths left an earlier chained inner resolver's rows behind on an
+   empty pair set (a row with a default `Left`); they now run the same `RetainNonNullSlots` post-walk the
+   non-empty path runs. Rows: `JoinOne` 1.54×, `InnerJoinOne` 1.94×, `JoinOneChained` 1.68×, B-range
+   1.51× (bars kept); shape A 2.37× (bar ≥ 2.5×) and shape B 1.37× (bar ≥ 1.5×) **missed** — the fills
+   were ≈2.1 µs of B, not the 9.4 µs step 6 attributed to them; the residual is the eager joined bounded
+   container's comparer path, shared with eager (parent spec §8 "step 5", RESULTS "stage 3, step 5").
+   Inner **left-symmetric** joins are the one shape held back: their fan-out regroups the rows, so they
+   replay by default and fuse under `FrozenOptions.FuseSymmetricInnerJoins` (§7.1). Tests:
+   `FrozenPipelineJoinTests` (10), `PreparedGeneratedFrozenJoinTests` (4), pins in
+   `FrozenPipelineAllocationTests` (+1) and the eager-only
+   `Join/JoinOneChainedInnerEmptyPairSetCoreTests` (6) for the resolver fix.
 6. **`SortBounded` feed** — *shipped*: pipeline → `TopKSimpleResultContainer` / `TopKJoinedBaseContainer` with the
    `ExecuteCoreSimpleTop` / `ExecuteCoreJoinedTop` gate (§8), fixed seed. `PipelineExecutor` split into the
    shared `PipelineCore` and two thin executors; the new `PipelineJoinedExecutor` drives the eager joined

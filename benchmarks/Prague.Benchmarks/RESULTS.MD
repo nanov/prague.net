@@ -1192,3 +1192,98 @@ locked probe wins single-threaded, with no lock and no contract change; (2) the 
 copy-out argues for a **dense key array maintained by the writer alongside the hash slots** (swap-remove,
 published through the same `Tables` generation) so the seed copy becomes a `CopyTo` under the existing
 pin — that is a layout change inside the current reclamation model, not a locking change.
+
+
+# Frozen queries — `BuildFrozen()` stage 3, step 5: `JoinOne` fusion
+
+Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md` §7.1 (fusing `JoinOne`),
+§7.3 (sort after join), §9 (the planner rule), §13 step 5. Apple M4 Pro, .NET 9.0 (osx-arm64), Release,
+`--inProcess`, default job, `[MemoryDiagnoser]`, one category per run. Same stores as the stage-3 tables
+above; the `JoinOne` rows walk one 1k customer bucket of the 100k-row order store. New rows:
+`InnerJoinOne` (inner PK-to-PK, every fourth right missing), `JoinOneChained` (outer left-symmetric →
+outer PK-to-PK), `JoinOneFiltered` (a right-side filter callback — the replay fallback). Four families ×
+outer/inner × identity/selector, chained, with or without one `Sort` / `SortBounded`, now leave the replay.
+
+| Method                        | Categories      | Mean      | Ratio | Allocated |
+|------------------------------ |---------------- |----------:|------:|----------:|
+| JoinOne_Eager                 | JoinOne         | 31.67 us  |  1.00 |         - |
+| JoinOne_Prepared              | JoinOne         | 30.57 us  |  0.97 |         - |
+| JoinOne_Frozen                | JoinOne         | **20.57 us** | 0.65 |      - |
+|                               |                 |           |       |           |
+| InnerJoinOne_Eager            | InnerJoinOne    | 34.34 us  |  1.00 |         - |
+| InnerJoinOne_Prepared         | InnerJoinOne    | 34.05 us  |  0.99 |         - |
+| InnerJoinOne_Frozen           | InnerJoinOne    | **17.68 us** | 0.51 |      - |
+|                               |                 |           |       |           |
+| JoinOneChained_Eager          | JoinOneChained  | 45.12 us  |  1.00 |         - |
+| JoinOneChained_Prepared       | JoinOneChained  | 44.78 us  |  0.99 |         - |
+| JoinOneChained_Frozen         | JoinOneChained  | **26.83 us** | 0.59 |      - |
+|                               |                 |           |       |           |
+| JoinOneFiltered_Eager         | JoinOneFiltered | 21.29 us  |  1.00 |         - |
+| JoinOneFiltered_Prepared      | JoinOneFiltered | 21.18 us  |  0.99 |         - |
+| JoinOneFiltered_Frozen        | JoinOneFiltered | 19.77 us  |  0.93 |         - |
+
+The production shapes (the joined bounded flow: the fused lookups fill the page rows only):
+
+| Method                                               | Mean      | Ratio | Step 6 | Allocated |
+|----------------------------------------------------- |----------:|------:|-------:|----------:|
+| ListListListSortBoundedJoinOne_Eager (shape A)       | 17.23 us  |  1.00 | 17.05  |         - |
+| ListListListSortBoundedJoinOne_Prepared              | 16.99 us  |  0.99 | 16.84  |         - |
+| ListListListSortBoundedJoinOne_Frozen                | **7.27 us** | 0.42 | 7.71 |         - |
+| Count_ListListListSortBoundedJoinOne_Eager           | 10.87 us  |  1.00 | 10.94  |         - |
+| Count_ListListListSortBoundedJoinOne_Frozen          | **1.50 us** | 0.14 | 1.41 |         - |
+|                                                      |           |       |        |           |
+| TimeWindowListListSortBoundedJoinTwo_Eager (shape B) | 33.93 us  |  1.00 | 34.04  |         - |
+| TimeWindowListListSortBoundedJoinTwo_Prepared        | 33.69 us  |  0.99 | 33.47  |         - |
+| TimeWindowListListSortBoundedJoinTwo_Frozen          | **24.73 us** | 0.73 | 26.82 |      - |
+| TimeWindowListListSortBoundedJoinTwo_FrozenIndexSide | 25.69 us  |  0.76 | 29.07  |         - |
+| TimeWindowListListSortBounded_Eager (B, no joins)    | 24.96 us  |  1.00 | 25.06  |         - |
+| TimeWindowListListSortBounded_Frozen                 | 17.63 us  |  0.71 | 17.44  |         - |
+| Count_TimeWindowListListSortBoundedJoinTwo_Eager     | 21.69 us  |  1.00 | 21.70  |         - |
+| Count_TimeWindowListListSortBoundedJoinTwo_Frozen    | **12.60 us** | 0.58 | 13.99 |      - |
+|                                                      |           |       |        |           |
+| TimeRangeListListSortBoundedJoinTwo_Eager (B-range)  | 36.97 us  |  1.00 | 37.77  |         - |
+| TimeRangeListListSortBoundedJoinTwo_Prepared         | 36.78 us  |  1.00 | 37.25  |         - |
+| TimeRangeListListSortBoundedJoinTwo_Frozen           | **24.49 us** | 0.66 | 27.93 |      - |
+
+## Reading it
+
+- **Bars met.** `JoinOne` (1k list → outer left-symmetric join) 31.67 → 20.57 µs (**1.54×**, bar ≥ 1.5×):
+  the plan used to replay whole; now the pass narrows and each fused resolver writes its right slot with
+  one point lookup per row instead of a pair-set build plus a paired bulk read. `InnerJoinOne` 34.34 →
+  17.68 (**1.94×**, bar ≥ 1.5×) — an inner join is where fusion pays most, because the eager path builds
+  the pair set, walks it, then prunes and re-narrows the candidate set, while the fused pass rejects a
+  left with one lookup. `JoinOneChained` (two fused joins) 45.12 → 26.83 (**1.68×**). B-range 36.97 →
+  24.49 (**1.51×**, bar ≥ 1.5× — step 6 missed it at 1.35×). `Count` of shape B 21.69 → 12.60 (1.72×),
+  of shape A 10.87 → 1.50 (7.2×). `JoinOneFiltered` replays as designed and sits on `Build()` (0.93 — the
+  replay's fused filter and capacity hint, not the pipeline). Every pipeline row 0 B.
+- **Missed: shape B** `TimeWindowListListSortBoundedJoinTwo` 33.93 → 24.73 (**1.37×**, bar ≥ 1.5×) and
+  **shape A** `ListListListSortBoundedJoinOne` 17.23 → 7.27 (**2.37×**, bar ≥ 2.5×). Both bars were set
+  from step 6's decomposition, which read the whole join-vs-no-join delta (9.4 µs on B) as "the two
+  unfused fills". Measured on this tree that attribution was wrong. B decomposes as: `Count` (the same
+  narrowing, no container, no joins) **12.60**; plus the *simple* bounded container and its page (the
+  no-join row) **17.63** (+5.03); plus the *joined* bounded container and both fused fills **24.73**
+  (+7.10). The 40 page lookups (20 rows × 2 joins) are ≈0.3 µs of that +7.10 — removing the fills moved
+  the row 26.82 → 24.73, so they cost ≈2.1 µs, not 9.4. The residual ≈6.6 µs is the **eager joined
+  bounded container**, which step 5 drives unchanged and eager pays identically:
+  `TopKJoinedBaseContainer`'s heap of `(key, left, ordinal)` triples compared through `TopKPairComparer`
+  → `IResolvers.CompareLeftValues<TLeft>`, a *generic* method reached through the 4-link nested chain
+  type (each link a constrained call over `__Canon` for a reference `TLeft`), plus `MaterializeTopK` into
+  a `ValueDictionary` and `BuildResults`. The simple bounded container does the same work for the same
+  ~100 matched rows in 5.03 µs with `TopKValueComparer`'s direct, fully devirtualized comparer. Shape A
+  tells the same story from the other end: its fill was 0.45 µs of step 6's 7.71.
+- **What that means for the bars.** The lever left on A and B is not the join — it is the joined bounded
+  container's comparer path, shared by both engines, so fixing it lifts eager and frozen together and
+  moves the *ratio* only a little (removing 5 µs from both sides of B gives 28.9 / 19.7 = 1.47×). A
+  frozen-only bounded joined container (keys carried beside a `(left, ordinal)` heap with the sorter's
+  comparer reached directly, as the simple container does) is the change that would clear the bar; it is
+  a new container rather than "drive the eager one", so it belongs to step 7 / cleanup, not here.
+- **One shape does not fuse by default, and it costs nothing here.** An *inner left-symmetric* join's eager
+  fan-out emits its rows grouped by right key, which a per-left lookup cannot reproduce, so that chain
+  replays (byte-identical) unless the caller sets `FrozenOptions.FuseSymmetricInnerJoins` — the same opt-in
+  shape as `ReorderIndexNarrowers`. No row above uses one: `InnerJoinOne` is PK-to-PK and measures 17.73 µs
+  (1.96×) with the rule in place against 17.68 µs (1.94×) without it, i.e. noise; `JoinOne`,
+  `JoinOneChained` and shapes A / B are outer joins, which fuse either way.
+- **Key-side probing still loses.** `_FrozenIndexSide` 25.69 vs 24.73 — the design's §2.3 finding holds
+  after fusion too; the value-side default stands.
+- **No regressions.** The narrowing-only rows are unchanged within noise (B without joins 17.63 vs 17.44
+  at step 6; shape A's `Count` 1.50 vs 1.41), and the shapes that already took the pipeline are untouched.

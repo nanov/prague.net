@@ -796,6 +796,121 @@ Release), `PreparedQueryProductionShapeDifferentialTests` asserts `Pipeline`, th
 executor-selection assertions updated. `Prague.Core.Tests/Prepared` 386 in Release (net9.0), 1099 + 386
 Release and the full Core suite in Debug on net9.0, `Prague.Generated.Tests` 1210 green.
 
+### Stage 3 — step 5: `JoinOne` fusion
+
+*Design:* pipeline design §7.1 (fusing `JoinOne`), §7.3 (sort after join), §9 (the planner rule), §13
+step 5; the executor's doc in `Pipeline/PipelineJoinedExecutor.cs`, the resolver contract in
+`QueryBuilders/IFusableJoinOne.cs`.
+
+*What executes.* A `JoinOne` right lookup is a point read per left, so the pipeline does it itself
+instead of letting the resolver build a pair set and run a paired bulk read. The four `JoinOne`
+families implement `IFusableJoinOne<TLeftKey,TLeftValue,TRightValue>` — `CanFuse` (true only for
+`NoFilter`, since a filter callback is a builder lambda over the paired core) and `TryLookupRight`, one
+chain of the resolver's own reads: PK-to-PK → selector → right store; right-unique → right index →
+store; left-unique → the left index's `Reverse` → selector → store; left-symmetric → `Reverse` →
+optional right index → store. The eager resolvers are untouched; the fill reaches them through two new
+`IJoinResolver` members, `UnsafeFillFusedRows` (write this resolver's slot of every row in the
+accessor, one lookup per row, clone when the container clones on add, and prune the rows an *inner*
+join left without a right) and `UnsafeNarrowFused` (compact a collected `(key, value)` run to the lefts
+that have a right). Both are **per-resolver, not per-row**: the chain is walked once per resolver, so
+the generic-chain dispatch is paid once instead of per row — the per-row variant measured *slower* than
+the unfused paired read (`JoinOne` 42.8 µs against eager's 31.3) and was replaced.
+
+`PipelineJoinedExecutor` now drives two flows. **Classic** (unsorted, a classic `Sort` anywhere, or an
+unbounded / negative page): the pass fills the joined container with the lefts, `FillFused(mask)` runs
+each fused resolver over every row — an inner one prunes and the total becomes the survivors', which is
+what eager's candidate narrowing produces — and `ExecuteJoins(mask)` runs the sorter, the crop and any
+unfused resolver. The fill precedes the sorter on purpose: an inner join's rows must be gone before it
+sorts. **Bounded** (an innermost `SortBounded` over the left value and a finite page — the eager
+`ExecuteCoreJoinedTop` gate): with outer joins only the pass feeds `TopKJoinedBaseContainer` directly;
+with an inner fused join it collects the matched pairs into a pooled `RowBuffer`, each inner resolver
+compacts them in place, and the survivors enter the heap in that order, so the encounter ordinals — the
+bounded tie-breaker — are the ones eager's narrowed base walk stamps. Either way only the page rows are
+looked up (§7.3). `Count` is the pass's count for an outer chain and the same collect-and-narrow for an
+inner one (keys only, no values, no container).
+
+*Planner.* `FrozenPlanner.Joined` no longer requires a sort: a joined plan takes the pipeline when its
+narrowing is a pipeline plan, `manyCount == 0`, there is at most one sorter, and every join either
+fuses or — only in the step-6 shape, an innermost bounded left-value sorter followed by outer joins —
+keeps its paired read through the `fusedMask` (`ExecuteWithAccessorProcessor` skips the fused
+positions; a fill walk runs exactly those). Any `JoinMany`, an unfusable *inner* join, or an unfusable
+join outside that shape replays. `Explain()` prints `joins: n (fused: f, unfused: u, …)`.
+
+*One shape is deliberately held back.* An **inner left-symmetric** join's eager fan-out creates the rows
+grouped by right key — its pair set is keyed by the lookup key, so every left of a bucket is emitted
+together — which a per-left lookup cannot reproduce; the two agree as sets, never as sequences. Stage 3's
+rule is that the frozen sequence is eager's unless the caller opts out, so such a chain **replays** and
+stays byte-identical, and the new `FrozenOptions.FuseSymmetricInnerJoins` opts into the fused-and-reordered
+form exactly as `ReorderIndexNarrowers` does for the seed. Outer left-symmetric joins fuse as normal (their
+rows already exist; the fan-out only fills them), and so do inner PK-to-PK / right-unique / left-unique
+joins, whose pair sets are seeded from the candidate set in candidate order — which is the pipeline's seed
+order, so their sequences match byte for byte. It costs nothing measured: no benchmark row uses an inner
+left-symmetric join (`InnerJoinOne` is PK-to-PK, 17.73 µs / 1.96× with the rule in place against 17.68 /
+1.94× without it — noise).
+
+*Also in this step.* The four resolvers' inner paths took an eager-core fix: on an empty pair set they
+narrowed the candidates to nothing but left the rows an *earlier* chained inner resolver had already
+created, so a chain like `InnerJoinOne(a).InnerJoinOne(b)` could emit rows with a default `Left` when
+`b` matched nothing. They now run the same `RetainNonNullSlots` post-walk the non-empty path runs
+(minimal, additive, eager-visible fix). **No pre-existing test covered it** — the whole eager Core suite
+(1099) and `Prague.Generated.Tests` (1214) pass with the fix reverted — so it got its own eager-only pin,
+`tests/Prague.Core.Tests/Join/JoinOneChainedInnerEmptyPairSetCoreTests.cs`: three of its six tests
+(PK-to-PK, right-unique, left-symmetric-via-right-index) fail with the fix reverted, each with the exact
+symptom `rows[i].Left is null`. The other two families reach the branch only defensively — their pair
+seeding reads the *left* index, which always emits a pair for a live candidate — and are pinned through
+the non-empty-but-no-hits path instead.
+
+*Not in this step.* `JoinMany` (design §7.2), composites (step 4), the joined bounded container's own
+cost (see below).
+
+#### Measured (Apple M4 Pro, .NET 9, `--inProcess`, default job, one category per run; full tables in `RESULTS.MD`, "stage 3, step 5")
+
+| Row | Eager | `Build()` | `BuildFrozen()` | Ratio | Bar (§12 / step 5) | Frozen alloc |
+|---|---:|---:|---:|---:|---|---|
+| `JoinOne` (1k list → outer left-sym) | 31.67 µs | 30.57 µs | **20.57 µs** | 0.65 (1.54×) | ≥ 1.5× **kept** | 0 B |
+| `InnerJoinOne` (1k list → inner PK, ¼ rights missing) | 34.34 µs | 34.05 µs | **17.68 µs** | 0.51 (1.94×) | ≥ 1.5× **kept** | 0 B |
+| `JoinOneChained` (two fused joins) | 45.12 µs | 44.78 µs | **26.83 µs** | 0.59 (1.68×) | new row | 0 B |
+| `JoinOneFiltered` (fallback) | 21.29 µs | 21.18 µs | 19.77 µs | 0.93 | within noise of `Build()` **kept** | 0 B |
+| Shape A `ListListListSortBoundedJoinOne` | 17.23 µs | 16.99 µs | **7.27 µs** | 0.42 (2.37×) | ≥ 2.5× **missed** (step 6: 2.2×) | 0 B |
+| `Count_` shape A | 10.87 µs | 10.70 µs | **1.50 µs** | 0.14 (7.2×) | — | 0 B |
+| Shape B `TimeWindowListListSortBoundedJoinTwo` | 33.93 µs | 33.69 µs | **24.73 µs** | 0.73 (1.37×) | ≥ 1.5× **missed** (step 6: 1.27×) | 0 B |
+| Shape B without its joins | 24.96 µs | — | 17.63 µs | 0.71 | the narrowing floor | 0 B |
+| `Count_` shape B | 21.69 µs | 21.55 µs | **12.60 µs** | 0.58 (1.72×) | ≥ 1.5× kept | 0 B |
+| Shape B-range `TimeRangeListListSortBoundedJoinTwo` | 36.97 µs | 36.78 µs | **24.49 µs** | 0.66 (1.51×) | ≥ 1.5× **kept** (step 6: 1.35×) | 0 B |
+
+*Why A and B still miss.* Both bars were set from step 6's decomposition, which read the whole
+join-vs-no-join delta (9.4 µs on B) as "the two unfused fills". Measured here that was wrong. B
+decomposes as `Count` (same narrowing, no container, no joins) **12.60**, plus the *simple* bounded
+container and page (the no-join row) **17.63** (+5.03), plus the *joined* bounded container and both
+fused fills **24.73** (+7.10) — of which the 40 page lookups are ≈0.3 µs and the fills as a whole ≈2.1 µs
+(26.82 → 24.73). The residual ≈6.6 µs is the eager joined bounded container the pipeline drives
+unchanged and eager pays identically: a heap of `(key, left, ordinal)` triples compared through
+`TopKPairComparer` → `IResolvers.CompareLeftValues<TLeft>`, a generic method reached through the 4-link
+nested chain type, plus `MaterializeTopK` into a `ValueDictionary`. The simple container does the same
+work for the same rows in 5.03 µs through a direct, devirtualized comparer. Fixing it lifts both engines
+together (removing 5 µs from each side of B gives 1.47×); clearing the bar needs a frozen-only bounded
+joined container — step 7, not here.
+
+Tests: `FrozenPipelineJoinTests` (10: the four families × outer/inner × identity/selector × the four
+`Execute*` variants × eight pages incl. `take = int.MaxValue` and a page past the end, with clone
+identity of both sides; missing rights — outer null slot, inner row dropped and `Count` equal to eager's;
+chained pairs and triples with every outer/inner mix; `Sort` and `SortBounded` after a fused join over a
+joined field and before it; the bounded inner flow with a tie comparer, pages partitioning the whole;
+executor selection and `Explain` for every fallback — a filtered `JoinOne` unsorted / after a classic
+`Sort` → replay, the same after a `SortBounded` → pipeline with `fused: 1, unfused: 1`, an unfusable
+inner → replay, `JoinMany` anywhere → replay, a composite narrowing → replay; leak balance under a
+throwing selector / predicate / joined comparer / `Clone()` across the classic, bounded and cloned paths
+with the eager twins; 8 readers × a writer churning customers, invoices, shipments and the lefts; and the
+inner left-symmetric rule — byte-identical on the default replay path across every variant and page, same
+rows and `Count` under `FuseSymmetricInnerJoins`),
+`FrozenPipelineAllocationTests` +1 (outer, inner, chained, sort-after-join, bounded-inner — 0 B each),
+the eager-only `Join/JoinOneChainedInnerEmptyPairSetCoreTests` (6) for the resolver fix,
+`PreparedGeneratedFrozenJoinTests` (4: the generated FK `JoinWith{T}` reverse one-to-one and forward
+many-to-one, outer and inner, fused after a generated narrowing step and under a `SortBounded`;
+`JoinWith` one-to-many is a `JoinMany` and replays), the stage-1 and step-6 executor-selection
+assertions updated for the shapes that now fuse. `Prague.Core.Tests/Prepared` 397 in Release (net9.0),
+397 + 1106 in Debug on net9.0, `Prague.Generated.Tests` 1214 green.
+
 
 ## 9. Relation to the event-loop research
 

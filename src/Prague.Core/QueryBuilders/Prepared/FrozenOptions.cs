@@ -57,6 +57,18 @@ public sealed class FrozenOptions {
 	public bool Pipeline { get; init; } = true;
 
 	/// <summary>
+	///   Opt-in, changes encounter order. Let an <b>inner</b> <c>JoinOne</c> driven by a symmetric list
+	///   index on the left (<c>JoinOneLeftSymResolver</c>) fuse into the pipeline pass. The eager resolver
+	///   creates that join's rows through its fan-out — one pair per right key, every left of the bucket
+	///   emitted together — so an unsorted result comes out grouped by right; the fused pass looks the
+	///   right up per left and keeps the seed's order instead. Same rows, same <c>Count</c>, different
+	///   sequence, so a page of an unsorted query may differ from the eager builder's. Off (the default) a
+	///   chain containing such a join replays and stays byte-identical. Outer left-symmetric joins are
+	///   unaffected either way — their rows already exist and the fan-out only fills them.
+	/// </summary>
+	public bool FuseSymmetricInnerJoins { get; init; }
+
+	/// <summary>
 	///   Make the pipeline's probes read the index instead of the fetched value: a list step probes its
 	///   bucket, a key-set step its key set. That is the eager step's own read and reproduces the eager
 	///   staleness window exactly (a row whose store write has landed but whose index write has not yet

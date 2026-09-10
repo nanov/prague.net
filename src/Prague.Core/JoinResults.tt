@@ -269,6 +269,16 @@ internal ref struct <#= accessorName #><TKey, TJoinResult>
 		return Unsafe.As<ReadOnlySpan<TKey>, ReadOnlySpan<TKey1>>(ref keys);
 	}
 
+	/// <summary>THIS accessor's slot (<c><#= propName #></c>) of the row at <paramref name="index" /> — the row order is <see cref="GetKeys{TKey1}" />'s. The fused JoinOne fill's per-row write (frozen pipeline design §7.1).</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public ref TRightValue GetSlotAt<TRightValue>(int index)
+		=> ref Unsafe.AsRef(in _results.ValuesMutable[index].UnsafeGet<#= propName #><TRightValue>())!;
+
+	/// <summary>Drops the rows whose slot <c><#= propName #></c> is <see langword="null"/> / <c>default</c> — an inner fused join's misses — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneNullSlots<TRightValue>()
+		=> _results.Filter(new <#= propName #>NonNullFilter<TKey, TJoinResult, TRightValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c><#= propName #></c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -396,10 +406,18 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 	private readonly bool _skipSorter;
 	private readonly int _skip;
 	private readonly int _take;
+	// A bit per chain position the frozen pipeline fuses (a fusable JoinOne, design §7.1). In the fill
+	// walk (_fillFused) exactly those resolvers run — one point lookup per row into their slot — and the
+	// sorter and the rest are skipped; in the ordinary walk they are skipped and the rest runs.
+	private readonly int _fusedMask;
+	private readonly bool _fillFused;
 	private ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
 	private ref QueryResultsDisposer _disposer;
 
 	internal bool DidSort = false;
+
+	/// <summary>Set by a fill walk when an inner fused join dropped rows without a right.</summary>
+	internal bool Pruned = false;
 
 	public ExecuteWithAccessorProcessor(
 		ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> results,
@@ -409,19 +427,25 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		bool shouldPool,
 		ref QueryResultsDisposer disposer,
 		bool fillInner,
-		bool skipSorter) {
+		bool skipSorter,
+		int fusedMask = 0,
+		bool fillFused = false) {
 		_skip = skip;
 		_take = take;
 		_cloneOnAdd = cloneOnAdd;
 		_shouldPool = shouldPool;
 		_fillInner = fillInner;
 		_skipSorter = skipSorter;
+		_fusedMask = fusedMask;
+		_fillFused = fillFused;
 		_disposer = ref disposer;
 		_results = ref results;
 	}
 
 	public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver {
 		if (TResolver.IsSorter) {
+			if (_fillFused)
+				return;
 			if (_skipSorter) {
 				// Bounded top-K path: rows arrive pre-sorted and pre-cropped; mark DidSort so the
 				// container's fallback Crop stays off, and do not sort or slice again.
@@ -445,6 +469,18 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		var accessorName = $"Unsafe{propName}Accessor";
 #>
 			case <#= i #>: {
+				if ((_fusedMask & (1 << <#= i #>)) != 0) {
+					if (_fillFused) {
+						var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+					}
+
+					break;
+				}
+
+				if (_fillFused)
+					break;
+
 				if (!resolver.Inner) {
 					var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
 					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);

@@ -8,8 +8,9 @@ using Prague.Core;
 ///   Eager builder (baseline) vs <c>Build()</c> (replay) vs <c>BuildFrozen()</c>, shape by shape, on
 ///   the raw <see cref="InMemoryDataCache{TKey,TValue}" />. The first four categories are the shapes
 ///   the frozen planner binds to the point-lookup executor; the simple unsorted list / range / key-set /
-///   last-updated shapes bind to the stage-3 pipeline, as do <c>Sort</c> / <c>SortBounded</c> and the
-///   <c>SortBounded</c> → outer <c>JoinOne</c> production shapes; unsorted joins and <c>Match</c> replay,
+///   last-updated shapes bind to the stage-3 pipeline, as do <c>Sort</c> / <c>SortBounded</c>, the
+///   <c>SortBounded</c> → <c>JoinOne</c> production shapes and (step 5) every chain of fusable
+///   <c>JoinOne</c>s — outer, inner, chained; a filtered <c>JoinOne</c> and <c>Match</c> replay,
 ///   so their <c>_Frozen</c> rows must sit on top of the <c>_Prepared</c> rows. Every body executes pooled and disposes. Same data as
 ///   <see cref="PreparedQueryBenchmarks" />: 100k rows, list buckets of 1k, range windows of 1k codes.
 /// </summary>
@@ -48,6 +49,8 @@ public class FrozenQueryBenchmarks {
 	private InMemoryDataCache<int, PqbOrder> _orders = null!;
 	private CacheSymmetricKeyValueListIndex<int, PqbOrder, int> _byCustomer = null!;
 	private InMemoryDataCache<int, PqbCustomer> _customers = null!;
+	// PK-to-PK right side of the orders (Id == order id), present for three orders in four: the inner join drops a quarter of a bucket.
+	private InMemoryDataCache<int, PqbCustomer> _orderDetails = null!;
 
 	private PreparedQuery<NoArgs, PqbItem> _uniqueBoundPrepared = null!;
 	private FrozenQuery<NoArgs, PqbItem> _uniqueBoundFrozen = null!;
@@ -64,6 +67,12 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<(int lo, int hi), PqbItem> _rangeFrozen = null!;
 	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOnePrepared = null!;
 	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _innerJoinOnePrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _innerJoinOneFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?, PqbCustomer?>> _joinOneChainedPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?, PqbCustomer?>> _joinOneChainedFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredFrozen = null!;
 	private PreparedQuery<(int mode, int group, int code), PqbItem> _matchPrepared = null!;
 	private FrozenQuery<(int mode, int group, int code), PqbItem> _matchFrozen = null!;
 	private PreparedQuery<(int? lo, int? hi), PqbItem> _optionalRangePrepared = null!;
@@ -175,8 +184,12 @@ public class FrozenQueryBenchmarks {
 		_customers = new InMemoryDataCache<int, PqbCustomer>();
 		for (var c = 0; c < Buckets; c++)
 			_customers.AddOrUpdate(c, new PqbCustomer { Id = c, Region = c % 2 == 0 ? "EU" : "US" });
-		for (var i = 0; i < N; i++)
+		_orderDetails = new InMemoryDataCache<int, PqbCustomer>();
+		for (var i = 0; i < N; i++) {
 			_orders.AddOrUpdate(i, new PqbOrder { Id = i, CustomerId = i % Buckets, Qty = i % 13 });
+			if (i % 4 != 0)
+				_orderDetails.AddOrUpdate(i, new PqbCustomer { Id = i, Region = i % 2 == 0 ? "EU" : "US" });
+		}
 
 		_uniqueBoundPrepared = _items.Prepare().UseIndex(_byCode, _code).Build();
 		_uniqueBoundFrozen = _items.Prepare().UseIndex(_byCode, _code).BuildFrozen();
@@ -193,6 +206,12 @@ public class FrozenQueryBenchmarks {
 		_rangeFrozen = _items.Prepare<int, PqbItem, (int lo, int hi)>().UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen();
 		_joinOnePrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).Build();
 		_joinOneFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).BuildFrozen();
+		_innerJoinOnePrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinOne(_orderDetails).Build();
+		_innerJoinOneFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinOne(_orderDetails).BuildFrozen();
+		_joinOneChainedPrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).JoinOne(_orderDetails).Build();
+		_joinOneChainedFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).JoinOne(_orderDetails).BuildFrozen();
+		_joinOneFilteredPrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Build();
+		_joinOneFilteredFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen();
 		_matchPrepared = _items.Prepare<int, PqbItem, (int mode, int group, int code)>().Match(static a => a.mode, m => m
 			.Case(0, b => b.UseIndex(_byCode, static a => a.code))
 			.Case(1, b => b.UseIndex(_byGroup, static a => a.group))
@@ -407,7 +426,7 @@ public class FrozenQueryBenchmarks {
 		return r.Count;
 	}
 
-	// ── 7. JoinOne, parameterized (not eligible: replay) ──────────────────────────
+	// ── 7. JoinOne, parameterized: list (1k) → outer left-symmetric JoinOne, fused since step 5 ──────
 
 	[BenchmarkCategory("JoinOne"), Benchmark(Baseline = true)]
 	public int JoinOne_Eager() {
@@ -424,6 +443,66 @@ public class FrozenQueryBenchmarks {
 	[BenchmarkCategory("JoinOne"), Benchmark]
 	public int JoinOne_Frozen() {
 		using var r = _joinOneFrozen.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	// ── 7b. InnerJoinOne: list (1k) → inner PK-to-PK JoinOne (a quarter of the rights missing), fused ──
+
+	[BenchmarkCategory("InnerJoinOne"), Benchmark(Baseline = true)]
+	public int InnerJoinOne_Eager() {
+		using var r = _orders.Query().UseIndex(_byCustomer, _customer).InnerJoinOne(_orderDetails).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinOne"), Benchmark]
+	public int InnerJoinOne_Prepared() {
+		using var r = _innerJoinOnePrepared.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinOne"), Benchmark]
+	public int InnerJoinOne_Frozen() {
+		using var r = _innerJoinOneFrozen.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	// ── 7c. JoinOneChained: list (1k) → outer left-symmetric JoinOne → outer PK-to-PK JoinOne, both fused ──
+
+	[BenchmarkCategory("JoinOneChained"), Benchmark(Baseline = true)]
+	public int JoinOneChained_Eager() {
+		using var r = _orders.Query().UseIndex(_byCustomer, _customer).JoinOne(_byCustomer, _customers).JoinOne(_orderDetails).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinOneChained"), Benchmark]
+	public int JoinOneChained_Prepared() {
+		using var r = _joinOneChainedPrepared.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinOneChained"), Benchmark]
+	public int JoinOneChained_Frozen() {
+		using var r = _joinOneChainedFrozen.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	// ── 7d. JoinOneFiltered: a right-side filter callback cannot fuse — the replay fallback ──────────
+
+	[BenchmarkCategory("JoinOneFiltered"), Benchmark(Baseline = true)]
+	public int JoinOneFiltered_Eager() {
+		using var r = _orders.Query().UseIndex(_byCustomer, _customer).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinOneFiltered"), Benchmark]
+	public int JoinOneFiltered_Prepared() {
+		using var r = _joinOneFilteredPrepared.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinOneFiltered"), Benchmark]
+	public int JoinOneFiltered_Frozen() {
+		using var r = _joinOneFilteredFrozen.ExecutePooled(_customer);
 		return r.Count;
 	}
 

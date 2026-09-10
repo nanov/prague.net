@@ -362,8 +362,8 @@ internal static class FrozenReplay {
 /// <summary>
 ///   <c>BuildFrozen()</c>'s planner. Flattens the typed chain through <c>Describe</c>, picks the
 ///   executor — point lookup, the pipeline (every simple plan of non-composite index steps, unsorted
-///   or under a <c>Sort</c> / <c>SortBounded</c>; a joined plan of the same steps under a
-///   <c>SortBounded</c> followed by outer joins) or the replay — and attaches the optimizations the plan qualifies
+///   or under a <c>Sort</c> / <c>SortBounded</c>; a joined plan of the same steps whose joins are
+///   fusable <c>JoinOne</c>s, with or without one sorter) or the replay — and attaches the optimizations the plan qualifies
 ///   for: a fused filter for two or more top-level <c>Where</c>s and, for replayed plans, a capacity
 ///   hint when they are equality-seeded. Everything here runs once per build; nothing is reached from
 ///   an execution.
@@ -451,20 +451,26 @@ internal static class FrozenPlanner {
 		chain.Describe(narrowers);
 		var names = new List<string>();
 		var live = new List<IPlanExplainable>();
-		// Stage 3, step 6: a SortBounded before outer joins — the pipeline pass feeds the eager bounded
-		// base container and the join resolvers fill the page rows. Inner joins (they narrow through the
-		// eager candidate set) and JoinMany (its two-pass fan-out, design §7.2) replay; the JoinOne
-		// fusion of step 5 is what opens the unsorted and classic-Sort joined shapes.
-		if (options.Pipeline && isSorted && manyCount == 0 && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in resolvers)
+		// Stage 3, steps 5 and 6: a chain of fusable JoinOnes (outer / inner, identity / selector, the four
+		// families, chained), optionally one classic Sort or SortBounded before or after them, takes the
+		// joined pipeline — the pass fills the fused rights per row; a SortBounded innermost feeds the
+		// eager bounded base container. The step-6 shape (SortBounded → outer joins) also admits
+		// resolvers that cannot fuse (a filter callback): they keep their paired read. Any JoinMany (its
+		// two-pass fan-out, design §7.2), an unfusable resolver elsewhere, or an inner left-symmetric join
+		// (its fan-out regroups the rows — opt in with FrozenOptions.FuseSymmetricInnerJoins) replays.
+		if (options.Pipeline && manyCount == 0 && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in resolvers, options.FuseSymmetricInnerJoins, out var shape)
 		    && TryPipeline<TKey, TValue, TArgs>(narrowers, options, out var pipelineSteps)) {
 			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
 			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
 			if (options.ReorderIndexNarrowers)
 				names.Add("ReorderIndexNarrowers");
-			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers, PipelineSort.Bounded, JoinCount(in resolvers));
+			// Free seed: Count always; Execute under a classic Sort (the rows are fully sorted afterwards —
+			// design §8) or the caller's opt-in. Never on its own for a SortBounded (its tie-breaking
+			// ordinals must be eager's) or an unsorted chain (the encounter order is eager's).
+			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || shape.ClassicSort, shape.Sort, shape.Joins, shape.FusedJoins);
 			live.Insert(0, plan);
 			return new FrozenQuery<TArgs, TResult, PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>>(
-				new(cache, pipelineSteps, in resolvers, manyCount, filters, pipelineFused, plan), narrowers, true, isSorted, new(names, live));
+				new(cache, pipelineSteps, in resolvers, manyCount, filters, pipelineFused, plan, in shape), narrowers, true, isSorted, new(names, live));
 		}
 
 		var fused = Fuse<TValue, TArgs>(narrowers, options, names, live);
@@ -577,23 +583,6 @@ internal static class FrozenPlanner {
 
 		steps = list.ToArray();
 		return true;
-	}
-
-	// The joins in a chain the joined pipeline executor accepted (every resolver but the sorter), for Explain.
-	private static int JoinCount<TResolverChain>(in TResolverChain resolvers) where TResolverChain : struct, IResolvers {
-		var chain = resolvers;
-		var counter = new JoinCounter();
-		chain.Execute(ref counter);
-		return counter.Joins;
-	}
-
-	private struct JoinCounter : IResolverExecutor {
-		internal int Joins;
-
-		public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver {
-			if (!TResolver.IsSorter)
-				Joins++;
-		}
 	}
 
 	// Every top-level filter in build order, unboxed once; the pipeline applies them directly.

@@ -113,6 +113,54 @@ public interface IJoinResolver {
 		ref QueryResultsDisposer disposer) where TExecutor : struct, IUnsafeCandidatesExecutor;
 
 	static abstract void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult;
+
+	/// <summary>
+	/// Does this resolver family implement the per-left point lookup of
+	/// <see cref="IFusableJoinOne{TLeftKey,TLeftValue,TRightValue}" /> (the four <c>JoinOne</c> families)?
+	/// JIT-folded per instantiation; the frozen pipeline's chain walkers skip everything else.
+	/// </summary>
+	static virtual bool SupportsFusedLookup => false;
+
+	/// <summary>
+	/// Decided once at build: can this resolver's right be looked up per left with no filter callback
+	/// (<see cref="IFusableJoinOne{TLeftKey,TLeftValue,TRightValue}.CanFuse" />)? Default: no.
+	/// </summary>
+	bool CanFuse => false;
+
+	/// <summary>
+	/// Does this family's <b>inner</b> execution emit its rows in an order the fused per-left fill cannot
+	/// reproduce? True for the left-symmetric join alone: its pair set is keyed by the lookup key, so the
+	/// fan-out creates the rows grouped by right — several lefts of one bucket together — while the fused
+	/// pass keeps the seed's order. The two agree as sets, never as sequences, so the planner leaves such a
+	/// chain to the replay unless <see cref="FrozenOptions.FuseSymmetricInnerJoins" /> is set. An
+	/// <i>outer</i> left-symmetric join is unaffected: its rows already exist, the fan-out only fills them.
+	/// JIT-folded per instantiation.
+	/// </summary>
+	static virtual bool FusedInnerRegroups => false;
+
+	/// <summary>
+	/// The frozen pipeline's fused fill (design §7.1): writes this resolver's right slot of every row in
+	/// <paramref name="accessor" /> with one point lookup per row — the right on a hit (cloned when
+	/// <paramref name="cloneOnAdd" />, as the paired walk's add would), the slot's default on a miss — and,
+	/// for an inner join, drops the rows without a right (<see cref="IUnsafeValueAccessor.PruneNullSlots{TRightValue}" />).
+	/// Returns true when rows were dropped. One call per resolver per execution: the per-row work is the
+	/// resolver's own lookups and the slot write, no chain dispatch. Only invoked on resolvers whose
+	/// <see cref="SupportsFusedLookup" /> is true.
+	/// </summary>
+	internal bool UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct
+		=> throw new InvalidOperationException("Resolver has no fused lookup");
+
+	/// <summary>
+	/// The inner narrowing of the frozen pipeline (design §7.1, the eager <c>CountCoreJoined</c> rule):
+	/// keeps, in order, the keys that have a right — moving <paramref name="values" /> in lockstep when
+	/// given (empty for a count) — and returns the survivor count. <typeparamref name="TKey" /> is the
+	/// chain's left key type; the resolver reinterprets it to its own. Only invoked on inner resolvers
+	/// whose <see cref="SupportsFusedLookup" /> is true.
+	/// </summary>
+	internal int UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values)
+		where TKey : notnull, IEquatable<TKey>
+		=> throw new InvalidOperationException("Resolver has no fused lookup");
 }
 public interface IJoinResolver<TLeftKey, TLeftValue> : IJoinResolver
 	where TLeftKey : notnull, IEquatable<TLeftKey> {
@@ -165,6 +213,12 @@ public interface IUnsafeValueAccessor {
 	/// <paramref name="candidates"/> to surviving keys. Used by InnerJoinMany.
 	/// </summary>
 	internal void RetainNonEmptyManySlots<TKey, TInnerValue>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) where TKey : IEquatable<TKey>;
+
+	/// <summary>This accessor's slot of the row at <paramref name="index" /> — the rows in <see cref="GetKeys{TKey}" />'s order. The fused JoinOne fill's per-row write.</summary>
+	internal ref TRightValue GetSlotAt<TRightValue>(int index);
+
+	/// <summary>Drops the rows whose slot here is null / default (an inner fused join's misses), keeping the order of the rest.</summary>
+	internal void PruneNullSlots<TRightValue>();
 }
 public interface IUnsafeValueAccessor<TLeftKey> : IUnsafeValueAccessor
 	where TLeftKey : IEquatable<TLeftKey> {
