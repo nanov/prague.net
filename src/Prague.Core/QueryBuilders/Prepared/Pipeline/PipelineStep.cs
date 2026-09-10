@@ -38,6 +38,17 @@ internal enum SeedMode : byte {
 	Free,
 }
 
+/// <summary>The sorter a pipeline plan carries, for <c>Explain()</c> (design §8).</summary>
+internal enum PipelineSort : byte {
+	None,
+
+	/// <summary>A classic <c>Sort</c>: the eager container sorts every row after the pass; the seed is free.</summary>
+	Classic,
+
+	/// <summary>A <c>SortBounded</c>: a finite page drives the eager top-k container, an unbounded one the classic container; the seed stays fixed so the tie-breaking ordinals are eager's.</summary>
+	Bounded,
+}
+
 /// <summary>Which side of the store a step probes (design §4 / §14.1).</summary>
 internal enum ProbeSide : byte {
 	/// <summary>Consults the index before the store lookup — the eager step's own read, its staleness window.</summary>
@@ -431,15 +442,19 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	private readonly int _filters;
 	private readonly bool _fused;
 	private readonly bool _freeSeed;
+	private readonly PipelineSort _sort;
+	private readonly int _joins;
 	private int _lastDecision = -1;
 	private int _lastSeedSignal;
 	private int _lastOtherSignal;
 
-	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed) {
+	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed, PipelineSort sort, int joins) {
 		_steps = steps;
 		_filters = filters;
 		_fused = fused;
 		_freeSeed = freeSeed;
+		_sort = sort;
+		_joins = joins;
 	}
 
 	/// <summary>True when <c>Execute*</c> seeds from the smallest signal (a classic <c>Sort</c>, or <see cref="FrozenOptions.ReorderIndexNarrowers" />); <c>Count</c> always does.</summary>
@@ -464,7 +479,19 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 			sb.Append(i).Append(' ').Append(_steps[i].Kind).Append(" probe: ").Append(_steps[i].Side == ProbeSide.Key ? "key-side" : "value-side");
 		}
 
-		sb.Append("], filters: ").Append(_filters).Append(_fused ? " (fused, order below)" : " (direct)").AppendLine();
+		sb.Append("], filters: ").Append(_filters).Append(_fused ? " (fused, order below)" : " (direct)");
+		switch (_sort) {
+			case PipelineSort.Classic:
+				sb.Append(", sort: classic (the container sorts every row after the pass)");
+				break;
+			case PipelineSort.Bounded:
+				sb.Append(", sort: bounded (a finite page feeds the top-k container, ties by encounter ordinal; take = int.MaxValue or a negative page feeds the classic container)");
+				break;
+		}
+
+		if (_joins > 0)
+			sb.Append(", joins: ").Append(_joins).Append(" (outer, filled over the page rows after the pass)");
+		sb.AppendLine();
 		var decision = _lastDecision;
 		if (decision < 0)
 			return;

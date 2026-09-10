@@ -8,8 +8,9 @@ using Prague.Core;
 ///   Eager builder (baseline) vs <c>Build()</c> (replay) vs <c>BuildFrozen()</c>, shape by shape, on
 ///   the raw <see cref="InMemoryDataCache{TKey,TValue}" />. The first four categories are the shapes
 ///   the frozen planner binds to the point-lookup executor; the simple unsorted list / range / key-set /
-///   last-updated shapes bind to the stage-3 pipeline; joins, <c>Match</c> and sorts replay, so their
-///   <c>_Frozen</c> rows must sit on top of the <c>_Prepared</c> rows. Every body executes pooled and disposes. Same data as
+///   last-updated shapes bind to the stage-3 pipeline, as do <c>Sort</c> / <c>SortBounded</c> and the
+///   <c>SortBounded</c> → outer <c>JoinOne</c> production shapes; unsorted joins and <c>Match</c> replay,
+///   so their <c>_Frozen</c> rows must sit on top of the <c>_Prepared</c> rows. Every body executes pooled and disposes. Same data as
 ///   <see cref="PreparedQueryBenchmarks" />: 100k rows, list buckets of 1k, range windows of 1k codes.
 /// </summary>
 [MemoryDiagnoser]
@@ -92,6 +93,10 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<(int group, int band, int lane), PqbItem> _listListListFrozen = null!;
 	private PreparedQuery<(int group, int tier), PqbItem> _sortListListPrepared = null!;
 	private FrozenQuery<(int group, int tier), PqbItem> _sortListListFrozen = null!;
+	private PreparedQuery<int, PqbItem> _sortBoundedPrepared = null!;
+	private FrozenQuery<int, PqbItem> _sortBoundedFrozen = null!;
+	private PreparedQuery<(int group, int tier), PqbItem> _sortBoundedListListPrepared = null!;
+	private FrozenQuery<(int group, int tier), PqbItem> _sortBoundedListListFrozen = null!;
 	private PreparedQuery<int, PqbItem> _listKeySetPrepared = null!;
 	private FrozenQuery<int, PqbItem> _listKeySetFrozen = null!;
 	private PreparedQuery<(int group, long after), PqbItem> _listLastUpdatedPrepared = null!;
@@ -100,6 +105,8 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<(int group, int band, int lane), JoinResult<PqbItem, PqbCustomer?>> _threeListSortJoinFrozen = null!;
 	private PreparedQuery<(long t, int keyA, int keyB), JoinResult<PqbRecord, PqbCustomer?, PqbProduct?>> _timeWindowPrepared = null!;
 	private FrozenQuery<(long t, int keyA, int keyB), JoinResult<PqbRecord, PqbCustomer?, PqbProduct?>> _timeWindowFrozen = null!;
+	private FrozenQuery<(long t, int keyA, int keyB), JoinResult<PqbRecord, PqbCustomer?, PqbProduct?>> _timeWindowFrozenIndexSide = null!;
+	private FrozenQuery<(long t, int keyA, int keyB), PqbRecord> _timeWindowNoJoinFrozen = null!;
 	private PreparedQuery<(long t, int keyA, int keyB), JoinResult<PqbRecord, PqbCustomer?, PqbProduct?>> _timeRangePrepared = null!;
 	private FrozenQuery<(long t, int keyA, int keyB), JoinResult<PqbRecord, PqbCustomer?, PqbProduct?>> _timeRangeFrozen = null!;
 	private (int group, long after) _listLastUpdatedArgs = (13, 1_000_000L + N / 2);
@@ -227,6 +234,10 @@ public class FrozenQueryBenchmarks {
 		_listListListFrozen = _items.Prepare<int, PqbItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane).BuildFrozen();
 		_sortListListPrepared = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Sort(new PqbByScore()).Build();
 		_sortListListFrozen = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Sort(new PqbByScore()).BuildFrozen();
+		_sortBoundedPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new PqbByScore()).Build();
+		_sortBoundedFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new PqbByScore()).BuildFrozen();
+		_sortBoundedListListPrepared = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).SortBounded(new PqbByScore()).Build();
+		_sortBoundedListListFrozen = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).SortBounded(new PqbByScore()).BuildFrozen();
 		_listKeySetPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).Build();
 		_listKeySetFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).BuildFrozen();
 		_listLastUpdatedPrepared = _items.Prepare<int, PqbItem, (int group, long after)>().UseIndex(_byGroup, static a => a.group).UseIndex(_itemsUpdated, static a => a.after).Build();
@@ -239,6 +250,10 @@ public class FrozenQueryBenchmarks {
 			.SortBounded(new PqbRecordByScoreTies()).JoinOne(_recByCustomer, _recCustomers).JoinOne(_recByProduct, _recProducts).Build();
 		_timeWindowFrozen = _records.Prepare<int, PqbRecord, (long t, int keyA, int keyB)>().UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
 			.SortBounded(new PqbRecordByScoreTies()).JoinOne(_recByCustomer, _recCustomers).JoinOne(_recByProduct, _recProducts).BuildFrozen();
+		_timeWindowFrozenIndexSide = _records.Prepare<int, PqbRecord, (long t, int keyA, int keyB)>().UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
+			.SortBounded(new PqbRecordByScoreTies()).JoinOne(_recByCustomer, _recCustomers).JoinOne(_recByProduct, _recProducts).BuildFrozen(new FrozenOptions { IndexSideProbes = true });
+		_timeWindowNoJoinFrozen = _records.Prepare<int, PqbRecord, (long t, int keyA, int keyB)>().UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
+			.SortBounded(new PqbRecordByScoreTies()).BuildFrozen();
 		_timeRangePrepared = _records.Prepare<int, PqbRecord, (long t, int keyA, int keyB)>().UseIndex(_tsRange, static (rb, a) => rb.Gt(a.t)).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
 			.SortBounded(new PqbRecordByScoreTies()).JoinOne(_recByCustomer, _recCustomers).JoinOne(_recByProduct, _recProducts).Build();
 		_timeRangeFrozen = _records.Prepare<int, PqbRecord, (long t, int keyA, int keyB)>().UseIndex(_tsRange, static (rb, a) => rb.Gt(a.t)).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
@@ -647,6 +662,55 @@ public class FrozenQueryBenchmarks {
 		return r.Count;
 	}
 
+	// 14d. SortBounded (the struct PqbByScore) over list(1k), page 0..20 — step 6: the pipeline's fixed seed feeds the eager
+	// top-k container (a heap of 20 over the 1k bucket walk); eager copies the bucket into a candidate set first.
+	[BenchmarkCategory("SortBounded"), Benchmark(Baseline = true)]
+	public int SortBounded_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _group).SortBounded(new PqbByScore()).ExecutePooled(0, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("SortBounded"), Benchmark]
+	public int SortBounded_Prepared() {
+		using var r = _sortBoundedPrepared.ExecutePooled(_group, 0, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("SortBounded"), Benchmark]
+	public int SortBounded_Frozen() {
+		using var r = _sortBoundedFrozen.ExecutePooled(_group, 0, 20);
+		return r.Count;
+	}
+
+	// 14e. SortBounded over list(1k) ∩ list(100), page 0..20: the small-probe seed walks the 100-row bucket, the heap sees 100 rows.
+	[BenchmarkCategory("SortBounded_ListList"), Benchmark(Baseline = true)]
+	public int SortBounded_ListList_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _listListArgs.group).UseIndex(_byTier, _listListArgs.tier).SortBounded(new PqbByScore()).ExecutePooled(0, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("SortBounded_ListList"), Benchmark]
+	public int SortBounded_ListList_Prepared() {
+		using var r = _sortBoundedListListPrepared.ExecutePooled(_listListArgs, 0, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("SortBounded_ListList"), Benchmark]
+	public int SortBounded_ListList_Frozen() {
+		using var r = _sortBoundedListListFrozen.ExecutePooled(_listListArgs, 0, 20);
+		return r.Count;
+	}
+
+	// 14f. Count of the SortBounded plan: the sorter never changes the count — the free seed, no container.
+	[BenchmarkCategory("Count_SortBounded"), Benchmark(Baseline = true)]
+	public int Count_SortBounded_Eager() => _items.Query().UseIndex(_byGroup, _group).SortBounded(new PqbByScore()).Count();
+
+	[BenchmarkCategory("Count_SortBounded"), Benchmark]
+	public int Count_SortBounded_Prepared() => _sortBoundedPrepared.Count(_group);
+
+	[BenchmarkCategory("Count_SortBounded"), Benchmark]
+	public int Count_SortBounded_Frozen() => _sortBoundedFrozen.Count(_group);
+
 	// 15. list(1k) ∩ range(60k codes) — stage 3: the pipeline probes the range on the fetched value instead of walking the 60k window
 	[BenchmarkCategory("ListRange"), Benchmark(Baseline = true)]
 	public int ListRange_Eager() {
@@ -734,7 +798,7 @@ public class FrozenQueryBenchmarks {
 	[BenchmarkCategory("Count_ListRange"), Benchmark]
 	public int Count_ListRange_Frozen() => _listRangeFrozen.Count(_listRangeArgs);
 
-	// ── Production shapes (baselines for steps 3 / 5 / 6; frozen replays in this step) ──
+	// ── Production shapes (step 6: the frozen rows take the joined pipeline — the seed pass feeds the eager bounded base container, the joins fill the page) ──
 
 	// A. three list indexes, largest bucket first (1k ∩ 333 ∩ 111 → 111 rows), SortBounded page 20..40 with a tying
 	// struct comparer, JoinOne 1:1 by PK (every fourth right row missing).
@@ -786,6 +850,30 @@ public class FrozenQueryBenchmarks {
 	[BenchmarkCategory("TimeWindowListListSortBoundedJoinTwo"), Benchmark]
 	public int TimeWindowListListSortBoundedJoinTwo_Frozen() {
 		using var r = _timeWindowFrozen.ExecutePooled(_timeWindowArgs, 20, 20);
+		return r.Count;
+	}
+
+	// The two list steps probed on their buckets (gate-pinned Contains) before the store lookup instead of on
+	// the fetched value: the window's ~1.4k non-survivors skip the lookup. Evidence for the probe-placement
+	// lever (design §4 / §5.3), not the default (IndexSideProbes is the eager staleness window, §14.1).
+	[BenchmarkCategory("TimeWindowListListSortBoundedJoinTwo"), Benchmark]
+	public int TimeWindowListListSortBoundedJoinTwo_FrozenIndexSide() {
+		using var r = _timeWindowFrozenIndexSide.ExecutePooled(_timeWindowArgs, 20, 20);
+		return r.Count;
+	}
+
+	// B without its joins: the narrowing and the page alone, so the two join fills' share of the joined row
+	// is the difference — the baseline for the JoinOne fusion of design step 5.
+	[BenchmarkCategory("TimeWindowListListSortBounded"), Benchmark(Baseline = true)]
+	public int TimeWindowListListSortBounded_Eager() {
+		using var r = _records.Query().UseIndex(_recordsUpdated, _timeWindowArgs.t).UseIndex(_byKeyA, _timeWindowArgs.keyA).UseIndex(_byKeyB, _timeWindowArgs.keyB)
+			.SortBounded(new PqbRecordByScoreTies()).ExecutePooled(20, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("TimeWindowListListSortBounded"), Benchmark]
+	public int TimeWindowListListSortBounded_Frozen() {
+		using var r = _timeWindowNoJoinFrozen.ExecutePooled(_timeWindowArgs, 20, 20);
 		return r.Count;
 	}
 

@@ -1349,6 +1349,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 
 	internal DataCacheStatisticsCollector StatisticsCollector { get; }
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool TryGet(TKey key, [MaybeNullWhen(false)] out TValue value) {
 		return _cache.TryGetValue(key, out value);
 	}

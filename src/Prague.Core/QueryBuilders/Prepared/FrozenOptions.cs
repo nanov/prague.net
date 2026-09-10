@@ -46,8 +46,9 @@ public sealed class FrozenOptions {
 
 	/// <summary>
 	///   Bind a simple plan whose index steps are all non-composite (unique / list equality and
-	///   membership, range, key-set, last-updated), unsorted or under a classic <c>Sort</c>, to the
-	///   pipeline executor: one index step's keys are copied out once and every other step is an O(1)
+	///   membership, range, key-set, last-updated) — unsorted, under <c>Sort</c> or under
+	///   <c>SortBounded</c> — and a joined plan of the same steps under a <c>SortBounded</c> followed by
+	///   outer <c>JoinOne</c>s, to the pipeline executor: one index step's keys are copied out once and every other step is an O(1)
 	///   probe on the key or the fetched value — no candidate set, no intersection, one store lookup
 	///   per candidate. Same rows in the same order as the eager builder for unsorted plans (the first
 	///   declared step seeds; a smaller equality step is walked instead and its survivors put back in

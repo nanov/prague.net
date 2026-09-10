@@ -362,7 +362,8 @@ internal static class FrozenReplay {
 /// <summary>
 ///   <c>BuildFrozen()</c>'s planner. Flattens the typed chain through <c>Describe</c>, picks the
 ///   executor — point lookup, the pipeline (every simple plan of non-composite index steps, unsorted
-///   or under a classic <c>Sort</c>) or the replay — and attaches the optimizations the plan qualifies
+///   or under a <c>Sort</c> / <c>SortBounded</c>; a joined plan of the same steps under a
+///   <c>SortBounded</c> followed by outer joins) or the replay — and attaches the optimizations the plan qualifies
 ///   for: a fused filter for two or more top-level <c>Where</c>s and, for replayed plans, a capacity
 ///   hint when they are equality-seeded. Everything here runs once per build; nothing is reached from
 ///   an execution.
@@ -409,18 +410,21 @@ internal static class FrozenPlanner {
 
 		var names = new List<string>();
 		var live = new List<IPlanExplainable>();
-		// Stage 3: the pipeline takes every simple plan of non-composite index steps that is unsorted or
-		// under a classic Sort (the sorter runs inside the eager container the pipeline drives; a
-		// SortBounded page is the ExecuteCoreSimpleTop plan and replays until the design's step 6).
-		var classicSort = isSorted && TResolver.IsSorter && !resolvers.Resolver.AllowsBounded;
-		if (options.Pipeline && (!hasResolvers || classicSort) && TryPipeline<TKey, TValue, TArgs>(narrowers, options, out var pipelineSteps)) {
+		// Stage 3: the pipeline takes every simple plan of non-composite index steps — unsorted, under a
+		// classic Sort (the sorter runs inside the eager container the pipeline drives) or under
+		// SortBounded (a finite page drives the eager top-k container behind the ExecuteCoreSimpleTop
+		// gate, an unbounded one the classic container — design §8).
+		var sorter = isSorted && TResolver.IsSorter;
+		var sort = !sorter ? PipelineSort.None : resolvers.Resolver.AllowsBounded ? PipelineSort.Bounded : PipelineSort.Classic;
+		if (options.Pipeline && (!hasResolvers || sorter) && TryPipeline<TKey, TValue, TArgs>(narrowers, options, out var pipelineSteps)) {
 			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
 			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
 			if (options.ReorderIndexNarrowers)
 				names.Add("ReorderIndexNarrowers");
 			// Free seed: Count always; Execute when the rows are fully sorted afterwards (classic Sort —
-			// design §8) or the caller opted out of the eager encounter order.
-			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || classicSort);
+			// design §8) or the caller opted out of the eager encounter order. Never on its own for
+			// SortBounded: the bounded container breaks ties by encounter ordinal, which must be eager's.
+			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || sort == PipelineSort.Classic, sort, 0);
 			live.Insert(0, plan);
 			return new FrozenQuery<TArgs, TValue, PipelineExecutor<TKey, TValue, TArgs, TResolver>>(
 				new(cache, pipelineSteps, in resolvers, filters, pipelineFused, plan), narrowers, hasResolvers, isSorted, new(names, live));
@@ -447,6 +451,22 @@ internal static class FrozenPlanner {
 		chain.Describe(narrowers);
 		var names = new List<string>();
 		var live = new List<IPlanExplainable>();
+		// Stage 3, step 6: a SortBounded before outer joins — the pipeline pass feeds the eager bounded
+		// base container and the join resolvers fill the page rows. Inner joins (they narrow through the
+		// eager candidate set) and JoinMany (its two-pass fan-out, design §7.2) replay; the JoinOne
+		// fusion of step 5 is what opens the unsorted and classic-Sort joined shapes.
+		if (options.Pipeline && isSorted && manyCount == 0 && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in resolvers)
+		    && TryPipeline<TKey, TValue, TArgs>(narrowers, options, out var pipelineSteps)) {
+			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
+			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
+			if (options.ReorderIndexNarrowers)
+				names.Add("ReorderIndexNarrowers");
+			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers, PipelineSort.Bounded, JoinCount(in resolvers));
+			live.Insert(0, plan);
+			return new FrozenQuery<TArgs, TResult, PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>>(
+				new(cache, pipelineSteps, in resolvers, manyCount, filters, pipelineFused, plan), narrowers, true, isSorted, new(names, live));
+		}
+
 		var fused = Fuse<TValue, TArgs>(narrowers, options, names, live);
 		var hints = Hints(narrowers, options, names, live);
 		if (fused is null && hints is null)
@@ -532,6 +552,7 @@ internal static class FrozenPlanner {
 	///   one a non-composite narrower that can build its step under the options (a key the binding can
 	///   hold; no range step when probes must be index-side), plus any number of top-level filters. A
 	///   filter-only plan has no seed source and replays; composites arrive in the design's step 4.
+	///   Shared by the simple and the joined planner rules.
 	/// </summary>
 	private static bool TryPipeline<TKey, TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers, FrozenOptions options, out IPipelineStep<TKey, TValue, TArgs>[] steps)
 		where TKey : notnull, IEquatable<TKey>
@@ -556,6 +577,23 @@ internal static class FrozenPlanner {
 
 		steps = list.ToArray();
 		return true;
+	}
+
+	// The joins in a chain the joined pipeline executor accepted (every resolver but the sorter), for Explain.
+	private static int JoinCount<TResolverChain>(in TResolverChain resolvers) where TResolverChain : struct, IResolvers {
+		var chain = resolvers;
+		var counter = new JoinCounter();
+		chain.Execute(ref counter);
+		return counter.Joins;
+	}
+
+	private struct JoinCounter : IResolverExecutor {
+		internal int Joins;
+
+		public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver {
+			if (!TResolver.IsSorter)
+				Joins++;
+		}
 	}
 
 	// Every top-level filter in build order, unboxed once; the pipeline applies them directly.

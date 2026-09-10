@@ -4,15 +4,12 @@ using System.Runtime.CompilerServices;
 using Collections;
 
 /// <summary>
-///   The stage-3 executor for simple plans of non-composite index steps — unsorted, or under a
-///   classic <c>Sort</c> (design §2, §3, §6, §8): bind every step to the arguments once, choose the
-///   seed, copy its keys out under one gate pin, then one pass — key-side probes, one store lookup,
-///   value-side probes, the predicates — driving the eager
-///   <see cref="SimpleResultContainer{TKey,TValue,TResolver}" /> exactly as the eager core does
-///   (<c>Init(seedCount)</c>, <c>Add</c>, <c>Seal</c>, <c>BuildResults</c> — which also runs the sorter),
-///   so <c>TotalCount</c>, paging, clone timing and pooling are the eager ones by construction. No
-///   candidate set, no bitmap, no compaction; filters are called directly (no
-///   <see cref="ArgPredicatePool{TValue,TArgs}" />).
+///   The half of the stage-3 pipeline every executor shares (design §2, §3, §6): bind every step to the
+///   arguments once, choose the seed, copy its keys out under one gate pin, then one pass — key-side
+///   probes, one store lookup, value-side probes, the predicates — into whichever eager container the
+///   executor drives (<c>Init(seedCount)</c>, <c>Add</c>, <c>Seal</c>), so <c>TotalCount</c>, paging,
+///   clone timing and pooling are the eager ones by construction. No candidate set, no bitmap, no
+///   compaction; filters are called directly (no <see cref="ArgPredicatePool{TValue,TArgs}" />).
 ///   Seed selection (§3.3 / §3.4): in fixed mode the first active index step seeds — the eager
 ///   <c>_first</c> rule, so the encounter order is eager's — and when that step is a
 ///   <see cref="PooledSet{T,TKeyComparer}" /> (list equality, key-set) and another active equality step
@@ -23,26 +20,24 @@ using Collections;
 ///   — a unique step always wins, an exact count of zero is the empty result with no walk, a B+tree
 ///   estimate replaces an exact count only when twice the estimate is still smaller — and the row
 ///   order follows the seeding source. Immutable after build; every execution's state is a stack
-///   frame (design §10).
+///   frame (design §10). A readonly struct held by value in the executors: every member is readonly,
+///   so the calls through the executor's readonly field make no defensive copy.
 /// </summary>
-internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFrozenExecutor<TArgs, TValue>
+internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TResolver : struct, IJoinResolver {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly IPipelineStep<TKey, TValue, TArgs>[] _steps;
-	private readonly Resolvers<TResolver> _resolvers;
 	private readonly FilterStep<TValue, TArgs>[] _filters;
 	private readonly FusedFilter<TValue, TArgs>? _fused;
 	private readonly PipelinePlan<TKey, TValue, TArgs> _plan;
 	private readonly bool _freeSeed;
 	private readonly bool _needsRelease;
 
-	internal PipelineExecutor(InMemoryDataCache<TKey, TValue> cache, IPipelineStep<TKey, TValue, TArgs>[] steps, in Resolvers<TResolver> resolvers,
-		FilterStep<TValue, TArgs>[] filters, FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan) {
+	internal PipelineCore(InMemoryDataCache<TKey, TValue> cache, IPipelineStep<TKey, TValue, TArgs>[] steps, FilterStep<TValue, TArgs>[] filters,
+		FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan) {
 		_cache = cache;
 		_steps = steps;
-		_resolvers = resolvers;
 		_filters = filters;
 		_fused = fused;
 		_plan = plan;
@@ -51,51 +46,47 @@ internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFro
 			_needsRelease |= steps[i].NeedsRelease;
 	}
 
-	public static string Name => "Pipeline";
+	/// <summary>
+	///   The eager bounded-page gate on the paging arguments alone (<c>ExecuteCoreSimpleTop</c> /
+	///   <c>ExecuteCoreJoinedTop</c>, <c>CacheQueryBuilder.cs</c>): negative or unbounded paging keeps the
+	///   classic container's historical behaviour exactly; bounding is a pure optimization, never a gate.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal static bool IsBoundedPage(int skip, int take)
+		=> skip >= 0 && take >= 0 && take != int.MaxValue && (long)skip + take <= int.MaxValue;
+
+	/// <summary>Binds, chooses the seed for an <c>Execute*</c> (fixed unless the plan seeds free) and copies it out. False: the eager empty result — nothing is rented past the frame.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool Open(in TArgs args, scoped ref PipelineFrame<TKey> frame)
+		=> Bind(_steps, in args, ref frame) && ChooseSeed(_steps, ref frame, _freeSeed) && Seed(_steps, ref frame);
+
+	/// <summary>The sampled-execution handshake of the fused filter, when the plan has one.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool BeginSampling() => _fused is not null && _fused.BeginExecution();
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal void EndSampling(bool sampled) {
+		if (sampled)
+			_fused!.EndSampled();
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal void Release(scoped ref PipelineFrame<TKey> frame) => Release(_steps, ref frame);
 
 	// SkipLocalsInit: the seed's stack buffer is written before it is read; the frame's constructor
 	// zeroes the rest (its bindings hold references and an activation state the steps read back).
 	[SkipLocalsInit]
-	public QueryResults<TValue> Execute(in TArgs args, bool pool, bool clone, int skip, int take) {
-		Span<long> stack = stackalloc long[PipelineLimits.SeedStackLongs];
-		var frame = new PipelineFrame<TKey>(SeedKeys<TKey>.Over(stack));
-		var steps = _steps;
-		try {
-			// The eager core returns before Init when the candidate set is empty; BuildResults then
-			// yields the shared Empty.
-			if (!Bind(steps, in args, ref frame) || !ChooseSeed(steps, ref frame, _freeSeed) || !Seed(steps, ref frame))
-				return QueryResults<TValue>.Empty;
-
-			var sampled = _fused is not null && _fused.BeginExecution();
-			var container = new SimpleResultContainer<TKey, TValue, TResolver>(_resolvers.Resolver, pool, clone, skip, take);
-			try {
-				container.Init(frame.Seed.Count);
-				container.Seal(Walk(steps, in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref container));
-				var results = container.BuildResults();
-				if (sampled)
-					_fused!.EndSampled();
-				return results;
-			} finally {
-				container.Dispose();
-			}
-		} finally {
-			Release(steps, ref frame);
-		}
-	}
-
-	[SkipLocalsInit]
-	public int Count(in TArgs args) {
+	internal int Count(in TArgs args) {
 		Span<long> stack = stackalloc long[PipelineLimits.SeedStackLongs];
 		var frame = new PipelineFrame<TKey>(SeedKeys<TKey>.Over(stack));
 		var steps = _steps;
 		try {
 			if (!Bind(steps, in args, ref frame) || !ChooseSeed(steps, ref frame, true) || !Seed(steps, ref frame))
 				return 0;
-			var sampled = _fused is not null && _fused.BeginExecution();
+			var sampled = BeginSampling();
 			var counter = new CountContainer();
 			var count = Walk(steps, in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref counter);
-			if (sampled)
-				_fused!.EndSampled();
+			EndSampling(sampled);
 			return count;
 		} finally {
 			Release(steps, ref frame);
@@ -290,8 +281,40 @@ internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFro
 		_cache.EnumerateAllValuesInit(ref collector, null);
 	}
 
-	// The frame's spans are passed `scoped` so the compiler knows nothing stack-bound can flow into the
-	// container, which is the one ref-struct argument passed by reference.
+	/// <summary>
+	///   The one pass over the seed into <paramref name="container" />; returns the number of rows added —
+	///   the eager <c>Seal</c> count. The frame's spans are passed `scoped` (not the frame by reference) so
+	///   the compiler knows nothing stack-bound can flow into the container, which is the one ref-struct
+	///   argument passed by reference — the joined containers hold a ref to the execution's chain copy.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal int Walk<TContainer>(in TArgs args, scoped ReadOnlySpan<TKey> keys, scoped ReadOnlySpan<byte> keyProbes, scoped ReadOnlySpan<byte> valueProbes,
+		scoped ReadOnlySpan<StepBinding> bindings, bool sampled, ref TContainer container)
+		where TContainer : struct, IJoinedResultContainer<TKey, TValue>, allows ref struct
+		=> keyProbes.Length == 0 && valueProbes.Length == 0 && _fused is null
+			? WalkPlain(in args, keys, ref container)
+			: Walk(_steps, in args, keys, keyProbes, valueProbes, bindings, sampled, ref container);
+
+	// The probe-free pass (one active index step, direct filters), kept as small as the eager store walk
+	// so the container's Add — for the bounded containers a heap push through the comparer chain —
+	// inlines into the loop. In the general pass below the JIT's inlining budget runs out before that
+	// chain, and a top-k page over a 1k bucket measured 17 µs against eager's 16 with the general loop.
+	private int WalkPlain<TContainer>(in TArgs args, scoped ReadOnlySpan<TKey> keys, ref TContainer container)
+		where TContainer : struct, IJoinedResultContainer<TKey, TValue>, allows ref struct {
+		var filters = _filters;
+		var cache = _cache;
+		var actual = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			var key = keys[i];
+			if (!cache.TryGet(key, out var value) || !PassesDirect(filters, value, in args))
+				continue;
+			container.Add(key, value);
+			actual++;
+		}
+
+		return actual;
+	}
+
 	private int Walk<TContainer>(IPipelineStep<TKey, TValue, TArgs>[] steps, in TArgs args, scoped ReadOnlySpan<TKey> keys, scoped ReadOnlySpan<byte> keyProbes,
 		scoped ReadOnlySpan<byte> valueProbes, scoped ReadOnlySpan<StepBinding> bindings, bool sampled, ref TContainer container)
 		where TContainer : struct, IJoinedResultContainer<TKey, TValue>, allows ref struct {
@@ -379,5 +402,85 @@ internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFro
 		public int Add(TKey foreignKey, TValue result) => 0;
 
 		public int TotalCount => 0;
+	}
+}
+
+/// <summary>
+///   The stage-3 executor for simple plans of non-composite index steps — unsorted, under a classic
+///   <c>Sort</c>, or under <c>SortBounded</c> (design §8): the <see cref="PipelineCore{TKey,TValue,TArgs}" />
+///   pass drives the eager <see cref="SimpleResultContainer{TKey,TValue,TResolver}" /> (whose
+///   <c>BuildResults</c> also runs the classic sorter) or, for a finite page of a <c>SortBounded</c>
+///   plan, the eager <see cref="TopKSimpleResultContainer{TKey,TValue,TResolver}" /> — the same gate
+///   the eager <c>ExecuteCoreSimpleTop</c> applies, so an unbounded or negative page takes the classic
+///   container exactly as eager does. The bounded container stamps each row's encounter ordinal as the
+///   tie-breaker, which is why a <c>SortBounded</c> plan keeps the fixed seed: the ordinals are eager's.
+/// </summary>
+internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFrozenExecutor<TArgs, TValue>
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TResolver : struct, IJoinResolver {
+	private readonly PipelineCore<TKey, TValue, TArgs> _core;
+	private readonly Resolvers<TResolver> _resolvers;
+	// The resolver half of the eager gate, decided once: the resolver is immutable after build.
+	private readonly bool _bounded;
+
+	internal PipelineExecutor(InMemoryDataCache<TKey, TValue> cache, IPipelineStep<TKey, TValue, TArgs>[] steps, in Resolvers<TResolver> resolvers,
+		FilterStep<TValue, TArgs>[] filters, FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan) {
+		_core = new(cache, steps, filters, fused, plan);
+		_resolvers = resolvers;
+		_bounded = TResolver.IsSorter && _resolvers.Resolver.AllowsBounded && _resolvers.Resolver.OrdersByLeftValues<TValue>();
+	}
+
+	public static string Name => "Pipeline";
+
+	// SkipLocalsInit: the seed's stack buffer is written before it is read; the frame's constructor
+	// zeroes the rest (its bindings hold references and an activation state the steps read back).
+	[SkipLocalsInit]
+	public QueryResults<TValue> Execute(in TArgs args, bool pool, bool clone, int skip, int take) {
+		Span<long> stack = stackalloc long[PipelineLimits.SeedStackLongs];
+		var frame = new PipelineFrame<TKey>(SeedKeys<TKey>.Over(stack));
+		try {
+			// The eager core returns before Init when the candidate set is empty; BuildResults then
+			// yields the shared Empty.
+			if (!_core.Open(in args, ref frame))
+				return QueryResults<TValue>.Empty;
+			return _bounded && PipelineCore<TKey, TValue, TArgs>.IsBoundedPage(skip, take)
+				? ExecuteTop(in args, ref frame, pool, clone, skip, take)
+				: ExecuteClassic(in args, ref frame, pool, clone, skip, take);
+		} finally {
+			_core.Release(ref frame);
+		}
+	}
+
+	public int Count(in TArgs args) => _core.Count(in args);
+
+	private QueryResults<TValue> ExecuteClassic(in TArgs args, scoped ref PipelineFrame<TKey> frame, bool pool, bool clone, int skip, int take) {
+		var sampled = _core.BeginSampling();
+		var container = new SimpleResultContainer<TKey, TValue, TResolver>(_resolvers.Resolver, pool, clone, skip, take);
+		try {
+			container.Init(frame.Seed.Count);
+			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref container));
+			var results = container.BuildResults();
+			_core.EndSampling(sampled);
+			return results;
+		} finally {
+			container.Dispose();
+		}
+	}
+
+	// The eager ExecuteCoreSimpleTop body with the pipeline pass in place of the candidate walk: the
+	// resolver carries the comparison into the container as a struct type parameter, nothing is boxed.
+	private QueryResults<TValue> ExecuteTop(in TArgs args, scoped ref PipelineFrame<TKey> frame, bool pool, bool clone, int skip, int take) {
+		var sampled = _core.BeginSampling();
+		var container = new TopKSimpleResultContainer<TKey, TValue, TResolver>(_resolvers.Resolver, pool, clone, skip, take);
+		try {
+			container.Init(frame.Seed.Count);
+			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref container));
+			var results = container.BuildResults();
+			_core.EndSampling(sampled);
+			return results;
+		} finally {
+			container.Dispose();
+		}
 	}
 }

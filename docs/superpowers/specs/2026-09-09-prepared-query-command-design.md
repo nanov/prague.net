@@ -726,6 +726,77 @@ readers against a writer), `FrozenPipelineAllocationTests` +4 (both `list ∩ li
 in the commit).
 
 
+### Stage 3 — step 6: the `SortBounded` feed
+
+*Design:* pipeline design §8 (`SortBounded` → the bounded containers, fixed seed), §7.3 (sort before
+the joins), §9 (the planner rule), §13 step 6; the executors' docs in `Pipeline/PipelineExecutor.cs`
+and `Pipeline/PipelineJoinedExecutor.cs`.
+
+*What executes.* The pipeline pass now lives in `PipelineCore<TKey,TValue,TArgs>` (bind, seed choice,
+seed copy, walk, count, release — a readonly struct held by value), and two thin executors drive the
+eager containers with it. **Simple** (`PipelineExecutor`): the eager `ExecuteCoreSimpleTop` gate is
+applied per call — `skip >= 0 && take >= 0 && take != int.MaxValue && skip + take <= int.MaxValue` on the
+arguments, `TResolver.IsSorter && AllowsBounded && OrdersByLeftValues` decided once at build — and the
+pass feeds `TopKSimpleResultContainer` (`Init(seedCount)`, `Add`, `Seal`, `BuildResults`) or, when the
+gate fails, `SimpleResultContainer` exactly as before. The seed stays **fixed** for `SortBounded`
+(`ReorderIndexNarrowers` is the only way to move it, as for unsorted plans): the bounded container
+stamps each row's encounter ordinal as its tie-breaker, and the fixed seed makes those ordinals
+eager's, so a page is byte-identical with a tie comparer too. A probe-free plan (one active step, direct
+filters) runs `WalkPlain`, a loop as small as the eager store walk, so the container's `Add` chain
+inlines. **Joined** (`PipelineJoinedExecutor`): for a chain of one innermost bounded left-value sorter
+followed by outer joins only (`Accepts`: the eager `TopKProbeProcessor` conditions plus "no inner
+join"; the planner also requires `manyCount == 0`), a finite page runs the pass into
+`TopKJoinedBaseContainer`, `Drain`s, `MaterializeTopK`s the page into `JoinedResultContaier` and runs
+`ExecuteJoinsBounded` — the join resolvers as they run today, unfused, over the page rows only; an
+unbounded or negative page runs the pass into the classic `JoinedResultContaier` and `ExecuteJoins`
+(stable sort, crop, joins). `Count` is the pipeline's count (an outer join counts every left). The
+resolver chain is copied onto the stack per execution (resolvers carry scratch), as the prepared joined
+query does. Inner joins (their narrowing pass reads the eager candidate set), `JoinMany` (design §7.2),
+a sort after a join, classic `Sort` before a join and unsorted joins replay until step 5.
+
+*Also in this step.* `ConcurrentCacheStore.TryGetValue` and `InMemoryDataCache.TryGet` carry
+`AggressiveInlining` (the store's existing pattern for its hot helpers): the pipeline's per-key lookup
+is now the loop body as it is in the store's own bulk walks — `Count_SortBounded_Frozen` 7.5 → 5.4 µs,
+`SortBounded_Frozen` 16.3 → 15.0. `JoinedResultContaier.BuildResults` handed its buffer off *before*
+`CloneElements`, so a throwing `Clone()` on a pooled cloned joined page stranded the values array (the
+eager path too); it now hands off after the clone, the simple container's order.
+
+*Not in this step.* `JoinOne` fusion (step 5 — shape B's two fills are 9.4 of its 26.8 µs), composites
+(step 4), inner joins and `JoinMany` on the pipeline.
+
+#### Measured (Apple M4 Pro, .NET 9, `--inProcess`, default job, one category per run; full tables in `RESULTS.MD`, "stage 3, step 6")
+
+| Row | Eager | `Build()` | `BuildFrozen()` | Ratio | Bar (§12 / step 6) | Frozen alloc |
+|---|---:|---:|---:|---:|---|---|
+| `SortBounded` (1k bucket, page 0..20) | 15.85 µs | 15.79 µs | 14.96 µs | 0.94 (1.06×) | ≥ 1.1× **missed by a hair** — 1k × (lookup + cold `Score` read + heap compare) both ways; only the candidate-set build is saved | 0 B |
+| `SortBounded_ListList` (1k ∩ 100, page 0..20) | 11.49 µs | 11.58 µs | **3.66 µs** | 0.32 (3.1×) | the small-probe seed, eager's page byte for byte | 0 B |
+| `Count_SortBounded` | 5.09 µs | 4.95 µs | 5.39 µs | 1.06 | parity — eager's count never dereferences a value | 0 B |
+| Shape A `ListListListSortBoundedJoinOne` (page 20..40) | 17.05 µs | 16.84 µs | **7.71 µs** | 0.45 (2.2×) | ≥ 2× kept; the `JoinOne` fill over 20 rows is ~5 µs of it (step 5) | 0 B |
+| `Count_` shape A | 10.94 µs | 10.64 µs | **1.41 µs** | 0.13 (7.7×) | free seed, no container | 0 B |
+| Shape B `TimeWindowListListSortBoundedJoinTwo` (page 20..40) | 34.04 µs | 33.47 µs | 26.82 µs | 0.79 (1.27×) | ≥ 1.5× **missed** — the two unfused `JoinOne` fills are 9.4 µs (step 5) | 0 B |
+| Shape B without its joins (new `TimeWindowListListSortBounded`) | 25.06 µs | — | 17.44 µs | 0.70 (1.44×) | the narrowing floor: the window is already the smallest seed; every key pays a lookup + two selector compares | 0 B |
+| Shape B `_FrozenIndexSide` (list steps probed on their buckets) | — | — | 29.07 µs | 0.85 | slower — refutes key-side probing here (design §2.3); value-side default stands | 0 B |
+| `Count_` shape B | 21.70 µs | 21.33 µs | **13.99 µs** | 0.64 (1.55×) | ≥ 1.5× kept | 0 B |
+| Shape B-range `TimeRangeListListSortBoundedJoinTwo` / `Count_` | 37.77 / 25.09 µs | 37.25 / 25.09 µs | 27.93 / **16.76 µs** | 0.74 / 0.67 | 1.35× / 1.50× — same reading as B (re-measured on the final tree) | 0 B |
+| `ListList` / `ListListList` / `Sort_ListList` / `ListWhere` | 9.39 / 11.48 / 10.34 / 8.49 µs | = | 1.70 / 2.18 / 2.14 / 7.42 µs | 0.18 / 0.19 / 0.21 / 0.87 | within noise of step 3 or better | 0 B |
+
+Tests: `FrozenPipelineSortBoundedTests` (11: total and tie comparers byte-identical to eager on list,
+list + where(s), list ∩ list / ∩ list ∩ list / ∩ unique (small-probe), range, list ∩ range, key-set,
+list ∩ key-set, list ∩ last-updated × every `Execute*` variant × ten pages incl. `take = int.MaxValue`,
+skip past the end and `take = 0`, with clone identity; pages partition; `ReorderIndexNarrowers` keeps
+the set and the contract; executor selection for the simple and joined rules incl. inner / `JoinMany` /
+sort-after-join / classic-`Sort`-before-join → replay and the `Explain()` lines; shapes A and B (both
+time-index kinds) on rows and joined values, every variant and page, clone identity of every side,
+pages partition across mutations; leak balance under a throwing comparer on the heap, collect-all and
+classic paths, a throwing selector, a throwing predicate and a throwing `Clone()` on the simple and
+joined pooled cloned pages, eager twin included; 8 readers × a churning writer over the simple and
+joined plans), `FrozenPipelineAllocationTests` +2 (`SortBounded` list / list ∩ list pages, the
+collect-all page and the classic fallback; shapes A / B pages and A's classic fallback — 0 B each in
+Release), `PreparedQueryProductionShapeDifferentialTests` asserts `Pipeline`, the step-3 / stage-1 / 2
+executor-selection assertions updated. `Prague.Core.Tests/Prepared` 386 in Release (net9.0), 1099 + 386
+Release and the full Core suite in Debug on net9.0, `Prague.Generated.Tests` 1210 green.
+
+
 ## 9. Relation to the event-loop research
 
 A `PreparedQuery<TArgs, TResult>` is exactly what a per-cache loop would dequeue: an immutable

@@ -149,10 +149,10 @@ public class FrozenQueryTests {
 		});
 	}
 
-	// Stage 3: every simple plan of non-composite index steps — unsorted or under a classic Sort — is the
-	// pipeline's; a Where before the unique step is one too (the unique step seeds, the filter is a
-	// predicate). Composites, SortBounded, joins and filter-only plans replay, as does everything with
-	// Pipeline = false.
+	// Stage 3: every simple plan of non-composite index steps — unsorted, under a classic Sort or under
+	// SortBounded — is the pipeline's; a Where before the unique step is one too (the unique step seeds,
+	// the filter is a predicate). Composites, joins (unless SortBounded before outer joins, step 6) and
+	// filter-only plans replay, as does everything with Pipeline = false.
 	[Test]
 	public void PipelineOrReplay_IsChosen_ForEveryOtherShape() {
 		var stage2 = new FrozenOptions { Pipeline = false };
@@ -173,8 +173,8 @@ public class FrozenQueryTests {
 			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byCode, 1042), b => b.UseIndex(_byCode, 1043)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Or of uniques");
 			Assert.That(_cache.Prepare<int, PqItem, bool>().If(static c => c, b => b.UseIndex(_byCode, 1042)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "If around unique");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort: the pipeline drives the sorting container");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "SortBounded replays until the bounded feed lands");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "sort-bounded");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded: the pipeline feeds the top-k container (step 6)");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).SortBounded(new ByCode()).BuildFrozen(stage2).Plan.Executor, Is.EqualTo("Replay"), "sort-bounded, stage 2");
 			Assert.That(_orders.Prepare().UseIndex(_byCustomer, 3).JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "joined");
 			Assert.That(_orders.Prepare().JoinOne(_byCustomer, _customers).Sort(new ByQty()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "sorted joined");
 		});
@@ -197,7 +197,7 @@ public class FrozenQueryTests {
 
 		var sorted = _cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen();
 		Assert.Multiple(() => {
-			Assert.That(sorted.Explain(), Does.Contain("executor: Replay"));
+			Assert.That(sorted.Explain(), Does.Contain("executor: Pipeline").And.Contain("sort: bounded"));
 			Assert.That(sorted.Explain(), Does.Contain("ListEq (bound)"));
 			Assert.That(sorted.Explain(), Does.Contain("resolvers: yes, sorted: yes"));
 		});
@@ -408,10 +408,10 @@ public class FrozenQueryTests {
 	}
 
 	[Test]
-	public void Fallback_SortBounded_FrozenEqualsPreparedEqualsEager() {
+	public void SortBounded_FrozenEqualsPreparedEqualsEager() {
 		var prepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).Build();
 		var frozen = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(frozen.Plan.IsSorted, Is.True);
 		AssertSame(_cache.Query().UseIndex(_byGroup, 5).SortBounded(new ByCode()).ExecutePooled(3, 8), frozen.ExecutePooled(5, 3, 8));
 		AssertSame(prepared.ExecutePooled(5, 3, 8), frozen.ExecutePooled(5, 3, 8));

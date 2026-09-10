@@ -268,11 +268,13 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		var offset = _results.Offset;
 		var allResults = QueryResults<TResult>.FromArray(
 			_results.ValuesArray ?? [], offset, _results.Count, TotalCount, _shouldPool, in _disposer);
-		_handedOff = true;
 
-		// Clone after slicing if needed
+		// Clone after slicing if needed. Hand the buffer off only once nothing left here can throw: a
+		// user Clone() that throws leaves the values array (and the disposer's child buffers) with this
+		// container, whose Dispose returns them.
 		if (_clone)
 			allResults.CloneElements(new ResolveChainCloner<TResolverChain, TLeftValue, TResult>());
+		_handedOff = true;
 
 		return allResults;
 	}

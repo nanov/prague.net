@@ -867,6 +867,127 @@ six production-shape rows re-measured within noise of the step-2 tables (the swe
   (`FrozenPipelineTests.Staleness_RangeProbe_BothDirections…` pins both).
 
 
+# Frozen queries — `BuildFrozen()` stage 3, step 6: the `SortBounded` feed
+
+Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md` §8, §7.3, §13 step 6.
+Apple M4 Pro, .NET 9.0 (osx-arm64), Release, `--inProcess`, default job, `[MemoryDiagnoser]`, one
+category per run (several categories chained back to back in one process where noted). Same 100k-row
+item store as the stage-3 tables above (group buckets 1k rows, tier 100, band 333, lane 111; `Score`
+random) and the 10k-record store of production shape B (timestamps over one hour, hot list keys A / B,
+2k customers, 500 products). New rows: `SortBounded` (1k bucket, page 0..20), `SortBounded_ListList`
+(1k ∩ 100, page 0..20), `Count_SortBounded`, `TimeWindowListListSortBounded` (shape B without its joins),
+`TimeWindowListListSortBoundedJoinTwo_FrozenIndexSide` (shape B with the list steps probed on their
+buckets). The six production-shape rows leave the replay: `_Frozen` is the joined pipeline.
+
+| Method                        | Categories           | Mean      | Error     | StdDev    | Ratio | Allocated | Alloc Ratio |
+|------------------------------ |--------------------- |----------:|----------:|----------:|------:|----------:|------------:|
+| SortBounded_Eager             | SortBounded          | 15.852 us | 0.1207 us | 0.1070 us |  1.00 |         - |          NA |
+| SortBounded_Prepared          | SortBounded          | 15.791 us | 0.1002 us | 0.0889 us |  0.99 |         - |          NA |
+| SortBounded_Frozen            | SortBounded          | 14.961 us | 0.2634 us | 0.2464 us |  0.94 |         - |          NA |
+|                               |                      |           |           |           |       |           |             |
+| SortBounded_ListList_Eager    | SortBounded_ListList | 11.485 us | 0.1430 us | 0.1338 us |  1.00 |         - |          NA |
+| SortBounded_ListList_Prepared | SortBounded_ListList | 11.584 us | 0.1166 us | 0.1091 us |  1.01 |         - |          NA |
+| SortBounded_ListList_Frozen   | SortBounded_ListList |  3.655 us | 0.0304 us | 0.0284 us |  0.32 |         - |          NA |
+
+(`SortBounded_Prepared` from the first sweep of the category; `_Eager` / `_Frozen` re-measured on the final
+binary after the two inlining changes below — 15.90 / 17.22 before them.)
+
+| Method                     | Categories        | Mean      | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|--------------------------- |------------------ |----------:|----------:|----------:|------:|--------:|----------:|------------:|
+| Count_SortBounded_Eager    | Count_SortBounded |  5.088 us | 0.0409 us | 0.0382 us |  1.00 |    0.01 |         - |          NA |
+| Count_SortBounded_Prepared | Count_SortBounded |  4.954 us | 0.0583 us | 0.0545 us |  0.97 |    0.01 |         - |          NA |
+| Count_SortBounded_Frozen   | Count_SortBounded |  5.388 us | 0.1069 us | 0.1726 us |  1.06 |    0.03 |         - |          NA |
+
+
+| Method                                        | Categories                           | Mean      | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|---------------------------------------------- |------------------------------------- |----------:|----------:|----------:|------:|--------:|----------:|------------:|
+| ListListListSortBoundedJoinOne_Eager          | ListListListSortBoundedJoinOne       | 17.049 us | 0.2015 us | 0.1884 us |  1.00 |    0.02 |         - |          NA |
+| ListListListSortBoundedJoinOne_Prepared       | ListListListSortBoundedJoinOne       | 16.844 us | 0.2692 us | 0.2518 us |  0.99 |    0.02 |         - |          NA |
+| ListListListSortBoundedJoinOne_Frozen         | ListListListSortBoundedJoinOne       |  7.714 us | 0.0700 us | 0.0585 us |  0.45 |    0.01 |         - |          NA |
+|                                               |                                      |           |           |           |       |         |           |             |
+| Count_ListListListSortBoundedJoinOne_Eager    | Count_ListListListSortBoundedJoinOne | 10.938 us | 0.1201 us | 0.1124 us |  1.00 |    0.01 |         - |          NA |
+| Count_ListListListSortBoundedJoinOne_Prepared | Count_ListListListSortBoundedJoinOne | 10.643 us | 0.0859 us | 0.0804 us |  0.97 |    0.01 |         - |          NA |
+| Count_ListListListSortBoundedJoinOne_Frozen   | Count_ListListListSortBoundedJoinOne |  1.412 us | 0.0130 us | 0.0115 us |  0.13 |    0.00 |         - |          NA |
+
+
+| Method                                               | Categories                                 | Mean      | Error     | StdDev    | Ratio | RatioSD | Allocated | Alloc Ratio |
+|----------------------------------------------------- |------------------------------------------- |----------:|----------:|----------:|------:|--------:|----------:|------------:|
+| TimeWindowListListSortBoundedJoinTwo_Eager           | TimeWindowListListSortBoundedJoinTwo       | 34.043 us | 0.1515 us | 0.1343 us |  1.00 |    0.01 |         - |          NA |
+| TimeWindowListListSortBoundedJoinTwo_Prepared        | TimeWindowListListSortBoundedJoinTwo       | 33.469 us | 0.3420 us | 0.3199 us |  0.98 |    0.01 |         - |          NA |
+| TimeWindowListListSortBoundedJoinTwo_Frozen          | TimeWindowListListSortBoundedJoinTwo       | 26.816 us | 0.1093 us | 0.0913 us |  0.79 |    0.00 |         - |          NA |
+| TimeWindowListListSortBoundedJoinTwo_FrozenIndexSide | TimeWindowListListSortBoundedJoinTwo       | 29.074 us | 0.2156 us | 0.1911 us |  0.85 |    0.01 |         - |          NA |
+|                                                      |                                            |           |           |           |       |         |           |             |
+| TimeWindowListListSortBounded_Eager                  | TimeWindowListListSortBounded              | 25.058 us | 0.0774 us | 0.0604 us |  1.00 |    0.00 |         - |          NA |
+| TimeWindowListListSortBounded_Frozen                 | TimeWindowListListSortBounded              | 17.438 us | 0.0662 us | 0.0553 us |  0.70 |    0.00 |         - |          NA |
+|                                                      |                                            |           |           |           |       |         |           |             |
+| Count_TimeWindowListListSortBoundedJoinTwo_Eager     | Count_TimeWindowListListSortBoundedJoinTwo | 21.70 us  | 0.224 us  | 0.209 us  |  1.00 |    0.01 |         - |          NA |
+| Count_TimeWindowListListSortBoundedJoinTwo_Prepared  | Count_TimeWindowListListSortBoundedJoinTwo | 21.33 us  | 0.152 us  | 0.135 us  |  0.98 |    0.01 |         - |          NA |
+| Count_TimeWindowListListSortBoundedJoinTwo_Frozen    | Count_TimeWindowListListSortBoundedJoinTwo | 13.99 us  | 0.054 us  | 0.042 us  |  0.64 |    0.01 |         - |          NA |
+|                                                      |                                            |           |           |           |       |         |           |             |
+| TimeRangeListListSortBoundedJoinTwo_Eager | TimeRangeListListSortBoundedJoinTwo | 37.77 us | 0.480 us | 0.449 us | 1.00 | 0.02 | - | NA |
+| TimeRangeListListSortBoundedJoinTwo_Prepared | TimeRangeListListSortBoundedJoinTwo | 37.25 us | 0.477 us | 0.446 us | 0.99 | 0.02 | - | NA |
+| TimeRangeListListSortBoundedJoinTwo_Frozen | TimeRangeListListSortBoundedJoinTwo | 27.93 us | 0.385 us | 0.360 us | 0.74 | 0.01 | - | NA |
+|                                                      |                                            |           |           |           |       |         |           |             |
+| Count_TimeRangeListListSortBoundedJoinTwo_Eager | Count_TimeRangeListListSortBoundedJoinTwo | 25.09 us | 0.180 us | 0.159 us | 1.00 | 0.01 | - | NA |
+| Count_TimeRangeListListSortBoundedJoinTwo_Prepared | Count_TimeRangeListListSortBoundedJoinTwo | 25.09 us | 0.427 us | 0.400 us | 1.00 | 0.02 | - | NA |
+| Count_TimeRangeListListSortBoundedJoinTwo_Frozen | Count_TimeRangeListListSortBoundedJoinTwo | 16.76 us | 0.212 us | 0.198 us | 0.67 | 0.01 | - | NA |
+
+(The `TimeRange…` / `Count_TimeRange…` rows above are re-measured on the final tree, after the store-lookup inlining hint: the B-range twin's frozen row moved 29.59 → 27.93 µs (1.35× eager), its `Count` stayed at 16.76 (1.50×); the `Count_TimeRange…_Prepared` 1.95 outlier of the first run — the known in-process artifact, parent spec §8 "Not observed as stable" — is 1.00 on the re-run.)
+
+Re-measured on the final binary, same run: `ListList` 9.39 / 9.37 / **1.70** (`_FrozenReorder` 1.26),
+`ListListList` 11.48 / 11.46 / **2.18**, `Sort_ListList` 10.34 / 10.28 / **2.14**, `ListWhere` 8.49 / — /
+7.42 (0.87), `Count_ListWhere` 6.69 / 6.70 / 6.08 (0.91; step 3: 6.77), `ListRange` 430 / 430 / 11.3 µs
+(step 3: 12.5), `Range` 13.38 / 13.32 / **6.85** (0.51; step 3: 8.8 — the inlined per-key lookup is worth
+~2 µs on a 1k tree-seeded walk), `UniqueArg` 133 / 130 / 21.5 ns (unchanged) — nothing regressed; every
+pipeline row 0 B.
+
+## Reading it
+
+- **Bars (design §12, step 6).** `SortBounded_ListList` 11.49 → 3.66 µs (**3.1×**): the small-probe seed
+  walks the 100-row tier bucket, the heap of 20 sees 100 rows; the page is eager's byte for byte because
+  the fixed seed hands the top-k container eager's encounter ordinals. **Shape A**
+  (`ListListListSortBoundedJoinOne`) 17.05 → 7.71 µs (**2.2×**, bar ≥ 2× kept): the narrowing is the
+  step-3 `ListListList` walk (2.18 µs), the page is 20 of 111 rows, and the `JoinOne` fill runs
+  unchanged over those 20 rows (`ExecuteJoinsBounded`, one paired read) — the remaining ~5 µs is that
+  fill, step 5's target. Its `Count` 10.94 → 1.41 µs (7.7×): an outer join counts every left, so this is
+  the free-seeded three-way intersection with no container.
+- **Missed: `SortBounded`** (1k bucket, page 0..20) 15.85 → 14.96 µs (**1.06×**, bar ≥ 1.1×). Both
+  engines pay 1k × (one store lookup + one `Score` read on a cold `PqbItem` + one heap compare) ≈ 13–14 µs;
+  the pipeline removes only eager's candidate-set build (~1 µs on a 1k bucket, the same gap `ListWhere`
+  shows). Two inlining changes were needed to get even there: the probe-free pass (`PipelineCore.WalkPlain`,
+  one active step, direct filters) is a loop as small as the eager store walk so the container's `Add` →
+  `TopKSelect.Push` → comparer chain inlines (17.22 → 16.27 µs), and `ConcurrentCacheStore.TryGetValue`
+  / `InMemoryDataCache.TryGet` carry `AggressiveInlining` so the per-key lookup is the loop body as it is
+  in the store's own `TryGetValues` / `TryCountValues` (16.27 → 14.96; `Count_SortBounded_Frozen` 7.52 →
+  5.39, now parity with eager's count, which never dereferences a value). An `AggressiveInlining` on
+  `SortResolver.CompareLeftValues` alone measured nothing and was not kept.
+- **Missed: shape B** (`TimeWindowListListSortBoundedJoinTwo`) 34.04 → 26.82 µs (**1.27×**, bar ≥ 1.5×); the
+  range-on-timestamp twin 37.77 → 27.93 (1.35×). The `Count`s make their bar (21.70 → 13.99, 1.55×; 25.09 →
+  16.76, 1.50×). Decomposition from the new no-join row: the narrowing + page alone is 25.06 → 17.44 µs
+  (1.44×), so the two `JoinOne` fills are **9.4 µs of the frozen row** (9.0 of the eager one): two pair-set
+  builds and two paired bulk reads for 20 rows — the fusion of design step 5 (one right lookup per page
+  row, ~0.3 µs for 40 lookups) is what closes this bar, not the seed. The narrowing's own 17.4 µs is the
+  floor of the shape: the time window (~1.5k keys) is already the smallest source, so the fixed seed is the
+  free seed's choice too, and every one of its keys costs a lookup plus two selector compares to reject
+  the ~93 % that fail the list keys. The key-side alternative was measured and refuted:
+  `_FrozenIndexSide` (the two list steps probed on their buckets before the lookup) is **slower**, 29.07 µs —
+  two gate-pinned `Contains` per key cost more than the lookup plus two field compares, the design's §2.3
+  finding; the value-side default stands.
+- **Executor change.** `PipelineExecutor` is now `PipelineCore` (bind, seed, walk, count, release — held
+  by value) plus two thin executors: the simple one applies the eager `ExecuteCoreSimpleTop` gate per call
+  (`take != int.MaxValue`, non-negative page, a bounded left-value sorter — the resolver half decided
+  once at build) and drives `TopKSimpleResultContainer` or the classic container; the new
+  `PipelineJoinedExecutor` drives `TopKJoinedBaseContainer` → `MaterializeTopK` → `ExecuteJoinsBounded`
+  (the eager `ExecuteCoreJoinedTop` with the base walk replaced), or the classic joined container with
+  `ExecuteJoins` when the gate fails. Planner: joined + `Pipeline` + `SortBounded` innermost ordering by
+  the left value + no inner join + no `JoinMany` + pipeline-capable steps → `Pipeline`. `Explain()` prints
+  `sort: bounded (…)` / `sort: classic (…)` and `joins: n (outer, …)`.
+- **Found on the way.** `JoinedResultContaier.BuildResults` set `_handedOff` before `CloneElements`, so a
+  throwing `Clone()` on a pooled, cloned joined page stranded the values array — on the eager path too.
+  It now hands off after the clone (the simple container's order); pinned for eager and frozen in
+  `FrozenPipelineSortBoundedTests`.
+
+
 ## Lock vs lock-free (pipeline primitives) — `LockVsLockFreeBenchmarks`, `LockVsLockFreeConcurrencyBenchmarks`
 
 Question: would plain collections behind one lock per batch (`HashSet`/`List` bucket copied out under `lock`,

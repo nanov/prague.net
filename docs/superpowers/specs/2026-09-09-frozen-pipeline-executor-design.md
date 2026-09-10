@@ -1,9 +1,11 @@
 # Frozen queries stage 3: the pipeline executor
 
-> **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. §13 steps 1–3 are
+> **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. §13 steps 1–3 and 6 are
 > shipped (step 3: the small-probe seed §3.4, the free seed §3.3 for `Count` / classic `Sort` /
 > `ReorderIndexNarrowers`, the bulk `PooledSet.CopyKeysTo` seed copy, `IndexStepsExecutor` retired —
-> parent spec §8 "Stage 3", RESULTS.MD "stage 3, step 3"); steps 4–7 are open. Stage 2 (`FrozenOptions`, `FusedFilter`, `FrozenHints`, `IndexStepsExecutor`) was
+> parent spec §8 "Stage 3", RESULTS.MD "stage 3, step 3"; step 6: the `SortBounded` feed §8 for simple
+> plans and for `SortBounded` → outer-`JoinOne` joined plans, the joins unfused — parent spec §8 "step 6",
+> RESULTS.MD "stage 3, step 6"); steps 4, 5 and 7 are open. Stage 2 (`FrozenOptions`, `FusedFilter`, `FrozenHints`, `IndexStepsExecutor`) was
 > uncommitted in the working tree while this was written; where the design touches it, the file is
 > named and the dependency called out. Line numbers are HEAD's unless marked *(wt)* for the
 > working tree.
@@ -679,9 +681,17 @@ Allocation column: `-` (0 B) on every `Pipeline` row.
    (§7.1), `FrozenPlanner.Joined` rule. Tests: `PreparedQueryJoinDifferentialTests` twins for
    outer/inner × identity/selector × four families, filtered → fallback, chained fused pairs,
    `Sort` after fused join. Rows: `JoinOne`, `InnerJoinOne`, `JoinOneFiltered`, `JoinMany`.
-6. **`SortBounded` feed**: pipeline → `TopKSimpleResultContainer` / `TopKJoinedBaseContainer` with the
-   `ExecuteCoreSimpleTop` gate (§8). Tests: `PreparedQuerySortDifferentialTests` twins, pages
-   partition (`SortBounded_PagesConcatenateToTheWholeResult` style). Rows: `SortBounded`, `Sort`.
+6. **`SortBounded` feed** — *shipped*: pipeline → `TopKSimpleResultContainer` / `TopKJoinedBaseContainer` with the
+   `ExecuteCoreSimpleTop` / `ExecuteCoreJoinedTop` gate (§8), fixed seed. `PipelineExecutor` split into the
+   shared `PipelineCore` and two thin executors; the new `PipelineJoinedExecutor` drives the eager joined
+   containers with the join resolvers unfused (`ExecuteJoinsBounded` over the page rows; `ExecuteJoins`
+   on the classic fallback) for chains of one innermost bounded left-value sorter and outer joins only —
+   inner joins and `JoinMany` replay until step 5. Tests: `FrozenPipelineSortBoundedTests` (11), pins in
+   `FrozenPipelineAllocationTests` (+2), the production-shape fixture asserts `Pipeline`. Rows:
+   `SortBounded` 1.06× (bar 1.1× missed by a hair — the floor, see RESULTS), `SortBounded_ListList` 3.1×,
+   shape A 2.2× (bar ≥ 2× kept), shape B 1.27× / 1.24× (bar ≥ 1.5× missed: the two unfused `JoinOne` fills
+   are 9.4 of its 26.8 µs — step 5's baseline; the narrowing + page alone is 1.44×). Found and fixed on the way: `JoinedResultContaier.BuildResults` handed its buffer off before the
+   clone, so a throwing `Clone()` on a pooled cloned joined page stranded the values array (eager too).
 7. **Cleanup** (first half done in step 3: `IndexStepsExecutor` and `AdaptiveIntersection` retired — every
    plan they served takes the pipeline): keep
    `FusedFilter` (ordering) and `FrozenHints` (replay fallback only). Update `context/query.md` and

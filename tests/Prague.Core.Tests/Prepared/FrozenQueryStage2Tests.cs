@@ -343,7 +343,7 @@ public class FrozenQueryStage2Tests {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byCode, new[] { 1042 }).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "multi-value");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Or(b => b.UseIndex(_byTier, 3), b => b.UseIndex(_byTier, 4)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Replay"), "composite");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_flagged).BuildFrozen(Reorder).Plan.Optimizations, Does.Contain("ReorderIndexNarrowers"), "key-set reorders");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Replay"), "SortBounded replays until the bounded feed (step 6); the reorder does not apply");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded: pipeline; the opt-in reorder makes its seed free (step 6)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort: pipeline, free seed");
 			var explain = _cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Where(static v => v.Flag).Where(static v => v.Id > 0).BuildFrozen(Reorder).Explain();
 			Assert.That(explain, Does.Contain("executor: Pipeline").And.Contain("FusedFilters").And.Contain("ReorderIndexNarrowers").And.Contain("pipeline: seed = free for Execute"));

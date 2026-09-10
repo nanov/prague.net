@@ -723,7 +723,7 @@ public class FrozenPipelineTests {
 			Assert.That(_cache.Prepare<int, PqItem, bool>().UseIndex(_byGroup, 3).If(static c => c, b => b.UseIndex(_flagged)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "If");
 			Assert.That(_cache.Prepare<int, PqItem, int>().Match(static a => a, m => m.Case(0, b => b.UseIndex(_byGroup, 1))).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Match");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort (step 3: free seed into the sorting container)");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "sort-bounded (step 6)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "sort-bounded (step 6: fixed seed into the top-k container)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(new FrozenOptions { Pipeline = false }).Plan.Executor, Is.EqualTo("Replay"), "pipeline off");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true }).Plan.Executor, Is.EqualTo("Pipeline"), "reorder is the pipeline's free seed");
 			Assert.That(_cache.Prepare<int, PqItem, (long a, long b, long c)>().UseIndex(_byGroup, 3).UseIndex(bigKeys, static (rb, a) => rb.Gte(a)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an unmanaged key over 16 bytes replays");

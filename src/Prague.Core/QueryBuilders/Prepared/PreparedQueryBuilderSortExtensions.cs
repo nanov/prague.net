@@ -139,7 +139,7 @@ public static class PreparedQueryBuilderSortExtensions {
 
 	// ── Frozen terminal ──────────────────────────────────────────────────────────
 
-	/// <summary>The sorted simple <c>Build()</c> with plan metadata; sorted shapes always replay in stage 1.</summary>
+	/// <summary>The sorted simple <c>Build()</c> with plan metadata: a <c>Sort</c> / <c>SortBounded</c> over pipeline-capable index steps takes the pipeline (stage 3), the rest replays.</summary>
 	public static FrozenQuery<TArgs, TValue> BuildFrozen<TCache, TKey, TValue, TArgs, TChain, TResolver>(
 		this in CacheQueryBuilderCombined<SortedQuery<PreparedQueryDiscriminator<TCache>>,
 			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, Resolvers<TResolver>, TValue> builder, FrozenOptions? options = null)
@@ -149,7 +149,7 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TResolver : struct, IJoinResolver
 		=> FrozenPlanner.Simple<TKey, TValue, TArgs, TChain, TResolver, TopSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, true, options ?? FrozenOptions.Default);
 
-	/// <summary>The sorted joined <c>Build()</c> with plan metadata; sorted joined shapes always replay in stage 1.</summary>
+	/// <summary>The sorted joined <c>Build()</c> with plan metadata: a <c>SortBounded</c> before outer <c>JoinOne</c>s over pipeline-capable index steps takes the joined pipeline (stage 3, step 6), the rest replays.</summary>
 	public static FrozenQuery<TArgs, TResult> BuildFrozen<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
 		this in CacheQueryBuilderCombined<SortedQuery<PreparedQueryDiscriminator<TCache>>,
 			PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder, FrozenOptions? options = null)

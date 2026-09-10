@@ -11,8 +11,8 @@ using static PreparedQueryJoinDifferentialTests;
 //   A. three list-index narrowers (largest bucket declared first) → SortBounded(page) → JoinOne 1:1 by PK.
 //   B. "newer than T" (last-updated index; range-on-timestamp twin) → two list indexes →
 //      SortBounded(page) → two chained JoinOnes 1:1 by FK.
-// In this step both replay under BuildFrozen(); the tests assert that too, so the switch to a
-// specialized executor in a later step is a deliberate edit here.
+// Since stage 3 step 6 both take the pipeline under BuildFrozen() (the seed pass feeds the eager
+// bounded base container, the join resolvers fill the page rows); the tests assert that too.
 [TestFixture]
 public class PreparedQueryProductionShapeDifferentialTests {
 	// ── A: items ──────────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ public class PreparedQueryProductionShapeDifferentialTests {
 		var frozen = _items.Prepare<int, PqItem, (int group, int band, int lane)>()
 			.UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane)
 			.SortBounded(new ByIdMod5()).JoinOne(_details).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"), "joined + sorted: replay in this step");
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded before an outer JoinOne: the joined pipeline (step 6)");
 		Assert.That(frozen.Plan.IsSorted, Is.True);
 		// (group, band inside it, lane inside the band) → 33 rows; a lane outside the band → 0; a missing group → 0.
 		foreach (var args in new[] { (3, 3 + 8 * 1, 3 + 8 * 4), (0, 0, 0), (5, 5 + 8 * 2, 5 + 8 * 5), (5, 5 + 8 * 2, 5 + 8 * 6), (9, 1, 1) }) {
@@ -178,7 +178,7 @@ public class PreparedQueryProductionShapeDifferentialTests {
 		var frozen = _records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>()
 			.UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
 			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(frozen.Plan.Narrowers[0].Kind, Is.EqualTo(NarrowerKind.LastUpdatedAfter));
 		foreach (var args in ArgSets) {
 			var (t, a, b) = args;
@@ -205,7 +205,7 @@ public class PreparedQueryProductionShapeDifferentialTests {
 		var frozen = _records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>()
 			.UseIndex(_tsRange, static (rb, a) => rb.Gt(a.t)).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
 			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		foreach (var args in ArgSets) {
 			var (t, a, b) = args;
 			foreach (var (skip, take) in Pages) {

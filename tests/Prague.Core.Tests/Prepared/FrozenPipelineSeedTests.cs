@@ -512,16 +512,16 @@ public class FrozenPipelineSeedTests {
 	}
 
 	[Test]
-	public void Sort_ClassicRoutesToThePipeline_SortBoundedReplays() {
+	public void Sort_ClassicAndBounded_RouteToThePipeline() {
 		Assert.Multiple(() => {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"));
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Where(static v => v.Flag).Sort(new ByCodeDesc()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"));
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"));
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "step 6: the bounded feed");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen(new FrozenOptions { Pipeline = false }).Plan.Executor, Is.EqualTo("Replay"));
 			Assert.That(_cache.Prepare().Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "filter-only / all rows sorted: replay");
 			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 2)).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"));
 		});
-		// SortBounded parity is untouched (replay): the two spellings agree with eager on every page.
+		// SortBounded parity (step 6, FrozenPipelineSortBoundedTests in depth): the two spellings agree with eager on every page.
 		var bounded = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).BuildFrozen();
 		for (var g = 0; g < 7; g++)
 			foreach (var (skip, take) in Pages)

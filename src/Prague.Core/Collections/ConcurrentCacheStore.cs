@@ -120,7 +120,10 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		return false;
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	// AggressiveInlining (added with AggressiveOptimization, the store's pattern for its hot helpers): the
+	// frozen pipeline's pass calls this once per seed key from a loop; inlined, that loop is the same body
+	// as the store's own bulk walks (TryGetValues / TryCountValues).
+	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
 	public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value) {
 		var tables = _tables;
 		var hashCode = GetHashCode(key);
