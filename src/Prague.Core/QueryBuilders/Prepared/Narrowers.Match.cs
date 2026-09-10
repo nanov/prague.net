@@ -128,7 +128,7 @@ public readonly struct DefaultArm<TPrev, TArm, TKey, TValue, TArgs, TTag> : IMat
 ///   eager core's, as for <see cref="IfNarrower{TKey,TValue,TArgs,TSub}" />: a <c>Match</c> whose
 ///   selected arm is a no-op leaves <c>_first</c> untouched and the next narrower seeds.
 /// </summary>
-public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrower<TKey, TValue, TArgs>
+public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrower<TKey, TValue, TArgs>, IBranchSelectorSource<TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTag : notnull
@@ -152,7 +152,15 @@ public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrow
 		var arms = new List<IReadOnlyList<NarrowerDescriptor>>();
 		var tags = new List<object>();
 		_arms.Describe(arms, tags, out var hasDefault);
-		plan.Add(NarrowerDescriptor.ForMatch(_selector, new MatchArmTags(tags, hasDefault), arms));
+		plan.Add(NarrowerDescriptor.ForMatch(_selector, new MatchArmTags(tags, hasDefault), arms, this));
+	}
+
+	// The pipeline's bind-time dispatch (design §5.2): the same selector, the tags unboxed once at build.
+	IBranchSelector<TArgs> IBranchSelectorSource<TArgs>.CreateSelector(MatchArmTags tags) {
+		var typed = new TTag[tags.Tags.Count];
+		for (var i = 0; i < typed.Length; i++)
+			typed[i] = (TTag)tags.Tags[i];
+		return new MatchSelector<TArgs, TTag>(_selector, typed, tags.HasDefault);
 	}
 }
 

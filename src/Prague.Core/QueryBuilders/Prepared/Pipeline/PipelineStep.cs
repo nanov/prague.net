@@ -17,6 +17,9 @@ internal static class PipelineLimits {
 
 	/// <summary>Stack ints the small-probe seed's slot scratch starts with (1 KB); larger survivor sets spill to the array pool.</summary>
 	internal const int SlotStackInts = 256;
+
+	/// <summary>The most branches one <c>Or</c> step may have after flattening nested Ors: one first-leaf byte per branch in the step's binding, one bit per branch in its mask.</summary>
+	internal const int MaxOrBranches = 8;
 }
 
 /// <summary>How one execution chose its seed (design §3.3 / §3.4).</summary>
@@ -236,8 +239,9 @@ internal struct StepIndices {
 
 /// <summary>
 ///   One execution's state: every step's binding, the seed step chosen (-1 = all rows), the probe
-///   steps split by side in plan order, and the seed buffer. Lives on the executing thread's stack;
-///   nothing here is shared (design §10).
+///   steps split by side in plan order, the branch filters the taken <c>If</c> / <c>Match</c> arms
+///   activated, and the seed buffer. Lives on the executing thread's stack; nothing here is shared
+///   (design §10).
 /// </summary>
 internal ref struct PipelineFrame<TKey> {
 	internal PipelineFrame(SeedKeys<TKey> seed) => Seed = seed;
@@ -246,9 +250,11 @@ internal ref struct PipelineFrame<TKey> {
 	internal StepIndices Active;
 	internal StepIndices KeyProbes;
 	internal StepIndices ValueProbes;
+	internal StepIndices ActiveFilters;
 	internal int ActiveCount;
 	internal int KeyProbeCount;
 	internal int ValueProbeCount;
+	internal int ActiveFilterCount;
 	internal int SeedStep;
 	internal int SmallStep;
 	internal SeedMode Mode;
@@ -256,6 +262,10 @@ internal ref struct PipelineFrame<TKey> {
 
 	internal ReadOnlySpan<byte> ActiveList {
 		[UnscopedRef] get => ((ReadOnlySpan<byte>)Active)[..ActiveCount];
+	}
+
+	internal ReadOnlySpan<byte> ActiveFilterList {
+		[UnscopedRef] get => ((ReadOnlySpan<byte>)ActiveFilters)[..ActiveFilterCount];
 	}
 
 	internal ReadOnlySpan<byte> KeyProbeList {
@@ -430,10 +440,52 @@ internal static unsafe class SeedAggregators<TKey, TIndexKey>
 }
 
 /// <summary>
-///   What <c>Explain()</c> prints for a pipeline plan: the seed rule, every step's probe side, and the
-///   last execution's seed decision. The decision is advisory shared state — plain int fields written
-///   only when the decision changes, so steady-state executions of one plan read a line they never
-///   write.
+///   Store-walk sinks that copy walked keys into the seed — every row (the eager all-rows seed) or the
+///   rows a set admits (the eager Or-first result: the store order, kept to the branch union). The
+///   seed and the set are ref / plain structs on the caller's stack, laundered through <c>void*</c> as
+///   the aggregators are; the walk never outlives the frame.
+/// </summary>
+internal static unsafe class SeedCollectors<TKey, TValue>
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	internal ref struct All(ref SeedKeys<TKey> seed) : IResultContainerInitializer<TKey, TValue> {
+		private readonly void* _seed = Unsafe.AsPointer(ref seed);
+
+		public void Init(int maxCount) { }
+
+		public void Seal(int actualCount) { }
+
+		public int Add(TKey foreignKey, TValue result) {
+			Unsafe.AsRef<SeedKeys<TKey>>(_seed).Add(foreignKey);
+			return 0;
+		}
+
+		public int TotalCount => 0;
+	}
+
+	internal ref struct Filtered(ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> admit) : IResultContainerInitializer<TKey, TValue> {
+		private readonly void* _seed = Unsafe.AsPointer(ref seed);
+		private readonly void* _admit = Unsafe.AsPointer(ref admit);
+
+		public void Init(int maxCount) { }
+
+		public void Seal(int actualCount) { }
+
+		public int Add(TKey foreignKey, TValue result) {
+			if (Unsafe.AsRef<ValueSet<TKey, DefaultKeyComparer<TKey>>>(_admit).Contains(foreignKey))
+				Unsafe.AsRef<SeedKeys<TKey>>(_seed).Add(foreignKey);
+			return 0;
+		}
+
+		public int TotalCount => 0;
+	}
+}
+
+/// <summary>
+///   What <c>Explain()</c> prints for a pipeline plan: the seed rule, every step's probe side, the
+///   composite shape, and the last execution's seed decision and arm selections. The decision is
+///   advisory shared state — plain int fields written only when the decision changes, so steady-state
+///   executions of one plan read a line they never write.
 /// </summary>
 internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	where TKey : notnull, IEquatable<TKey>
@@ -445,11 +497,17 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	private readonly PipelineSort _sort;
 	private readonly int _joins;
 	private readonly int _fusedJoins;
+	private readonly PipelineTree<TArgs>? _tree;
+	private readonly int _branchFilters;
+	private readonly bool _orSeed;
+	private readonly int[] _lastArms;
+	private readonly int[] _lastOrMasks;
 	private int _lastDecision = -1;
 	private int _lastSeedSignal;
 	private int _lastOtherSignal;
 
-	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed, PipelineSort sort, int joins, int fusedJoins = 0) {
+	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed, PipelineSort sort, int joins, int fusedJoins = 0,
+		PipelineTree<TArgs>? tree = null, int branchFilters = 0, bool orSeed = false) {
 		_steps = steps;
 		_filters = filters;
 		_fused = fused;
@@ -457,15 +515,43 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 		_sort = sort;
 		_joins = joins;
 		_fusedJoins = fusedJoins;
+		_tree = tree;
+		_branchFilters = branchFilters;
+		_orSeed = orSeed;
+		_lastArms = new int[tree?.SelectCount ?? 0];
+		_lastOrMasks = new int[tree is null ? 0 : steps.Length];
+		Array.Fill(_lastArms, -2);
+		Array.Fill(_lastOrMasks, -1);
 	}
 
 	/// <summary>True when <c>Execute*</c> seeds from the smallest signal (a classic <c>Sort</c>, or <see cref="FrozenOptions.ReorderIndexNarrowers" />); <c>Count</c> always does.</summary>
 	internal bool FreeSeed => _freeSeed;
 
+	/// <summary>The composite shape, or <c>null</c> for a flat plan.</summary>
+	internal PipelineTree<TArgs>? Tree => _tree;
+
+	/// <summary><see cref="FrozenOptions.OrSeed" /> as bound.</summary>
+	internal bool OrSeed => _orSeed;
+
+	/// <summary>The arm one select node took (-1: none); written only when it changes.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal void RecordArm(int node, int arm) {
+		if (_lastArms[node] != arm)
+			_lastArms[node] = arm;
+	}
+
+	/// <summary>The active branch mask of one Or step (bit 31: the Or was first); written only when it changes.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal void RecordOr(int step, int mask, bool first) {
+		var packed = mask | (first ? int.MinValue : 0);
+		if (_lastOrMasks[step] != packed)
+			_lastOrMasks[step] = packed;
+	}
+
 	// Written only when the (mode, seed, small) decision changes, so the signals printed are those of the
 	// execution that last changed it — a plan executed with one set of arguments never writes here again.
-	internal void Record(SeedMode mode, int seed, int small, int seedSignal, int otherSignal) {
-		var packed = (int)mode | (seed + 1) << 8 | (small + 1) << 16;
+	internal void Record(SeedMode mode, int seed, int small, int seedSignal, int otherSignal, bool orUnion = false) {
+		var packed = (int)mode | (seed + 1) << 8 | (small + 1) << 16 | (orUnion ? 1 << 24 : 0);
 		if (packed == _lastDecision)
 			return;
 		_lastSeedSignal = seedSignal;
@@ -482,6 +568,16 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 		}
 
 		sb.Append("], filters: ").Append(_filters).Append(_fused ? " (fused, order below)" : " (direct)");
+		if (_branchFilters > 0)
+			sb.Append(", branch filters: ").Append(_branchFilters).Append(" (direct, after the top-level ones, when their arm is taken)");
+		if (_tree is not null) {
+			sb.Append(", shape: ");
+			PipelineNode<TArgs>.Explain(sb, _tree.Top);
+			sb.Append(" (an if / match arm is chosen once at bind and its steps spliced in place; an Or probes as the OR of its branches' ANDs, seeds ")
+				.Append(_orSeed ? "from the union of its branches in branch order (OrSeed, the default)" : "the store walk in store order kept to the union of its branches (OrSeed = false: the eager sequence; the union itself for Count / Sort)")
+				.Append(')');
+		}
+
 		switch (_sort) {
 			case PipelineSort.Classic:
 				sb.Append(", sort: classic (the container sorts every row after the pass)");
@@ -495,12 +591,14 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 			sb.Append(", joins: ").Append(_joins).Append(" (fused: ").Append(_fusedJoins).Append(", unfused: ").Append(_joins - _fusedJoins)
 				.Append("; fused: one right lookup per row in the pass, an inner miss drops the row; unfused: the resolver's paired read after the pass)");
 		sb.AppendLine();
+		ExplainLastBind(sb);
 		var decision = _lastDecision;
 		if (decision < 0)
 			return;
 		var mode = (SeedMode)(decision & 0xFF);
 		var seed = ((decision >> 8) & 0xFF) - 1;
 		var small = ((decision >> 16) & 0xFF) - 1;
+		var orUnion = (decision & 1 << 24) != 0;
 		sb.Append("  last seed: ");
 		switch (mode) {
 			case SeedMode.AllRows:
@@ -512,8 +610,53 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 				break;
 			default:
 				sb.Append("step ").Append(seed).Append(' ').Append(_steps[seed].Kind).Append(" (signal ").Append(_lastSeedSignal).Append("), ")
-					.AppendLine(mode == SeedMode.Fixed ? "fixed: first active step" : "free: smallest signal");
+					.Append(mode == SeedMode.Fixed ? "fixed: first active step" : "free: smallest signal");
+				if (_steps[seed].Kind == NarrowerKind.Or && seed < _lastOrMasks.Length && _lastOrMasks[seed] != -1)
+					sb.Append((_lastOrMasks[seed] & int.MaxValue) == 0
+						? " — the Or narrowed nothing: the store walk"
+						: orUnion ? " — the union of the branches" : " — the store walk kept to the branch union");
+				sb.AppendLine();
 				break;
 		}
+	}
+
+	// The arms the last bind took and the branches of every Or that narrowed, in plan order.
+	private void ExplainLastBind(StringBuilder sb) {
+		if (_tree is null)
+			return;
+		var any = false;
+		for (var i = 0; i < _lastArms.Length; i++) {
+			if (_lastArms[i] == -2)
+				continue;
+			sb.Append(any ? ", " : "  last bind: ").Append("select#").Append(i).Append(" → ").Append(_lastArms[i] < 0 ? "no arm" : "arm " + _lastArms[i]);
+			any = true;
+		}
+
+		for (var s = 0; s < _lastOrMasks.Length; s++) {
+			var packed = _lastOrMasks[s];
+			if (packed == -1)
+				continue;
+			sb.Append(any ? ", " : "  last bind: ").Append("step ").Append(s).Append(" Or → ");
+			var mask = packed & int.MaxValue;
+			if (mask == 0) {
+				sb.Append(packed < 0 ? "no branch narrowed (first: admits every row)" : "no branch narrowed (inactive)");
+			} else {
+				sb.Append("branches {");
+				var first = true;
+				for (var b = 0; mask != 0; b++, mask >>= 1) {
+					if ((mask & 1) == 0)
+						continue;
+					sb.Append(first ? "" : ", ").Append(b + 1);
+					first = false;
+				}
+
+				sb.Append('}');
+			}
+
+			any = true;
+		}
+
+		if (any)
+			sb.AppendLine();
 	}
 }

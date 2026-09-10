@@ -318,7 +318,7 @@ public class FrozenPipelineSortBoundedTests {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen(NoPipeline).Plan.Executor, Is.EqualTo("Replay"), "pipeline off");
 			Assert.That(_cache.Prepare().SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "filter-only / all rows: no seed source");
 			Assert.That(_cache.Prepare().Where(static v => v.Flag).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "filter-only");
-			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 2)).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "composite");
+			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 2)).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "composite (step 4)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded → outer JoinOne by PK (shape A)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded → outer JoinOne LeftSym");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).JoinOne(_bySym, _customers).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded → two outer JoinOnes (shape B)");

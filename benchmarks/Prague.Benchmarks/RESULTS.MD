@@ -1394,3 +1394,141 @@ placeholder `IJoinResolver` standing in for a `JoinOne`; only the chain's shape 
   container and no chain hop, so this is run-to-run drift, and their eager baselines moved with them.
   One `InnerJoinOne` run landed at 18.61 µs and re-measured at 17.69; single in-process runs on this
   machine carry ~5% between-run spread, which is why every claim above rests on a gap far larger than it.
+
+
+# Frozen queries — `BuildFrozen()` stage 3, step 4: composites as pipeline steps
+
+Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md` §5, §13 step 4. Apple
+M4 Pro, .NET 9.0 (osx-arm64), Release, `--inProcess`, default job, one category per run. Same 100k-row
+store and 1k list buckets as every other stage-3 row. `Or` is the query's first narrowing over two
+1k buckets (`Group = Id % 100`); `OrAfterList` is a 1k bucket then an `Or` of two unique lookups;
+`IfTaken` / `IfSkipped` is a 1k-bucket list step then a taken/skipped `If(unique)`; `Match` is the
+existing three-arm parameterized shape (`byCode` / `byGroup` / `byGroup + Where`).
+
+## New rows
+
+| Method | Mean | Ratio | Bar | Allocated |
+|---|---:|---:|---|---:|
+| `Or_Eager` | 1,046.93 / 1,027.32 µs | 1.00 | — | 128 B |
+| `Or_Prepared` | 1,046.54 / 1,014.86 µs | 1.00 / 0.99 | — | 10–11 B |
+| `Or_Frozen` (default — `OrSeed` on: the union itself, branch order) | **26.58 / 28.04 µs** | 0.03 (**39.4× / 36.6×**) | ≥ 1.3× **kept** | 0 B |
+| `Or_FrozenEagerOrder` (`OrSeed = false`: store walk kept to the union, the eager sequence) | 756.52 / 794.39 µs | 0.72 / 0.77 (1.38× / 1.29×) | the opt-out, not the gated row; its own two readings straddle 1.3× (±22 µs StdDev on a ~1 ms op) | 5–6 B (sub-byte per op: a BDN artefact of a 1 ms body, not a per-execution allocation — the pins in `FrozenPipelineAllocationTests` read 0 B for the same shape) |
+| `Count_Or_Eager` | 976.96 µs | 1.00 | — | 128 B |
+| `Count_Or_Frozen` (always seeds the union) | **21.94 µs** | 0.02 (**44.5×**) | — | 0 B |
+| `OrAfterList_Eager` | 7,158.8 ns | 1.00 | — | 128 B |
+| `OrAfterList_Prepared` | 7,203.3 ns | 1.01 | — | 0 B |
+| `OrAfterList_Frozen` (the Or's union is the small-probe seed) | **237.3 ns** | 0.03 (**30.2×**) | ≥ 1.3× **kept** | 0 B |
+| `IfTaken_Eager` | 3,083.2 ns | 1.00 | — | 0 B |
+| `IfTaken_Prepared` | 3,061.7 ns | 0.99 | — | 0 B |
+| `IfTaken_Frozen` (the taken unique arm is the small-probe seed) | **112.7 ns** | 0.04 (**27.4×**) | ≥ 10× **kept** | 0 B |
+| `IfSkipped_Eager` | 10.167 µs | 1.00 | — | 0 B |
+| `IfSkipped_Prepared` | 10.074 µs | 0.99 | — | 0 B |
+| `IfSkipped_Frozen` | 7.968 µs | 0.78 (**1.28×**) | ≥ 1.4× **missed** | 0 B |
+| `Match_Eager` | 8.626 µs | 1.00 | — | 0 B |
+| `Match_Prepared` | 8.533 µs | 0.99 | — | 0 B |
+| `Match_Frozen` | **6.58–7.12 µs** (5 runs; median ≈ 6.9) | 0.79 (**1.19–1.30×**, median ≈ 1.25×) | ≥ 1.2× **kept**, but inside the row's own spread | 0 B |
+| `Count_Match_Eager` | 6.689 µs | 1.00 | — | 0 B |
+| `Count_Match_Frozen` | 6.304 µs | 0.94 (1.06×) | none set; reported for completeness | 0 B |
+
+## Re-measured rows (regression check — `PipelineCore.Bind` / `ChooseSeed` / `Walk` all changed for step 4)
+
+Two passes: the first cut, then after the composite-free tax was removed (see "Reading it"). The
+machine carried a 1-minute load of 3.6–4.8 from the user's desktop during the second pass (a quiet
+machine reads ≈1.5); the ~10% run-to-run scatter that shows on the 6–9 µs rows (`ListWhere_Frozen`
+alone read 5.59 and 6.26 µs in two runs) is that load, not the code.
+
+| Method | First cut | After the fix | Step 3/5/6/7 number | Verdict |
+|---|---:|---:|---:|---|
+| Shape A `ListListListSortBoundedJoinOne_Frozen` | 5.031 µs (3.40×) | **4.917 µs (3.44×)** | 4.88–4.94 | unchanged |
+| `Count_` shape A | 1.466 µs | 1.433 µs (7.42×) | 1.42 | unchanged |
+| Shape B `TimeWindowListListSortBoundedJoinTwo_Frozen` | 18.69 µs (1.82×) | **17.64 µs (1.95×)** | 17.85–17.98 | tax removed — back on the step-7 number |
+| Shape B without its joins | 17.25 µs | 17.58 µs | 17.62 | unchanged |
+| `Count_` shape B | 12.86 µs | 12.68 µs (1.70×) | 12.99 | unchanged |
+| Shape B `_FrozenIndexSide` | 22.82 µs | 21.99 µs | 20.03 | value-side default stands |
+| Shape B-range `TimeRangeListListSortBoundedJoinTwo_Frozen` | 21.00 µs (1.77×) | 20.11 / 20.74 µs (1.84×) | **20.33 µs on the pre-step-4 tree, same machine, same session** | not a step-4 effect — see below; bar ≥ 1.5× kept |
+| `Count_` shape B-range | 17.20 µs | 16.79 / 17.34 µs | 17.44 (pre-step-4, same machine) | unchanged |
+| `ListList_Frozen` / `_FrozenReorder` | 1.682 / 1.251 µs | 1.644 / 1.218 µs (5.80×) | 5.3× | unchanged |
+| `ListListList_Frozen` | 2.178 µs | 2.153 µs (5.46×) | 5.2× | unchanged |
+| `Sort_ListList_Frozen` | 2.194 µs (4.67×) | — | 4.75× | within noise |
+| `SortBounded_Frozen` / `_ListList_Frozen` | 14.441 / 3.701 µs | 14.788 / 3.736 µs (1.08× / 3.10×) | 1.06× / 3.1× | unchanged |
+| `JoinOne_Frozen` | 19.96 µs (1.55×) | 20.77 µs (1.50×) | 1.53–1.54× | within noise (a first-cut run read 1.42×, two re-runs 1.55× / 1.50×) |
+| `InnerJoinOne_Frozen` / `JoinOneChained_Frozen` | 18.02 / 27.01 µs (1.89× / 1.70×) | — | 1.91× / 1.66× | within noise |
+| `Count_ListList_Frozen` / `Count_ListWhere_Frozen` | 922.8 ns / 5.670 µs | — | 8.4× / 1.1× bar | within noise |
+| `IfTaken_Frozen` | 112.7 ns (27.4×) | **108.7 ns (28.0×)** | — | the devirtualized `IfSelector` shows as −4 ns |
+| `IfSkipped_Frozen` | 7.968 µs (1.28×) | 7.754 / 8.750 / 8.578 µs (1.31× / 1.15× / 1.17×) | — | bar ≥ 1.4× **missed** in every run, under load 3.6–4.8 — residual below |
+| `Match_Frozen` | 6.635 µs (1.30×) | 7.534 µs (1.13×, load 4.2) | 6.58 / 6.74 / 6.96 / 7.12 µs (1.19–1.27×, four settled runs) | resolved: the row swings ~10% run to run, so no fix regressed it and 1.30× was the optimistic end. The table above records the range; the bar holds on the median but not on every run |
+
+## Reading it
+
+- **`Or` at 39.4× by default; the eager sequence is one flag away at 1.38×.** `OrSeed` is on by
+  default (the reviewer's call, taking the design's §5.1 recommendation): an Or-first seeds the union of
+  its branches, in branch order — the design predicted ~60× for exactly this. The eager Or-first order
+  is the store's hash order, an accident of the bucket layout that changes on resize and that no caller
+  can rely on; same rows, same `Count`. `OrSeed = false` (`Or_FrozenEagerOrder`) reproduces the eager
+  sequence byte for byte: the branch union is built once into a dedupe set and a full 100k-row store
+  walk copies out only the rows it admits — one hash probe per store row instead of one `ValueSet`
+  insert into a growing bitmap-backed set, which is where its 1.38× comes from. Only an `Or` that is
+  the *first* narrowing is affected either way; after another step the `Or` is a probe and keeps that
+  step's order.
+- **`OrAfterList` and `IfTaken` land far above their bars because the union / the taken arm becomes
+  the pipeline's seed — the walk shrinks from 1k rows to 2 and 1 respectively.** `IfTaken`'s 112.7 ns
+  is two hash lookups (the unique step's own `TryGetValue`, then the slot-sort against the list bucket)
+  plus the container write; `OrAfterList`'s 237.3 ns is the same shape with the Or's two-key union
+  standing in for the unique step.
+- **`IfSkipped` misses its 1.4× bar (1.15–1.31× across four runs), and what is left is the composite
+  bind path on a plan with almost no walk to amortize it.** `IfSkipped`'s plan (list step, `If` skipped)
+  walks the same 1k bucket with zero filters that `ListWhere` (list step, one direct `Where`) walks with
+  one filter call per row, yet reads 7.75–8.75 µs against `ListWhere_Frozen`'s 5.59–6.26. The difference
+  is per execution, not per row: a plan with a `PipelineTree` binds through `BindNodes` (a loop over the
+  top nodes, a switch per node, `_plan.RecordArm`, and the `If` condition delegate) where a flat plan's
+  `Bind` is a straight-line loop over the step array. Two of its costs were removed in the fix pass —
+  `NodeKind` is a field (no virtual get per node) and the `If` selector is called directly through a
+  sealed typed reference (no `IBranchSelector` dispatch) — and `IfTaken` shows the effect as −4 ns; on
+  `IfSkipped` it is inside the ~10% run-to-run scatter this machine put on every 6–9 µs row during the
+  pass, so it cannot be read off these runs. What cannot be removed without a different shape is the
+  tree walk itself: one node loop, one switch, one `Func<TArgs,bool>` call (which copies the 12-byte
+  argument tuple by value — the delegate's signature, shared with the eager `If`). `IfTaken` clears its
+  bar regardless because the small-probe seed saves ~3 µs of walk in the other direction. Not lowered,
+  not waved off: reported as the residual.
+- **`Match` and `Count_Match` both improve, modestly.** `Match`'s three arms are three different plan
+  shapes (unique, list, list+where) behind one `IBranchSelector`; the 1.30× is the same kind of bind
+  overhead discount as `IfSkipped`'s regression, partly offset here because the selected arm (`byGroup`
+  + `Where`, mode 2 in the benchmark's fixed args) still walks a 1k bucket, so the walk dominates.
+  `Count_Match` at 1.06× is expected and not gated by a bar: `Count` was already the cheap path for
+  this shape (no container, no clone, no page math) on both eager and frozen, so there is little left
+  to save.
+- **The composite-free tax, and its removal.** The first cut of this step measured shape B at +3–6%
+  (a reviewer's quiet-machine reading: 17.98 → 18.46 / 19.01 µs) although the shape carries no
+  composite. Two per-row / per-execution costs had leaked onto every plan: the general `Walk` loop
+  tested `branchFilters.Length > 0` once **per surviving row** (always false without a taken arm's
+  `Where`), and `ChooseSeed` called `steps[seed].Kind` (an interface get) once **per execution** to
+  ask whether the seed was an `Or` (always false without one). Both are gone — the branch-filter test
+  is hoisted into the once-per-execution dispatcher so a plan without branch filters runs the
+  pre-step-4 `Walk` / `WalkPlain` bodies byte for byte, and the `Or` test is gated on a `_hasOr` flag
+  read once at build. The composite path itself lost two more: `PipelineNode.NodeKind` is a field, not
+  a virtual property, and a `SelectNode` over the sealed `IfSelector<TArgs>` calls it through a typed
+  field (a direct, inlinable call) instead of through `IBranchSelector<TArgs>`. The re-measured rows
+  below are after those fixes.
+- **Shape B-range's 20 µs is this machine's number for that row, not a step-4 effect.** Measured
+  like for like — the step-4 tree stashed, the pre-step-4 tree rebuilt and run on the same machine in
+  the same session — `TimeRangeListListSortBoundedJoinTwo_Frozen` reads **20.33 µs before step 4**
+  against 20.11 / 20.74 after it; its `Count_` twin 17.44 before against 16.79 / 17.34 after. The
+  17.65 µs in the step-7 table was another day's run of a range-seeded row, the class this file
+  already flags as not stable in-process ("Not observed as stable" in the parent spec); the row's bar
+  (≥ 1.5×) holds either way (1.84×).
+- **Every new pipeline row is 0 B.** `Or_Eager` / `Count_Or_Eager` allocate 128 B (the eager auto-seed's
+  `Candidates` set) and `Or_Prepared` 11 B (a small transient); every `_Frozen` row, composite or not,
+  is `-`.
+
+Tests: `tests/Prague.Core.Tests/Prepared/FrozenPipelineCompositeTests.cs` (a: `Or` first/after/small-probe/
+no-op/nested/branch-with-two-narrowers/marking-steps-replay, `If`/`IfElse`/nested/`Or`-in-`If`/`If`-in-
+`Or`, `Match` every arm/default/unmatched/duplicate-tag/nested/in-`Or`, all × sorted/bounded/joined; b:
+`Count` and `OrSeed` set parity; d: throwing condition/tag-selector/arg-selector/branch-predicate/
+comparer/clone under `LeakAssert.Balanced`; e: `Explain()` shape/arm/branch output and the fallback
+matrix; f: eight readers against a churning writer), `+1` pin group in `FrozenPipelineAllocationTests`
+(`Composites_...`: Or default, `OrSeed`, `Or`-after-list small-probe, `If` taken/skipped, `Match` arm
+with a branch filter, `Match(Or)` under `SortBounded` + fused join — all 0 B), and
+`tests/Prague.Generated.Tests/Prepared/PreparedGeneratedFrozenCompositeTests.cs` (the generated `WithXxx`
+twins of the same shapes, `Or`/`If`/`IfElse`/`Match`, nested, sort-bounded-joined). `Prague.Core.Tests/
+Prepared` 429 in Release (net9.0), 429 + 1106 in Debug on net9.0 (1 pre-existing skip), `Prague.Generated.
+Tests` 1223 green. No codegen or T4 change.

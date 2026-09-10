@@ -29,21 +29,37 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly IPipelineStep<TKey, TValue, TArgs>[] _steps;
 	private readonly FilterStep<TValue, TArgs>[] _filters;
+	// The Where's inside If / Match arms, in declaration order; the frame lists the active ones per execution.
+	private readonly FilterStep<TValue, TArgs>[] _branchFilters;
 	private readonly FusedFilter<TValue, TArgs>? _fused;
 	private readonly PipelinePlan<TKey, TValue, TArgs> _plan;
+	// The composite shape (design §5); null for a flat plan, which binds its steps in plan order.
+	private readonly PipelineTree<TArgs>? _tree;
 	private readonly bool _freeSeed;
+	private readonly bool _orSeed;
 	private readonly bool _needsRelease;
+	// True only when some step is an Or; read once at build (a virtual Kind get per step, here only).
+	// Gates the per-execution Or check in ChooseSeed so a plan with no Or — composite or not — never
+	// pays that interface call: the regression a fatter frame and a touched-but-unused composite path
+	// must not tax on plans that carry none of it (design's own "byte-for-byte" requirement, extended
+	// from row sequence to cost).
+	private readonly bool _hasOr;
 
 	internal PipelineCore(InMemoryDataCache<TKey, TValue> cache, IPipelineStep<TKey, TValue, TArgs>[] steps, FilterStep<TValue, TArgs>[] filters,
-		FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan) {
+		FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan, FilterStep<TValue, TArgs>[]? branchFilters = null) {
 		_cache = cache;
 		_steps = steps;
 		_filters = filters;
+		_branchFilters = branchFilters ?? [];
 		_fused = fused;
 		_plan = plan;
+		_tree = plan.Tree;
 		_freeSeed = plan.FreeSeed;
-		for (var i = 0; i < steps.Length; i++)
+		_orSeed = plan.OrSeed;
+		for (var i = 0; i < steps.Length; i++) {
 			_needsRelease |= steps[i].NeedsRelease;
+			_hasOr |= steps[i].Kind == NarrowerKind.Or;
+		}
 	}
 
 	/// <summary>
@@ -58,7 +74,7 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	/// <summary>Binds, chooses the seed for an <c>Execute*</c> (fixed unless the plan seeds free) and copies it out. False: the eager empty result — nothing is rented past the frame.</summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal bool Open(in TArgs args, scoped ref PipelineFrame<TKey> frame)
-		=> Bind(_steps, in args, ref frame) && ChooseSeed(_steps, ref frame, _freeSeed) && Seed(_steps, ref frame);
+		=> Bind(in args, ref frame) && ChooseSeed(_steps, ref frame, _freeSeed) && Seed(_steps, ref frame);
 
 	/// <summary>The sampled-execution handshake of the fused filter, when the plan has one.</summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -94,10 +110,10 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 		var frame = new PipelineFrame<TKey>(SeedKeys<TKey>.Over(stack));
 		var steps = _steps;
 		try {
-			if (!Bind(steps, in args, ref frame) || !ChooseSeed(steps, ref frame, true) || !Seed(steps, ref frame))
+			if (!Bind(in args, ref frame) || !ChooseSeed(steps, ref frame, true) || !Seed(steps, ref frame))
 				return 0;
 			var sampled = BeginSampling();
-			var count = Walk(steps, in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref container);
+			var count = Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.ActiveFilterList, frame.Bindings, sampled, ref container);
 			EndSampling(sampled);
 			return count;
 		} finally {
@@ -105,22 +121,157 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 		}
 	}
 
-	// Binds every step in plan order and records the active ones. False when a step empties the query
-	// (an empty unique In span): no seed walk, no store lookups, the eager zero-row result.
-	private static bool Bind(IPipelineStep<TKey, TValue, TArgs>[] steps, in TArgs args, scoped ref PipelineFrame<TKey> frame) {
+	// Binds every step and records the active ones. False when a step empties the query (an empty
+	// unique In span): no seed walk, no store lookups, the eager zero-row result. A flat plan binds its
+	// steps in plan order; a plan with composites walks its tree (design §5.2): an If / Match arm is
+	// chosen once here and its steps and filters spliced in, an Or's branches are bound in branch mode.
+	private bool Bind(in TArgs args, scoped ref PipelineFrame<TKey> frame) {
+		var steps = _steps;
 		var active = 0;
-		for (var i = 0; i < steps.Length; i++) {
-			ref var binding = ref frame.Bindings[i];
-			var activation = steps[i].Bind(in args, ref binding);
-			binding.Activation = activation;
-			if (activation == StepActivation.Empty)
-				return false;
-			if (activation == StepActivation.Active)
-				frame.Active[active++] = (byte)i;
+		if (_tree is null) {
+			for (var i = 0; i < steps.Length; i++) {
+				ref var binding = ref frame.Bindings[i];
+				var activation = steps[i].Bind(in args, ref binding);
+				binding.Activation = activation;
+				if (activation == StepActivation.Empty)
+					return false;
+				if (activation == StepActivation.Active)
+					frame.Active[active++] = (byte)i;
+			}
+
+			frame.ActiveCount = active;
+			return true;
 		}
 
+		var ok = BindNodes(_tree.Top, in args, ref frame, ref active);
 		frame.ActiveCount = active;
+		return ok;
+	}
+
+	// The top-level walk: leaves and Or steps join the active list in plan order, a taken arm's nodes
+	// are walked in place, a taken arm's filters join the active filter list. An Or is "first" when no
+	// active step precedes it — the eager `_first` at the OrWith call.
+	private bool BindNodes(PipelineNode<TArgs>[] nodes, in TArgs args, scoped ref PipelineFrame<TKey> frame, ref int active) {
+		var steps = _steps;
+		for (var n = 0; n < nodes.Length; n++) {
+			var node = nodes[n];
+			switch (node.NodeKind) {
+				case PipelineNodeKind.Leaf: {
+					var s = Unsafe.As<LeafNode<TArgs>>(node).Step;
+					ref var binding = ref frame.Bindings[s];
+					var activation = steps[s].Bind(in args, ref binding);
+					binding.Activation = activation;
+					if (activation == StepActivation.Empty)
+						return false;
+					if (activation == StepActivation.Active)
+						frame.Active[active++] = s;
+					break;
+				}
+				case PipelineNodeKind.Filter:
+					frame.ActiveFilters[frame.ActiveFilterCount++] = Unsafe.As<FilterNode<TArgs>>(node).Filter;
+					break;
+				case PipelineNodeKind.Select: {
+					var select = Unsafe.As<SelectNode<TArgs>>(node);
+					var arm = select.Select(in args);
+					_plan.RecordArm(select.Id, arm);
+					if (arm >= 0 && !BindNodes(select.Arms[arm], in args, ref frame, ref active))
+						return false;
+					break;
+				}
+				default: {
+					var s = Unsafe.As<OrNode<TArgs>>(node).Step;
+					ref var binding = ref frame.Bindings[s];
+					var activation = BindOr(Unsafe.As<OrStep<TKey, TValue, TArgs>>(steps[s]), s, in args, ref frame, active == 0, ref binding);
+					binding.Activation = activation;
+					if (activation == StepActivation.Empty)
+						return false;
+					if (activation == StepActivation.Active)
+						frame.Active[active++] = s;
+					break;
+				}
+			}
+		}
+
 		return true;
+	}
+
+	// Binds one Or (design §5.1): every branch in branch mode, then the step's own activation from
+	// what the branches came to. A branch narrowed when any of its leaves bound (active or empty —
+	// the eager branch core's `_first` went false either way); it is empty when one did (the
+	// intersecter's Clear: nothing marked, later leaves return early — so binding stops there too).
+	// A branch flattened out of a nested Or does not count as a narrowing (its bits are unioned in
+	// without touching the enclosing `_first`).
+	[SkipLocalsInit]
+	private StepActivation BindOr(OrStep<TKey, TValue, TArgs> or, int step, in TArgs args, scoped ref PipelineFrame<TKey> frame, bool first, ref StepBinding binding) {
+		var branches = or.Branches;
+		Span<byte> firstLeaves = stackalloc byte[PipelineLimits.MaxOrBranches];
+		var activeMask = 0;
+		var narrowed = false;
+		var needsProbe = false;
+		for (var b = 0; b < branches.Length; b++) {
+			var firstLeaf = 0xFF;
+			var activeLeaves = 0;
+			var empty = false;
+			var bound = BindBranch(branches[b].Nodes, in args, ref frame, ref firstLeaf, ref activeLeaves, ref empty);
+			firstLeaves[b] = (byte)firstLeaf;
+			if (!bound)
+				continue;
+			if (branches[b].Narrows)
+				narrowed = true;
+			if (empty)
+				continue;
+			activeMask |= 1 << b;
+			if (activeLeaves > 1)
+				needsProbe = true;
+		}
+
+		_plan.RecordOr(step, narrowed ? activeMask : 0, first);
+		return OrStep<TKey, TValue, TArgs>.Complete(ref binding, ref frame.Bindings, firstLeaves[..branches.Length], activeMask, narrowed, needsProbe, first);
+	}
+
+	// One Or branch: leaves bound as the eager intersecter core would treat them — an empty list In
+	// span clears the branch there (Clear) where at the top level it is a no-op, so Inactive on a
+	// list In means Empty here; a narrow-only If / Match inside the branch chooses its arm in place.
+	// Returns whether any leaf bound; stops at the first empty leaf, as the eager core returns early
+	// once cleared.
+	private bool BindBranch(PipelineNode<TArgs>[] nodes, in TArgs args, scoped ref PipelineFrame<TKey> frame, ref int firstLeaf, ref int activeLeaves, ref bool empty) {
+		var steps = _steps;
+		var bound = false;
+		for (var n = 0; n < nodes.Length; n++) {
+			var node = nodes[n];
+			if (node.NodeKind == PipelineNodeKind.Select) {
+				var select = Unsafe.As<SelectNode<TArgs>>(node);
+				var arm = select.Select(in args);
+				_plan.RecordArm(select.Id, arm);
+				if (arm < 0)
+					continue;
+				bound |= BindBranch(select.Arms[arm], in args, ref frame, ref firstLeaf, ref activeLeaves, ref empty);
+				if (empty)
+					return true;
+				continue;
+			}
+
+			var s = Unsafe.As<LeafNode<TArgs>>(node).Step;
+			var step = steps[s];
+			ref var binding = ref frame.Bindings[s];
+			var activation = step.Bind(in args, ref binding);
+			if (activation == StepActivation.Inactive && step.Kind is NarrowerKind.ListIn or NarrowerKind.ListInProjected)
+				activation = StepActivation.Empty;
+			binding.Activation = activation;
+			switch (activation) {
+				case StepActivation.Active:
+					bound = true;
+					activeLeaves++;
+					if (firstLeaf == 0xFF)
+						firstLeaf = s;
+					break;
+				case StepActivation.Empty:
+					empty = true;
+					return true;
+			}
+		}
+
+		return bound;
 	}
 
 	// Picks the seed (design §3.3 / §3.4) and splits the remaining active steps into the key-side and
@@ -157,19 +308,41 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 		frame.SeedStep = seed;
 		frame.SmallStep = small;
 		frame.Mode = mode;
-		_plan.Record(mode, seed, small, seedSignal, otherSignal);
+
+		// An Or that seeds walks its union when the order is free (Count, a classic Sort, the opt-ins)
+		// and the eager store walk kept to that union otherwise (design §5.1). Its signal is read for
+		// the record only — the walk it precedes is the store's. Gated on _hasOr (read once at build)
+		// so a plan with no Or step never pays the Kind virtual call to find that out.
+		var orSeed = _hasOr && seed >= 0 && steps[seed].Kind == NarrowerKind.Or;
+		var orUnion = orSeed && (free || _orSeed);
+		if (orSeed) {
+			OrStep<TKey, TValue, TArgs>.SetUnionSeed(ref frame.Bindings[seed], orUnion);
+			if (mode == SeedMode.Fixed)
+				seedSignal = steps[seed].Signal(in frame.Bindings[seed]);
+		}
+
+		_plan.Record(mode, seed, small, seedSignal, otherSignal, orUnion);
 
 		// A walked step is judged by its index. The step whose walk stands in for the first step's (the
 		// small step; a free seed moved off the first step) keeps its value-side probe when it has one,
 		// so the rows it admits are judged as the fixed walk would judge them — by the value returned
-		// (§14.1) — at one field compare per survivor. A key-side walk is its own probe.
+		// (§14.1) — at one field compare per survivor. A key-side walk is its own probe. An Or that seeds
+		// keeps its probe when a branch has more than one leaf (its union is a superset) or when it was
+		// moved off the first step.
 		var keyProbes = 0;
 		var valueProbes = 0;
 		for (var i = 0; i < active.Length; i++) {
 			var s = active[i];
 			var side = steps[s].Side;
-			if (s == seed && (mode != SeedMode.Free || seed == active[0] || side == ProbeSide.Key))
-				continue;
+			if (s == seed) {
+				if (orSeed) {
+					if (!OrStep<TKey, TValue, TArgs>.ProbeAfterSeed(in frame.Bindings[s]) && (mode != SeedMode.Free || seed == active[0]))
+						continue;
+				} else if (mode != SeedMode.Free || seed == active[0] || side == ProbeSide.Key) {
+					continue;
+				}
+			}
+
 			if (s == small && side == ProbeSide.Key)
 				continue;
 			if (side == ProbeSide.Key)
@@ -289,7 +462,7 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	// Every index step inactive (an empty list In span, an unbounded optional range): the eager core
 	// never seeded and walks the whole store — same walk, same order, the keys copied out.
 	private void AllRows(ref SeedKeys<TKey> seed) {
-		var collector = new KeyCollector(ref seed);
+		var collector = new SeedCollectors<TKey, TValue>.All(ref seed);
 		_cache.EnumerateAllValuesInit(ref collector, null);
 	}
 
@@ -299,13 +472,21 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	///   the compiler knows nothing stack-bound can flow into the container, which is the one ref-struct
 	///   argument passed by reference — the joined containers hold a ref to the execution's chain copy.
 	/// </summary>
+	// branchFilters is empty for every plan without a composite arm's Where — the overwhelming majority
+	// — so the branch on its length is hoisted here, once per execution, rather than once per surviving
+	// row inside the walk: a plan with no branch filters runs the exact pre-step-4 Walk / WalkPlain
+	// bodies, with no extra span-length check in the hot loop, byte for byte. Only a plan whose taken
+	// arm has a Where pays WalkWithBranchFilters's one extra check per surviving row.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal int Walk<TContainer>(in TArgs args, scoped ReadOnlySpan<TKey> keys, scoped ReadOnlySpan<byte> keyProbes, scoped ReadOnlySpan<byte> valueProbes,
-		scoped ReadOnlySpan<StepBinding> bindings, bool sampled, ref TContainer container)
-		where TContainer : struct, IJoinedResultContainer<TKey, TValue>, allows ref struct
-		=> keyProbes.Length == 0 && valueProbes.Length == 0 && _fused is null
-			? WalkPlain(in args, keys, ref container)
-			: Walk(_steps, in args, keys, keyProbes, valueProbes, bindings, sampled, ref container);
+		scoped ReadOnlySpan<byte> branchFilters, scoped ReadOnlySpan<StepBinding> bindings, bool sampled, ref TContainer container)
+		where TContainer : struct, IJoinedResultContainer<TKey, TValue>, allows ref struct {
+		if (branchFilters.Length == 0)
+			return keyProbes.Length == 0 && valueProbes.Length == 0 && _fused is null
+				? WalkPlain(in args, keys, ref container)
+				: Walk(_steps, in args, keys, keyProbes, valueProbes, bindings, sampled, ref container);
+		return WalkWithBranchFilters(_steps, in args, keys, keyProbes, valueProbes, branchFilters, bindings, sampled, ref container);
+	}
 
 	// The probe-free pass (one active index step, direct filters), kept as small as the eager store walk
 	// so the container's Add — for the bounded containers a heap push through the comparer chain —
@@ -327,6 +508,9 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 		return actual;
 	}
 
+	// Byte-identical to the pre-step-4 body: no branch-filter parameter, no per-row check for it. The
+	// probe-carrying, non-composite majority of plans (ListRange, the joined production shapes, etc.)
+	// run this, unchanged by step 4.
 	private int Walk<TContainer>(IPipelineStep<TKey, TValue, TArgs>[] steps, in TArgs args, scoped ReadOnlySpan<TKey> keys, scoped ReadOnlySpan<byte> keyProbes,
 		scoped ReadOnlySpan<byte> valueProbes, scoped ReadOnlySpan<StepBinding> bindings, bool sampled, ref TContainer container)
 		where TContainer : struct, IJoinedResultContainer<TKey, TValue>, allows ref struct {
@@ -354,6 +538,50 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 		}
 
 		return actual;
+	}
+
+	// The one shape that carries a branch filter (a taken If / Match arm's Where): the same loop as
+	// above plus one extra check per surviving row, paid only here — never by a plan without one.
+	private int WalkWithBranchFilters<TContainer>(IPipelineStep<TKey, TValue, TArgs>[] steps, in TArgs args, scoped ReadOnlySpan<TKey> keys, scoped ReadOnlySpan<byte> keyProbes,
+		scoped ReadOnlySpan<byte> valueProbes, scoped ReadOnlySpan<byte> branchFilters, scoped ReadOnlySpan<StepBinding> bindings, bool sampled, ref TContainer container)
+		where TContainer : struct, IJoinedResultContainer<TKey, TValue>, allows ref struct {
+		var filters = _filters;
+		var branchFilterSteps = _branchFilters;
+		var fused = _fused;
+		var ordering = fused?.Ordering;
+		var actual = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			var key = keys[i];
+			if (keyProbes.Length > 0 && !PassesKeyProbes(steps, key, keyProbes, bindings))
+				continue;
+			if (!_cache.TryGet(key, out var value))
+				continue;
+			if (valueProbes.Length > 0 && !PassesValueProbes(steps, key, value, valueProbes, bindings))
+				continue;
+			if (ordering is null) {
+				if (!PassesDirect(filters, value, in args))
+					continue;
+			} else if (sampled ? !fused!.PassesSampled(value, in args, ordering) : !FusedFilter<TValue, TArgs>.Passes(value, in args, ordering)) {
+				continue;
+			}
+
+			if (!PassesBranchFilters(branchFilterSteps, branchFilters, value, in args))
+				continue;
+			container.Add(key, value);
+			actual++;
+		}
+
+		return actual;
+	}
+
+	// The taken arms' Where's, in declaration order after the top-level filters — the order the frozen
+	// replay applies them in (the fused top-level predicate first, then the chain).
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static bool PassesBranchFilters(FilterStep<TValue, TArgs>[] filters, scoped ReadOnlySpan<byte> active, TValue value, in TArgs args) {
+		for (var i = 0; i < active.Length; i++)
+			if (!filters[active[i]].Passes(value, in args))
+				return false;
+		return true;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -394,22 +622,6 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 			steps[i].Release(ref frame.Bindings[i]);
 	}
 
-	// The seed is a ref struct, so the collector keeps a laundered pointer to it (see SeedAggregators).
-	private unsafe ref struct KeyCollector(ref SeedKeys<TKey> seed) : IResultContainerInitializer<TKey, TValue> {
-		private readonly void* _seed = Unsafe.AsPointer(ref seed);
-
-		public void Init(int maxCount) { }
-
-		public void Seal(int actualCount) { }
-
-		public int Add(TKey foreignKey, TValue result) {
-			Unsafe.AsRef<SeedKeys<TKey>>(_seed).Add(foreignKey);
-			return 0;
-		}
-
-		public int TotalCount => 0;
-	}
-
 	private ref struct CountContainer : IJoinedResultContainer<TKey, TValue> {
 		public int Add(TKey foreignKey, TValue result) => 0;
 
@@ -418,7 +630,7 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 }
 
 /// <summary>
-///   The stage-3 executor for simple plans of non-composite index steps — unsorted, under a classic
+///   The stage-3 executor for simple plans — unsorted, under a classic
 ///   <c>Sort</c>, or under <c>SortBounded</c> (design §8): the <see cref="PipelineCore{TKey,TValue,TArgs}" />
 ///   pass drives the eager <see cref="SimpleResultContainer{TKey,TValue,TResolver}" /> (whose
 ///   <c>BuildResults</c> also runs the classic sorter) or, for a finite page of a <c>SortBounded</c>
@@ -437,8 +649,8 @@ internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFro
 	private readonly bool _bounded;
 
 	internal PipelineExecutor(InMemoryDataCache<TKey, TValue> cache, IPipelineStep<TKey, TValue, TArgs>[] steps, in Resolvers<TResolver> resolvers,
-		FilterStep<TValue, TArgs>[] filters, FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan) {
-		_core = new(cache, steps, filters, fused, plan);
+		FilterStep<TValue, TArgs>[] filters, FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan, FilterStep<TValue, TArgs>[]? branchFilters = null) {
+		_core = new(cache, steps, filters, fused, plan, branchFilters);
 		_resolvers = resolvers;
 		_bounded = TResolver.IsSorter && _resolvers.Resolver.AllowsBounded && _resolvers.Resolver.OrdersByLeftValues<TValue>();
 	}
@@ -471,7 +683,7 @@ internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFro
 		var container = new SimpleResultContainer<TKey, TValue, TResolver>(_resolvers.Resolver, pool, clone, skip, take);
 		try {
 			container.Init(frame.Seed.Count);
-			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref container));
+			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.ActiveFilterList, frame.Bindings, sampled, ref container));
 			var results = container.BuildResults();
 			_core.EndSampling(sampled);
 			return results;
@@ -487,7 +699,7 @@ internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFro
 		var container = new TopKSimpleResultContainer<TKey, TValue, TResolver>(_resolvers.Resolver, pool, clone, skip, take);
 		try {
 			container.Init(frame.Seed.Count);
-			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref container));
+			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.ActiveFilterList, frame.Bindings, sampled, ref container));
 			var results = container.BuildResults();
 			_core.EndSampling(sampled);
 			return results;

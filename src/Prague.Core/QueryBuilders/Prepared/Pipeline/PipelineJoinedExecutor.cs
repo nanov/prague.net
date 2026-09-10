@@ -52,8 +52,9 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 	private readonly bool _bounded;
 
 	internal PipelineJoinedExecutor(InMemoryDataCache<TKey, TValue> cache, IPipelineStep<TKey, TValue, TArgs>[] steps, in TResolverChain resolvers, int manyCount,
-		FilterStep<TValue, TArgs>[] filters, FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan, in JoinChainShape<TValue> shape) {
-		_core = new(cache, steps, filters, fused, plan);
+		FilterStep<TValue, TArgs>[] filters, FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan, in JoinChainShape<TValue> shape,
+		FilterStep<TValue, TArgs>[]? branchFilters = null) {
+		_core = new(cache, steps, filters, fused, plan, branchFilters);
 		_resolvers = resolvers;
 		_manyCount = manyCount;
 		_fusedMask = shape.FusedMask;
@@ -124,7 +125,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		var container = new JoinedResultContaier<TKey, TValue, TResolverChain, TResult>(ref chain, pool, clone, skip, take, _manyCount);
 		try {
 			container.Init(frame.Seed.Count);
-			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.Bindings, sampled, ref container));
+			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.ActiveFilterList, frame.Bindings, sampled, ref container));
 			if (_fusedMask != 0)
 				container.FillFused(_fusedMask, recount: true);
 			// Runs whatever the mask left: the sorter and the page crop always, an unfused resolver when there is one.
@@ -150,7 +151,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		var container = new JoinedResultContaier<TKey, TValue, TResolverChain, TResult>(ref chain, pool, clone, _manyCount, bounded: true);
 		try {
 			var feeder = new BoundedFeeder(in _core, in args, ref chain, ref container, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList,
-				frame.Bindings, sampled, _hasInner, skip, take);
+				frame.ActiveFilterList, frame.Bindings, sampled, _hasInner, skip, take);
 			chain.WithSorter(ref feeder);
 			if (_fusedMask != 0)
 				container.FillFused(_fusedMask, recount: false);
@@ -181,6 +182,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		private readonly ReadOnlySpan<TKey> _keys;
 		private readonly ReadOnlySpan<byte> _keyProbes;
 		private readonly ReadOnlySpan<byte> _valueProbes;
+		private readonly ReadOnlySpan<byte> _branchFilters;
 		private readonly ReadOnlySpan<StepBinding> _bindings;
 		private readonly bool _sampled;
 		private readonly bool _hasInner;
@@ -189,7 +191,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 
 		internal BoundedFeeder(in PipelineCore<TKey, TValue, TArgs> core, in TArgs args, ref TResolverChain chain,
 			ref JoinedResultContaier<TKey, TValue, TResolverChain, TResult> container, ReadOnlySpan<TKey> keys, ReadOnlySpan<byte> keyProbes,
-			ReadOnlySpan<byte> valueProbes, ReadOnlySpan<StepBinding> bindings, bool sampled, bool hasInner, int skip, int take) {
+			ReadOnlySpan<byte> valueProbes, ReadOnlySpan<byte> branchFilters, ReadOnlySpan<StepBinding> bindings, bool sampled, bool hasInner, int skip, int take) {
 			_core = core;
 			_args = ref args;
 			_chain = ref chain;
@@ -197,6 +199,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 			_keys = keys;
 			_keyProbes = keyProbes;
 			_valueProbes = valueProbes;
+			_branchFilters = branchFilters;
 			_bindings = bindings;
 			_sampled = sampled;
 			_hasInner = hasInner;
@@ -216,7 +219,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 					// walk stamps.
 					var rows = new RowBuffer(withValues: true);
 					try {
-						_core.Walk(in _args, _keys, _keyProbes, _valueProbes, _bindings, _sampled, ref rows);
+						_core.Walk(in _args, _keys, _keyProbes, _valueProbes, _branchFilters, _bindings, _sampled, ref rows);
 						var narrowed = Narrow(ref _chain, ref rows);
 						var keys = rows.Keys;
 						var values = rows.Values;
@@ -227,7 +230,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 						rows.Dispose();
 					}
 				} else {
-					topK.Seal(_core.Walk(in _args, _keys, _keyProbes, _valueProbes, _bindings, _sampled, ref topK));
+					topK.Seal(_core.Walk(in _args, _keys, _keyProbes, _valueProbes, _branchFilters, _bindings, _sampled, ref topK));
 				}
 
 				var kept = topK.Drain();

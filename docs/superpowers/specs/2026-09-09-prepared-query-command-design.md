@@ -982,6 +982,128 @@ through the new container unchanged. `Prague.Core.Tests/Prepared` 398 in Release
 Debug on net9.0, `Prague.Generated.Tests` 1214 green. No codegen or T4 change.
 
 
+### Stage 3 — step 4: composites as pipeline steps
+
+*Design:* pipeline design §5 (5.1 `Or`, 5.2 `If` / `Match`), §9 (fallback matrix), §13 step 4; the
+step doc in `QueryBuilders/Prepared/Pipeline/Steps/OrStep.cs`, `Pipeline/PipelineTree.cs`,
+`Pipeline/PipelinePlanner.cs`.
+
+*What executes.* A composite is either a **node** (`If` / `IfElse` / `Match`, `PipelineTree.cs`) or a
+**step** (`Or`, `OrStep.cs`), and both were built once at plan time (`PipelinePlanner`), not carried
+over from the descriptor tree at execution.
+
+`If` / `IfElse` / `Match` — bind-time activation (§5.2): `PipelineCore.Bind`, on a plan with a
+`PipelineTree`, walks `BindNodes` instead of the flat step loop; a `SelectNode` calls its
+`IBranchSelector<TArgs>.Select(in args)` once (an `IfSelector` wraps the descriptor's own
+`Func<TArgs,bool>`; a `MatchSelector<TTag>` calls the descriptor's `Func<TArgs,TTag>` then a linear
+scan of the arms' tags under `EqualityComparer<TTag>.Default` — the replay's own "first declared tag
+wins" rule) and, for the chosen arm (or none), recurses into that arm's nodes — so an untaken arm's
+leaf steps are never `Bind`-called and never enter the active list: no probe, no signal read, no cost
+in the pass. A `Where` inside an arm becomes a **branch filter** (`FilterNode`, a byte index into
+the plan's `FilterStep<TValue,TArgs>[]`), applied by `Walk` after the top-level (fused) filters,
+in the taken arm's declared position — order-irrelevant for pure predicates, matching the top-level
+fused-filter contract. An unmatched `Match` with no `Default` binds nothing: the replay's own no-op
+(`_first` stays untouched, the next narrower seeds).
+
+`Or` (§5.1) — `OrStep<TKey,TValue,TArgs>` carries its branches (each a `PipelineNode<TArgs>[]` plus
+the byte indices of its own leaf steps) and is bound through `PipelineCore.BindOr`, not through the
+per-step `Bind`: every branch's nodes are walked in **branch mode** (`BindBranch`, mirroring the eager
+intersecter core — an empty list `In` span *empties* the branch here, where at the top level it is a
+no-op, because the eager branch core's `IntersectValues` on an empty span clears the intersecter), and
+the step's own activation and its per-branch outcome (narrowed / empty / active mask / needs-probe)
+are packed into its `StepBinding` (two 16-byte binding slots repurposed: a pointer to the frame's
+binding array, one first-leaf byte per branch, the active mask, and flags). A branch that is itself a
+sole nested `Or` (`b => b.Or(...)`) flattens: its own branches join the parent's branch list without
+counting as a narrowing of the parent, reproducing the eager nested `OrWith`'s bit-union without
+touching the enclosing branch's `_first`. As a **probe**, a candidate passes when any active branch's
+leaves all pass (key-side on the key, value-side on the fetched value) — the eager bitmap mark-then-
+prune is a pure set operation, so the row-by-row disjunction of conjunctions is exactly the same set.
+As the **seed** (an `Or` that is the query's first narrowing): by default the eager Or-first result —
+the whole store walked once, in store order, kept to the union of the active branches' first leaves —
+can be reproduced by building that union into a `ValueSet` first, then a second store walk
+(`SeedCollectors.Filtered`) copying out only the admitted rows: the eager sequence byte for byte, at one
+hash probe per store row — that is `FrozenOptions.OrSeed = false`. **The default is `OrSeed = true`**: the
+union is walked directly, in branch order (the design's §5.1 recommendation, confirmed by the reviewer —
+the eager order is the store's hash order, which resizes change and no caller can rely on), and so is
+every `Count`, classic `Sort`, and any free or small-probe seed that moves the walk off the `Or` itself.
+A branch with more than
+one active leaf keeps its own probe after either seed (its first leaf is a superset of the branch), via
+`OrStep.ProbeAfterSeed`.
+
+*Planner rule* (`PipelinePlanner<TKey,TValue,TArgs>.TryPlan`, replacing stage 3's `FrozenPlanner.
+TryPipeline`): walks the descriptor tree once, building the flat step array (every non-composite
+narrower, wherever it sits — top level, inside an arm, inside a branch) and, only if any composite is
+present, the `PipelineTree` shape. Rejected (replay): more steps or branch filters than the plan's
+budget, an `Or` with more than eight branches after flattening, a narrower whose `IPipelineStepSource`
+returns null under the options (unmanaged key > 16 B, `IndexSideProbes` with a range step), an `Or`
+nested beside another narrower in its branch (only a *sole* nested `Or` flattens — the eager
+`OrWith`'s bit-union has no narrowing bit to inherit otherwise), and — the one shape a per-row probe
+provably cannot reproduce — a `Range` / `KeySet` / `LastUpdatedAfter` / `LastUpdatedBetween` step
+anywhere but the first position of an `Or` branch: the eager branch core *marks* those (unions their
+walk into the branch's bitmap, dropping it if the branch was already cleared) where it *intersects* a
+preceding unique / list step, a set-level rule with no per-candidate equivalent. First-position range
+/ key-set / last-updated steps are unaffected (they still *intersect*, like the top level) and take
+the pipeline.
+
+*Ordering.* `If` / `Match` never change order: the taken arm's steps enter the same active list a
+top-level step would, at the same position. `Or` as a probe or as a non-first seed changes nothing
+either (it is exactly another step in the walk). The one exception to the byte-identical-by-default
+contract steps 3/5/6 keep is an `Or` that is the query's **first** narrowing: by default (`OrSeed`) its
+rows come in the union's branch order, not the store's hash order — same set, same `Count`; `OrSeed =
+false` restores the eager sequence through the filtered store walk. The default was chosen on review
+because the eager Or-first order is not a property anyone can build on (it moves whenever the store
+resizes) while the cost of reproducing it is the whole store walk (1.38× against 39×).
+
+*The composite-free tax, found and removed.* The first cut of this step taxed plans that carry no
+composite at all: the general `Walk` loop had gained a `branchFilters.Length > 0` test **per surviving
+row** (always false for a plan without a taken arm's `Where`), and `ChooseSeed` had gained a
+`steps[seed].Kind == NarrowerKind.Or` interface call **per execution** (always false for a plan with no
+`Or`). Shape B measured +3–6% for it. Both are gone: the branch-filter test is hoisted out of the loop
+into the once-per-execution dispatcher — a plan without branch filters runs the pre-step-4 `Walk` /
+`WalkPlain` bodies byte for byte, and only a plan whose taken arm has a `Where` runs the new
+`WalkWithBranchFilters` — and the `Or` test is gated on a `_hasOr` flag read once at build. Two more
+per-execution costs were taken off the composite path itself: `PipelineNode.NodeKind` is a field set
+at construction rather than a virtual property (the binder switches on it once per node), and a
+`SelectNode` whose selector is the sealed `IfSelector<TArgs>` calls it through a typed field resolved
+at build — a direct, inlinable call — instead of through `IBranchSelector<TArgs>` (a `Match` selector
+stays behind the interface: it is generic over a `TTag` the node never names). The frame's two new
+fields (`ActiveFilters`, `ActiveFilterCount`, 20 bytes beside a ~1 KB binding array) stay: they are
+zeroed once per execution by the frame constructor and a flat plan never reads them.
+
+*Not in this step.* Nothing deferred within composites' own scope — `Or` (seed and probe), `If` /
+`IfElse` / `Match` (bind-time activation, branch filters, nesting) are all in the pipeline now. The
+one carved-out shape (a marking step not first in an `Or` branch) replays, matching eager exactly;
+`JoinMany`, an unfusable join, and an inner left-symmetric join inside an `Or` / `If` / `Match` still
+replay per steps 5-6's own rules, unaffected by this step.
+
+#### Measured (Apple M4 Pro, .NET 9, `--inProcess`, default job, one category per run; full tables in `RESULTS.MD`, "stage 3, step 4")
+
+| Row | Eager | `Build()` | `BuildFrozen()` | Ratio | Bar (§12, step 4) | Frozen alloc |
+|---|---:|---:|---:|---:|---|---|
+| `Or` (two 1k buckets, first; default `OrSeed`: the union's order) | 1,027–1,047 µs | 1,015–1,047 µs | **26.6–28.0 µs** | 0.03 (**36.6–39.4×**) | ≥ 1.3× kept | 0 B |
+| `Or_FrozenEagerOrder` (`OrSeed = false`: the eager sequence) | — | — | 756–794 µs | 0.72–0.77 (1.29–1.38×) | the opt-out, ungated; two runs straddle 1.3× | 0 B |
+| `Count_Or` (always the union) | 976.96 µs | = | **21.94 µs** | 0.02 (**44.5×**) | — | 0 B |
+| `OrAfterList` (1k bucket, then `Or` of two uniques — small-probe seed) | 7.16 µs | 7.20 µs | **0.24 µs** | 0.03 (**30.2×**) | ≥ 1.3× kept | 0 B |
+| `IfTaken` (1k bucket, then a taken unique — small-probe seed) | 3.08 µs | 3.06 µs | **0.11 µs** | 0.04 (**27.4×**) | ≥ 10× kept | 0 B |
+| `IfSkipped` (1k bucket, `If` skipped) | 10.0–10.2 µs | 10.0–10.1 µs | 7.75–8.75 µs | 1.15–1.31× | ≥ 1.4× **missed** — the composite bind path (tree walk + condition delegate) on a plan with almost no walk; not the row loop (RESULTS) | 0 B |
+| `Match` (three arms, parameterized) | 8.35–8.63 µs | 8.53 µs | **6.58–7.12 µs** (5 runs, median ≈ 6.9) | 0.79 (**1.19–1.30×**, median ≈ 1.25×) | ≥ 1.2× kept on the median, missed on the slowest run — the row swings ~10% run to run | 0 B |
+| `Count_Match` | 6.69 µs | — | 6.30 µs | 0.94 (1.06×) | no bar set; reported | 0 B |
+| `ListList`, `ListListList`, `Sort_ListList`, `SortBounded`(+`_ListList`), `JoinOne`, `InnerJoinOne`, `JoinOneChained`, shapes A / B / B-range (+ `Count_` twins) | — | — | — | after the tax fix: shape A 4.92 µs, B **17.64 µs** (step 7: 17.85–17.98), B-range 20.1–20.7 µs — the same row reads **20.33 µs on the pre-step-4 tree on the same machine**, so its 17.65 in the step-7 table was another run's number, not a level step 4 lost | re-measured, no regression |
+
+Tests: `FrozenPipelineCompositeTests` (new: `Or` first/after-a-narrower/small-probe/no-op-branches/
+nested-flattening/branch-with-two-narrowers/marking-steps-replay/empty-`In`-in-a-branch, `If` / `IfElse`
+first/alone/after-a-list/with-a-`Where`-branch/two-op-branch/nested/`Or`-inside-`If`/`If`-inside-`Or`,
+`Match` every arm/default/unmatched/duplicate-tag/nested/inside-`Or`, all × the four `Execute*` variants
+× five pages × unsorted/`Sort`/`SortBounded`/fused-joins; `Count` and `OrSeed` set parity; `Explain()`
+shape/arm/branch-mask output including the fallback matrix; `LeakAssert.Balanced` under a throwing
+condition, tag selector, arm selector, branch predicate, comparer and `Clone()`; eight readers against
+a churning writer), `+1` pin group in `FrozenPipelineAllocationTests` (`Composites_...`, all 0 B), and
+`PreparedGeneratedFrozenCompositeTests` (the generated `WithXxx` twins of `Or` / `If` / `IfElse` /
+`Match`, nested, sort-bounded-joined). `Prague.Core.Tests/Prepared` 429 in Release (net9.0), 429 + 1106
+in Debug on net9.0 (one pre-existing unrelated skip), `Prague.Generated.Tests` 1223 green. No codegen or
+T4 change.
+
+
 ## 9. Relation to the event-loop research
 
 A `PreparedQuery<TArgs, TResult>` is exactly what a per-cache loop would dequeue: an immutable

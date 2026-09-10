@@ -10,7 +10,7 @@ using Prague.Core;
 ///   the frozen planner binds to the point-lookup executor; the simple unsorted list / range / key-set /
 ///   last-updated shapes bind to the stage-3 pipeline, as do <c>Sort</c> / <c>SortBounded</c>, the
 ///   <c>SortBounded</c> → <c>JoinOne</c> production shapes and (step 5) every chain of fusable
-///   <c>JoinOne</c>s — outer, inner, chained; a filtered <c>JoinOne</c> and <c>Match</c> replay,
+///   <c>JoinOne</c>s — outer, inner, chained; <c>Or</c> / <c>If</c> / <c>Match</c> (step 4); a filtered <c>JoinOne</c> replays,
 ///   so their <c>_Frozen</c> rows must sit on top of the <c>_Prepared</c> rows. Every body executes pooled and disposes. Same data as
 ///   <see cref="PreparedQueryBenchmarks" />: 100k rows, list buckets of 1k, range windows of 1k codes.
 /// </summary>
@@ -75,6 +75,19 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredFrozen = null!;
 	private PreparedQuery<(int mode, int group, int code), PqbItem> _matchPrepared = null!;
 	private FrozenQuery<(int mode, int group, int code), PqbItem> _matchFrozen = null!;
+
+	// Step 4 shapes (composites).
+	private PreparedQuery<(int g1, int g2), PqbItem> _orPrepared = null!;
+	private FrozenQuery<(int g1, int g2), PqbItem> _orFrozen = null!;
+	private FrozenQuery<(int g1, int g2), PqbItem> _orFrozenEagerOrder = null!;
+	private PreparedQuery<(int group, int c1, int c2), PqbItem> _orAfterListPrepared = null!;
+	private FrozenQuery<(int group, int c1, int c2), PqbItem> _orAfterListFrozen = null!;
+	private PreparedQuery<(bool cond, int group, int code), PqbItem> _ifPrepared = null!;
+	private FrozenQuery<(bool cond, int group, int code), PqbItem> _ifFrozen = null!;
+	private (int g1, int g2) _orArgs = (13, 42);
+	private (int group, int c1, int c2) _orAfterListArgs = (13, 1000 + 13, 1000 + 13 + 100 * 420);
+	private (bool cond, int group, int code) _ifTakenArgs = (true, 13, 1000 + 13 + 100 * 420);
+	private (bool cond, int group, int code) _ifSkippedArgs = (false, 13, 1000 + 13 + 100 * 420);
 	private PreparedQuery<(int? lo, int? hi), PqbItem> _optionalRangePrepared = null!;
 	private FrozenQuery<(int? lo, int? hi), PqbItem> _optionalRangeFrozen = null!;
 
@@ -222,6 +235,14 @@ public class FrozenQueryBenchmarks {
 			.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag))).BuildFrozen();
 		_optionalRangePrepared = _items.Prepare<int, PqbItem, (int? lo, int? hi)>().UseIndex(_codeRange, static a => a.lo, static a => a.hi, toInclusive: false).Build();
 		_optionalRangeFrozen = _items.Prepare<int, PqbItem, (int? lo, int? hi)>().UseIndex(_codeRange, static a => a.lo, static a => a.hi, toInclusive: false).BuildFrozen();
+
+		_orPrepared = _items.Prepare<int, PqbItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Build();
+		_orFrozen = _items.Prepare<int, PqbItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen();
+		_orFrozenEagerOrder = _items.Prepare<int, PqbItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(new FrozenOptions { OrSeed = false });
+		_orAfterListPrepared = _items.Prepare<int, PqbItem, (int group, int c1, int c2)>().UseIndex(_byGroup, static a => a.group).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).Build();
+		_orAfterListFrozen = _items.Prepare<int, PqbItem, (int group, int c1, int c2)>().UseIndex(_byGroup, static a => a.group).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).BuildFrozen();
+		_ifPrepared = _items.Prepare<int, PqbItem, (bool cond, int group, int code)>().UseIndex(_byGroup, static a => a.group).If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code)).Build();
+		_ifFrozen = _items.Prepare<int, PqbItem, (bool cond, int group, int code)>().UseIndex(_byGroup, static a => a.group).If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code)).BuildFrozen();
 
 		var fixedOrder = new FrozenOptions { AdaptiveFilterOrdering = false };
 		var noHints = new FrozenOptions { CapacityHints = false };
@@ -506,7 +527,7 @@ public class FrozenQueryBenchmarks {
 		return r.Count;
 	}
 
-	// ── 8. Match, three parameterized arms (not eligible: replay) ─────────────────
+	// ── 8. Match, three parameterized arms — step 4: the arm is chosen at bind, the pipeline runs it ──
 
 	private QueryResults<PqbItem> EagerMatch((int mode, int group, int code) a) {
 		var q = _items.Query();
@@ -537,7 +558,120 @@ public class FrozenQueryBenchmarks {
 		return r.Count;
 	}
 
-	// ── 9. Optional-bounds range, both bounds (not eligible: replay) ──────────────
+	[BenchmarkCategory("Count_Match"), Benchmark(Baseline = true)]
+	public int Count_Match_Eager() {
+		var q = _items.Query();
+		switch (_matchArgs.mode) {
+			case 0: q = q.UseIndex(_byCode, _matchArgs.code); break;
+			case 1: q = q.UseIndex(_byGroup, _matchArgs.group); break;
+			case 2: q = q.UseIndex(_byGroup, _matchArgs.group).Where(static v => v.Flag); break;
+		}
+
+		return q.Count();
+	}
+
+	[BenchmarkCategory("Count_Match"), Benchmark]
+	public int Count_Match_Frozen() => _matchFrozen.Count(_matchArgs);
+
+	// ── 8b. Or as the first narrowing: two 1k buckets — step 4. By default (OrSeed) the union itself, in
+	// branch order; under OrSeed = false the eager sequence (the store walk kept to the union). Count seeds
+	// the union either way. ───────────────────────────────────────────────────────────────────────────
+
+	[BenchmarkCategory("Or"), Benchmark(Baseline = true)]
+	public int Or_Eager() {
+		using var r = _items.Query().Or(b => b.UseIndex(_byGroup, _orArgs.g1), b => b.UseIndex(_byGroup, _orArgs.g2)).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Or"), Benchmark]
+	public int Or_Prepared() {
+		using var r = _orPrepared.ExecutePooled(_orArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Or"), Benchmark]
+	public int Or_Frozen() {
+		using var r = _orFrozen.ExecutePooled(_orArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Or"), Benchmark]
+	public int Or_FrozenEagerOrder() {
+		using var r = _orFrozenEagerOrder.ExecutePooled(_orArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Count_Or"), Benchmark(Baseline = true)]
+	public int Count_Or_Eager() => _items.Query().Or(b => b.UseIndex(_byGroup, _orArgs.g1), b => b.UseIndex(_byGroup, _orArgs.g2)).Count();
+
+	[BenchmarkCategory("Count_Or"), Benchmark]
+	public int Count_Or_Frozen() => _orFrozen.Count(_orArgs);
+
+	// ── 8c. A list then an Or of two uniques — step 4: the Or's union is the small-probe seed ────────
+
+	[BenchmarkCategory("OrAfterList"), Benchmark(Baseline = true)]
+	public int OrAfterList_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _orAfterListArgs.group).Or(b => b.UseIndex(_byCode, _orAfterListArgs.c1), b => b.UseIndex(_byCode, _orAfterListArgs.c2)).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("OrAfterList"), Benchmark]
+	public int OrAfterList_Prepared() {
+		using var r = _orAfterListPrepared.ExecutePooled(_orAfterListArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("OrAfterList"), Benchmark]
+	public int OrAfterList_Frozen() {
+		using var r = _orAfterListFrozen.ExecutePooled(_orAfterListArgs);
+		return r.Count;
+	}
+
+	// ── 8d. A list then If(unique) — step 4: taken, the unique arm is the small-probe seed; skipped, the plain list walk ──
+
+	private QueryResults<PqbItem> EagerIf((bool cond, int group, int code) a) {
+		var q = _items.Query().UseIndex(_byGroup, a.group);
+		if (a.cond) q = q.UseIndex(_byCode, a.code);
+		return q.ExecutePooled();
+	}
+
+	[BenchmarkCategory("IfTaken"), Benchmark(Baseline = true)]
+	public int IfTaken_Eager() {
+		using var r = EagerIf(_ifTakenArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("IfTaken"), Benchmark]
+	public int IfTaken_Prepared() {
+		using var r = _ifPrepared.ExecutePooled(_ifTakenArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("IfTaken"), Benchmark]
+	public int IfTaken_Frozen() {
+		using var r = _ifFrozen.ExecutePooled(_ifTakenArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("IfSkipped"), Benchmark(Baseline = true)]
+	public int IfSkipped_Eager() {
+		using var r = EagerIf(_ifSkippedArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("IfSkipped"), Benchmark]
+	public int IfSkipped_Prepared() {
+		using var r = _ifPrepared.ExecutePooled(_ifSkippedArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("IfSkipped"), Benchmark]
+	public int IfSkipped_Frozen() {
+		using var r = _ifFrozen.ExecutePooled(_ifSkippedArgs);
+		return r.Count;
+	}
+
+	// ── 9. Optional-bounds range, both bounds ─────────────────────────────────────
 
 	private QueryResults<PqbItem> EagerOptionalRange((int? lo, int? hi) a) {
 		var q = _items.Query();

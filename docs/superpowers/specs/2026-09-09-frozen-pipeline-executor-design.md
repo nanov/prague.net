@@ -1,13 +1,17 @@
 # Frozen queries stage 3: the pipeline executor
 
-> **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. §13 steps 1–3, 5, 6 and 7 are
+> **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. §13 steps 1–3 and 5–7 are
 > shipped (step 3: the small-probe seed §3.4, the free seed §3.3 for `Count` / classic `Sort` /
 > `ReorderIndexNarrowers`, the bulk `PooledSet.CopyKeysTo` seed copy, `IndexStepsExecutor` retired —
 > parent spec §8 "Stage 3", RESULTS.MD "stage 3, step 3"; step 6: the `SortBounded` feed §8 for simple
 > plans and for `SortBounded` → outer-`JoinOne` joined plans, the joins unfused — parent spec §8 "step 6",
 > RESULTS.MD "stage 3, step 6"; step 5: `JoinOne` fusion §7.1 — parent spec §8 "step 5"; step 7: the
-> frozen bounded joined container §8 — parent spec §8 "step 7", RESULTS.MD "stage 3, step 7"); step 4
-> (composites) and step 8 (cleanup) are open. Stage 2 (`FrozenOptions`, `FusedFilter`, `FrozenHints`, `IndexStepsExecutor`) was
+> frozen bounded joined container §8 — parent spec §8 "step 7", RESULTS.MD "stage 3, step 7"); **step 4
+> (composites, §5) is shipped** — `Or` as a seed (default `OrSeed`: the union's own order, §5.1's
+> recommendation as decided on review; `OrSeed = false`: the eager store walk kept to the branch union,
+> byte-identical) and as a probe, `If` /
+> `IfElse` / `Match` as bind-time arm selection with branch filters — parent spec §8 "step 4",
+> RESULTS.MD "stage 3, step 4". Step 8 (cleanup) is open. Stage 2 (`FrozenOptions`, `FusedFilter`, `FrozenHints`, `IndexStepsExecutor`) was
 > uncommitted in the working tree while this was written; where the design touches it, the file is
 > named and the dependency called out. Line numbers are HEAD's unless marked *(wt)* for the
 > working tree.
@@ -686,9 +690,35 @@ Allocation column: `-` (0 B) on every `Pipeline` row.
    wiring, `Sort` (classic) via `SimpleResultContainer<…, SortResolver>` with free seed, the bulk
    `PooledSet.CopyKeysTo` seed copy. Tests (b) in `FrozenPipelineSeedTests`. Rows: `ListList` 5.3×,
    `ListListList` 5.2×, `Count_ListList` 8.4×, `Sort_ListList` 4.75× (parent spec §8 "step 3").
-4. **Composites**: `Steps/IfSteps.cs`, `Steps/MatchStep.cs`, `Steps/OrStep.cs`; bind-time activation
-   (§5.2), Or as seed with dedupe and as probe (§5.1), `FrozenOptions.OrSeed`. Tests (a)/(b) for
-   Or/If/Match fixtures. Rows: `Or`, `OrAfterList`, `IfSkipped`, `IfTaken`, `Match`.
+4. **Composites** — *shipped*: no per-kind `Steps/IfSteps.cs` / `MatchStep.cs` files — `If` / `IfElse` /
+   `Match` became **nodes** (`Pipeline/PipelineTree.cs`: `SelectNode`, `IBranchSelector<TArgs>` —
+   `IfSelector`, `MatchSelector<TTag>` — and `FilterNode` for a branch `Where`), bound once per
+   execution by `PipelineCore.BindNodes` before seed selection, splicing the taken arm's leaf steps and
+   filters into the same active list a top-level step would occupy — exactly the bind-time activation
+   §5.2 called for, just carried by the tree walker rather than one step type per composite kind. `Or`
+   is `Pipeline/Steps/OrStep.cs`: a step whose binding is bound in *branch mode* (`PipelineCore.BindOr`,
+   mirroring the eager intersecter core per branch — an empty list `In` span *empties* the branch here
+   where it is a no-op at the top level), carrying each branch's leaves and, packed into two repurposed
+   binding slots, the active-branch mask and per-branch first-leaf indices. As a probe: the OR of each
+   active branch's leaf conjunctions. As the seed (Or-first): **by default** a second store walk kept to
+   the branch union reproduces the eager sequence byte for byte under `OrSeed = false`; the **default
+   (`OrSeed`, decided on review) walks the union directly** — the path the design predicted as ~60×, and
+   where the 39× lands — as do `Count` and a classic `Sort` either way. Planner
+   (`Pipeline/PipelinePlanner.cs`, replacing `FrozenQuery.TryPipeline`): builds the flat step array and,
+   only when a composite is present, the tree; rejects (replay) an `Or` nested beside a leaf in its own
+   branch (only a *sole* nested `Or` flattens, inheriting no narrowing bit — the eager nested `OrWith`
+   union has none to inherit), more than eight branches after flattening, and — the one shape a per-row
+   probe cannot reproduce — a `Range` / `KeySet` / `LastUpdated*` step that is not an `Or` branch's
+   *first* node: the eager branch core *marks* (unions) those where it *intersects* a preceding unique /
+   list step, a set-level operation. Tests: `FrozenPipelineCompositeTests` (new file, superseding the (a)/
+   (b) fixtures this step originally planned to extend in place), `PreparedGeneratedFrozenCompositeTests`
+   (generated twins), `+1` pin group in `FrozenPipelineAllocationTests`. Rows: `Or` 39.4× default /
+   1.38× `OrSeed = false`, `OrAfterList` 30.2×, `IfTaken` 28.0×, `IfSkipped` 1.15–1.31× (bar 1.4× **missed** — the
+   composite bind path — see RESULTS), `Match` 1.30×. A first cut taxed composite-free plans (a per-row
+   branch-filter test in the general `Walk`, a per-execution `Kind` interface call in `ChooseSeed`; shape
+   B +3–6%); both were hoisted / gated out so a plan without a composite runs the pre-step-4 loop bodies
+   byte for byte, and the composite path lost its `NodeKind` virtual get and, for `If` / `IfElse`, its
+   `IBranchSelector` dispatch (parent spec §8 "step 4", RESULTS.MD "stage 3, step 4").
 5. **`JoinOne` fusion** — *shipped*: `IFusableJoinOne` (`QueryBuilders/IFusableJoinOne.cs`) on the four
    resolvers with `IJoinFilter.IsNoOp` deciding `CanFuse`; `fusedMask` in `ExecuteWithAccessorProcessor`
    plus a **fill walk** (`JoinResults.tt`), so the fused resolvers are skipped in the ordinary walk and
@@ -818,7 +848,11 @@ larger than 1<<20 as a warning the way `FrozenHints` caps its hint.
 
 ### 14.6 Open questions
 
-- Should `OrSeed` default on (recommended, §5.1) or opt-in? Decide before step 4.
+- **Decided (step 4, on review): `OrSeed` defaults on**, as §5.1 recommended. The implementation
+  first shipped it opt-in — the opt-out path (a second store walk kept to the branch union, the eager
+  sequence byte for byte) clears the row's bar on its own at 1.38× — and the reviewer took the
+  recommendation: the eager Or-first order is the store's hash order, which nobody can build on, and the
+  default is 39×. `OrSeed = false` keeps the eager sequence for a caller who wants it.
 - Should the pipeline expose an internal `IPipelineSink` so the Kafka layer or `Prague.Api` can
   consume rows without a `QueryResults` buffer (streaming)? Out of scope; the stage keeps the
   `QueryResults` contract.

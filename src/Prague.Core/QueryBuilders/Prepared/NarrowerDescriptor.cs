@@ -53,7 +53,8 @@ public sealed class NarrowerDescriptor {
 	public IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> Children { get; }
 
 	// The narrower that produced the descriptor, when it can seed a specialized executor (a unique
-	// equality step). Typed as object so the descriptor stays non-generic; the planner type-tests it.
+	// equality step), build a pipeline step, or build a typed branch selector (a Match step). Typed as
+	// object so the descriptor stays non-generic; the planner type-tests it.
 	internal object? Source { get; }
 
 	private NarrowerDescriptor(NarrowerKind kind, bool isParameterized, object? index, object? value, Delegate? selector, Delegate? filter,
@@ -83,6 +84,9 @@ public sealed class NarrowerDescriptor {
 	/// <summary>A <c>Match</c> step: the tag selector, the arm tags (<see cref="Value" />) and one child per arm, the default last.</summary>
 	public static NarrowerDescriptor ForMatch(Delegate selector, MatchArmTags tags, IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> arms)
 		=> new(NarrowerKind.Match, true, null, tags, selector, null, arms, null);
+
+	internal static NarrowerDescriptor ForMatch(Delegate selector, MatchArmTags tags, IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> arms, object source)
+		=> new(NarrowerKind.Match, true, null, tags, selector, null, arms, source);
 
 	public override string ToString() {
 		var sb = new StringBuilder();

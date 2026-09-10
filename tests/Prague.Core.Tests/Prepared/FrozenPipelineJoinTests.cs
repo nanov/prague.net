@@ -689,7 +689,7 @@ public class FrozenPipelineJoinTests {
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "JoinMany (design §7.2)");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a JoinMany anywhere in the chain");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "inner + JoinMany");
-			Assert.That(_orders.Prepare().Or(b => b.UseIndex(_byProduct, 1), b => b.UseIndex(_byProduct, 2)).JoinOne(_invoices).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a composite narrowing");
+			Assert.That(_orders.Prepare().Or(b => b.UseIndex(_byProduct, 1), b => b.UseIndex(_byProduct, 2)).JoinOne(_invoices).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a composite narrowing (step 4)");
 		});
 
 		// The mixed step-6 shape: the PK join is fused in the pass, the filtered left-symmetric join keeps

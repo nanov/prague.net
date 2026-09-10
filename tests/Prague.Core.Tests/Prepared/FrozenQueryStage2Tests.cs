@@ -132,8 +132,10 @@ public class FrozenQueryStage2Tests {
 
 	[Test]
 	public void Fused_WhereBeforeOr_And_OrBeforeWhere_LikeEager() {
-		var frozenBefore = _cache.Prepare().Where(static v => v.Flag).Where(static v => v.Id < 200).Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).BuildFrozen();
-		var frozenAfter = _cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).Where(static v => v.Flag).Where(static v => v.Id < 200).BuildFrozen();
+		// OrSeed = false keeps the eager store-walk sequence this fixture compares against (the default seeds the union).
+		var eagerOrder = new FrozenOptions { OrSeed = false };
+		var frozenBefore = _cache.Prepare().Where(static v => v.Flag).Where(static v => v.Id < 200).Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).BuildFrozen(eagerOrder);
+		var frozenAfter = _cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).Where(static v => v.Flag).Where(static v => v.Id < 200).BuildFrozen(eagerOrder);
 		Assert.That(frozenBefore.Plan.Optimizations, Does.Contain("FusedFilters"));
 		for (var round = 0; round < 3; round++) {
 			AssertSame(_cache.Query().Where(static v => v.Flag).Where(static v => v.Id < 200).Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).Execute(), frozenBefore.Execute());
@@ -341,7 +343,7 @@ public class FrozenQueryStage2Tests {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "one step: the free seed is that step");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_codeRange, static rb => rb.Gte(1100)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "a range step signals an estimate");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byCode, new[] { 1042 }).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "multi-value");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Or(b => b.UseIndex(_byTier, 3), b => b.UseIndex(_byTier, 4)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Replay"), "composite");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Or(b => b.UseIndex(_byTier, 3), b => b.UseIndex(_byTier, 4)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "composite (step 4)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_flagged).BuildFrozen(Reorder).Plan.Optimizations, Does.Contain("ReorderIndexNarrowers"), "key-set reorders");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded: pipeline; the opt-in reorder makes its seed free (step 6)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort: pipeline, free seed");

@@ -169,9 +169,9 @@ public class FrozenQueryTests {
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Where(static v => v.Flag).UseIndex(_flagged).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unique, Where, key-set");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, new[] { 1042 }).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unique-in alone");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(stage2).Plan.Executor, Is.EqualTo("Replay"), "list eq, stage 2");
-			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Or(b => b.UseIndex(_byGroup, 0), b => b.UseIndex(_byGroup, 1)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "unique then Or");
-			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byCode, 1042), b => b.UseIndex(_byCode, 1043)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Or of uniques");
-			Assert.That(_cache.Prepare<int, PqItem, bool>().If(static c => c, b => b.UseIndex(_byCode, 1042)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "If around unique");
+			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Or(b => b.UseIndex(_byGroup, 0), b => b.UseIndex(_byGroup, 1)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unique then Or (step 4)");
+			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byCode, 1042), b => b.UseIndex(_byCode, 1043)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "Or of uniques (step 4)");
+			Assert.That(_cache.Prepare<int, PqItem, bool>().If(static c => c, b => b.UseIndex(_byCode, 1042)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "If around unique (step 4: not a point lookup, the pipeline)");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort: the pipeline drives the sorting container");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded: the pipeline feeds the top-k container (step 6)");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).SortBounded(new ByCode()).BuildFrozen(stage2).Plan.Executor, Is.EqualTo("Replay"), "sort-bounded, stage 2");
@@ -229,7 +229,7 @@ public class FrozenQueryTests {
 			.BuildFrozen();
 
 		var ops = frozen.Plan.Narrowers;
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), "step 4: composites over pipeline steps take the pipeline");
 		var kinds = new NarrowerKind[ops.Count];
 		for (var i = 0; i < ops.Count; i++) kinds[i] = ops[i].Kind;
 		Assert.That(kinds, Is.EqualTo(new[] {
@@ -389,19 +389,25 @@ public class FrozenQueryTests {
 	[Test]
 	public void Fallback_Or_FrozenEqualsPreparedEqualsEager() {
 		var prepared = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Build();
-		var frozen = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen();
+		// OrSeed = false: the eager store-walk sequence; the default seeds the union (same set, branch order).
+		var frozen = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(new FrozenOptions { OrSeed = false });
+		var union = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen();
 		var args = (g1: 1, g2: 4);
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		AssertSame(_cache.Query().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).Execute(), frozen.Execute(args));
 		AssertSame(prepared.Execute(args), frozen.Execute(args));
 		Assert.That(frozen.Count(args), Is.EqualTo(prepared.Count(args)));
+		using var eagerRows = _cache.Query().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).Execute();
+		using var unionRows = union.Execute(args);
+		Assert.That(unionRows.Select(static v => v.Id), Is.EquivalentTo(eagerRows.Select(static v => v.Id)));
+		Assert.That(union.Count(args), Is.EqualTo(prepared.Count(args)));
 	}
 
 	[Test]
 	public void Fallback_If_FrozenEqualsPreparedEqualsEager() {
 		var prepared = _cache.Prepare<int, PqItem, (bool cond, int group)>().UseIndex(_byGroup, static a => a.group).If(static a => a.cond, b => b.Where(static v => v.Flag)).Build();
 		var frozen = _cache.Prepare<int, PqItem, (bool cond, int group)>().UseIndex(_byGroup, static a => a.group).If(static a => a.cond, b => b.Where(static v => v.Flag)).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		AssertSame(_cache.Query().UseIndex(_byGroup, 2).Where(static v => v.Flag).Execute(), frozen.Execute((true, 2)));
 		AssertSame(_cache.Query().UseIndex(_byGroup, 2).Execute(), frozen.Execute((false, 2)));
 		AssertSame(prepared.Execute((true, 2)), frozen.Execute((true, 2)));

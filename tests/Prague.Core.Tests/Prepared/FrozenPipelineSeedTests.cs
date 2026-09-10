@@ -519,7 +519,7 @@ public class FrozenPipelineSeedTests {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "step 6: the bounded feed");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen(new FrozenOptions { Pipeline = false }).Plan.Executor, Is.EqualTo("Replay"));
 			Assert.That(_cache.Prepare().Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "filter-only / all rows sorted: replay");
-			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 2)).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"));
+			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 2)).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "composite (step 4)");
 		});
 		// SortBounded parity (step 6, FrozenPipelineSortBoundedTests in depth): the two spellings agree with eager on every page.
 		var bounded = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).BuildFrozen();

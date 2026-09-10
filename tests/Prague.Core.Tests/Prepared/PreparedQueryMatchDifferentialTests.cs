@@ -497,7 +497,7 @@ public class PreparedQueryMatchDifferentialTests {
 	[TestCase(Mode.ByBucket)]
 	[TestCase(Mode.ByCode)]
 	[TestCase(Mode.Unhandled)]
-	public void Frozen_Match_ReplaysAndExplainsTheArms_FrozenEqualsPreparedEqualsEager(Mode mode) {
+	public void Frozen_Match_PipelinesAndExplainsTheArms_FrozenEqualsPreparedEqualsEager(Mode mode) {
 		var frozen = _cache.Prepare<int, PqItem, (Mode mode, int g, int bucket, int code, int min)>()
 			.Match(static a => a.mode, m => m
 				.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))
@@ -515,7 +515,7 @@ public class PreparedQueryMatchDifferentialTests {
 		var plan = frozen.Plan;
 		var match = plan.Narrowers[0];
 		Assert.Multiple(() => {
-			Assert.That(plan.Executor, Is.EqualTo("Replay"));
+			Assert.That(plan.Executor, Is.EqualTo("Pipeline"), "step 4: the arm is chosen at bind");
 			Assert.That(plan.Narrowers, Has.Count.EqualTo(1));
 			Assert.That(match.Kind, Is.EqualTo(NarrowerKind.Match));
 			Assert.That(match.IsParameterized, Is.True);
@@ -531,7 +531,9 @@ public class PreparedQueryMatchDifferentialTests {
 		});
 
 		var text = frozen.Explain();
-		Assert.That(text, Does.Contain("executor: Replay").And.Contain("Match (arg)").And.Contain("case ByGroup:").And.Contain("case ByCode:").And.Contain("default:"));
+		Assert.That(text, Does.Contain("executor: Pipeline").And.Contain("Match (arg)").And.Contain("case ByGroup:").And.Contain("case ByCode:").And.Contain("default:")
+			.And.Contain("match#0 {case ByGroup: [step 0 ListEq]; case ByBucket: [step 1 ListEq, branch filter 0]; case ByCode: [step 2 UniqueEq]; default: [branch filter 1]}")
+			.And.Contain(mode switch { Mode.ByGroup => "select#0 → arm 0", Mode.ByBucket => "select#0 → arm 1", Mode.ByCode => "select#0 → arm 2", _ => "select#0 → arm 3" }));
 	}
 
 	[Test]

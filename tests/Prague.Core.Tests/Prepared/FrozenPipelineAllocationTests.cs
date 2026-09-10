@@ -5,8 +5,8 @@ using static PreparedQueryDifferentialTests;
 using static PreparedQueryJoinDifferentialTests;
 
 // Stage-3 pipeline allocation pins: a pooled execution and a Count allocate nothing in Release on
-// every non-composite shape — the seed buffer is a stack span or a pooled rental, the bindings live in
-// the frame, the filters are called directly. Frozen never allocates more than prepared.
+// every shape, composites included — the seed buffer is a stack span or a pooled rental, the bindings
+// live in the frame, the filters are called directly. Frozen never allocates more than prepared.
 [TestFixture]
 [NonParallelizable]
 public class FrozenPipelineAllocationTests {
@@ -268,5 +268,42 @@ public class FrozenPipelineAllocationTests {
 		Pin("fused chained outer+inner", Measure(() => chainedPrepared.ExecutePooled(group).Dispose()), Measure(() => chained.ExecutePooled(group).Dispose()), Measure(() => chained.Count(group)));
 		Pin("sort after fused join", Measure(() => sortedPrepared.ExecutePooled(group).Dispose()), Measure(() => sorted.ExecutePooled(group).Dispose()), Measure(() => sorted.Count(group)));
 		Pin("sort-bounded page → fused inner", Measure(() => boundedPrepared.ExecutePooled(group, 0, 20).Dispose()), Measure(() => bounded.ExecutePooled(group, 0, 20).Dispose()), Measure(() => bounded.Count(group)));
+	}
+
+	// Step 4: composites. Or-first by default (OrSeed: the union itself), Or-first under OrSeed = false (the
+	// store walk kept to the union: the dedupe set over 47 keys is pooled), an Or of uniques after a list (the
+	// small-probe seed), If taken (list then unique: small probe) and skipped (the plain list walk),
+	// Match with a branch filter, and a Match-of-Or under a SortBounded page with a fused join.
+	[Test]
+	public void Composites_Or_OrSeed_OrAfterList_IfTaken_IfSkipped_Match_MatchOrSortBoundedJoin() {
+		var orPrepared = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Build();
+		var or = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen();
+		var orEagerOrder = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(new FrozenOptions { OrSeed = false });
+		var orAfterPrepared = _cache.Prepare<int, PqItem, (int g, int c1, int c2)>().UseIndex(_byGroup, static a => a.g).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).Build();
+		var orAfter = _cache.Prepare<int, PqItem, (int g, int c1, int c2)>().UseIndex(_byGroup, static a => a.g).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).BuildFrozen();
+		var ifPrepared = _cache.Prepare<int, PqItem, (bool cond, int g, int code)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code)).Build();
+		var @if = _cache.Prepare<int, PqItem, (bool cond, int g, int code)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code)).BuildFrozen();
+		var matchPrepared = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(1, b => b.UseIndex(_byCode, static a => a.g)).Case(2, b => b.UseIndex(_byGroup, static a => a.g).Where(static v => v.Flag))).Build();
+		var match = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(1, b => b.UseIndex(_byCode, static a => a.g)).Case(2, b => b.UseIndex(_byGroup, static a => a.g).Where(static v => v.Flag))).BuildFrozen();
+		var matchJoinPrepared = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(2, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g), c => c.UseIndex(_byGroup, static a => a.g + 1)))).SortBounded(new ByCode()).JoinOne(_bySym, _customers).Build();
+		var matchJoin = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(2, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g), c => c.UseIndex(_byGroup, static a => a.g + 1)))).SortBounded(new ByCode()).JoinOne(_bySym, _customers).BuildFrozen();
+		Assert.Multiple(() => {
+			Assert.That(or.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(orEagerOrder.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(orAfter.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(@if.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(match.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(matchJoin.Plan.Executor, Is.EqualTo("Pipeline"));
+		});
+		var groups = (13, 42);
+		var codes = (13, 1000 + 13, 1000 + 13 + 97 * 20);
+		Pin("or first (OrSeed default: the union)", Measure(() => orPrepared.ExecutePooled(groups).Dispose()), Measure(() => or.ExecutePooled(groups).Dispose()), Measure(() => or.Count(groups)));
+		Pin("or first (OrSeed = false: store walk kept to the union)", Measure(() => orPrepared.ExecutePooled(groups).Dispose()), Measure(() => orEagerOrder.ExecutePooled(groups).Dispose()), Measure(() => orEagerOrder.Count(groups)));
+		Pin("list then or of uniques (small probe)", Measure(() => orAfterPrepared.ExecutePooled(codes).Dispose()), Measure(() => orAfter.ExecutePooled(codes).Dispose()), Measure(() => orAfter.Count(codes)));
+		Pin("if taken", Measure(() => ifPrepared.ExecutePooled((true, 13, 1013)).Dispose()), Measure(() => @if.ExecutePooled((true, 13, 1013)).Dispose()), Measure(() => @if.Count((true, 13, 1013))));
+		Pin("if skipped", Measure(() => ifPrepared.ExecutePooled((false, 13, 1013)).Dispose()), Measure(() => @if.ExecutePooled((false, 13, 1013)).Dispose()), Measure(() => @if.Count((false, 13, 1013))));
+		Pin("match arm with a branch filter", Measure(() => matchPrepared.ExecutePooled((2, 13)).Dispose()), Measure(() => match.ExecutePooled((2, 13)).Dispose()), Measure(() => match.Count((2, 13))));
+		Pin("match arm unique", Measure(() => matchPrepared.ExecutePooled((1, 1013)).Dispose()), Measure(() => match.ExecutePooled((1, 1013)).Dispose()), Measure(() => match.Count((1, 1013))));
+		Pin("match(or) sort-bounded page → fused join", Measure(() => matchJoinPrepared.ExecutePooled((2, 13), 0, 20).Dispose()), Measure(() => matchJoin.ExecutePooled((2, 13), 0, 20).Dispose()), Measure(() => matchJoin.Count((2, 13))));
 	}
 }

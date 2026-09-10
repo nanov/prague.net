@@ -45,14 +45,18 @@ public sealed class FrozenOptions {
 	public bool ReorderIndexNarrowers { get; init; }
 
 	/// <summary>
-	///   Bind a simple plan whose index steps are all non-composite (unique / list equality and
-	///   membership, range, key-set, last-updated) — unsorted, under <c>Sort</c> or under
-	///   <c>SortBounded</c> — and a joined plan of the same steps under a <c>SortBounded</c> followed by
-	///   outer <c>JoinOne</c>s, to the pipeline executor: one index step's keys are copied out once and every other step is an O(1)
-	///   probe on the key or the fetched value — no candidate set, no intersection, one store lookup
-	///   per candidate. Same rows in the same order as the eager builder for unsorted plans (the first
-	///   declared step seeds; a smaller equality step is walked instead and its survivors put back in
-	///   the first step's order when that is cheaper). Off → the replay.
+	///   Bind a simple plan — unsorted, under <c>Sort</c> or under <c>SortBounded</c>; its index steps
+	///   unique / list equality and membership, range, key-set, last-updated, and the composites
+	///   <c>Or</c> / <c>If</c> / <c>IfElse</c> / <c>Match</c> over them — and a joined plan of the same
+	///   steps whose joins are fusable <c>JoinOne</c>s (or a <c>SortBounded</c> followed by outer
+	///   <c>JoinOne</c>s), to the pipeline executor: one index step's keys are copied out once and every
+	///   other step is an O(1) probe on the key or the fetched value — no candidate set, no intersection,
+	///   one store lookup per candidate. An <c>If</c> / <c>Match</c> arm is chosen once per execution at
+	///   bind and its steps take part like top-level ones; an <c>Or</c> probes as the OR of its branches'
+	///   ANDs. Same rows in the same order as the eager builder for unsorted plans (the first declared
+	///   step seeds; a smaller equality step is walked instead and its survivors put back in the first
+	///   step's order when that is cheaper) — except an <c>Or</c> that is the first narrowing, whose
+	///   union order is the default (<see cref="OrSeed" />). Off → the replay.
 	/// </summary>
 	public bool Pipeline { get; init; } = true;
 
@@ -67,6 +71,22 @@ public sealed class FrozenOptions {
 	///   unaffected either way — their rows already exist and the fan-out only fills them.
 	/// </summary>
 	public bool FuseSymmetricInnerJoins { get; init; }
+
+	/// <summary>
+	///   On by default; the one default that changes encounter order. An <c>Or</c> that is the query's
+	///   first narrowing seeds the pipeline from the <b>union of its branches</b> — branch 1's keys in
+	///   that branch's index order, then branch 2's new keys, and so on. The eager <c>OrWith</c>
+	///   auto-seeds an Or-first from every row under the store's locks and returns the union in
+	///   <i>store</i> order — an order the store's own resizes change and no caller can rely on — at the
+	///   cost of a full store walk (two 1k buckets in a 100k store: ~1 ms eager, ~27 µs here). Same rows,
+	///   same <c>Count</c>, the union's order. Set <c>false</c> to reproduce the eager sequence byte for
+	///   byte: the store walk in store order, kept to the union built once per execution (one hash probe
+	///   per store row instead of a set insert; ~1.4× eager). Only an <c>Or</c> that is the first
+	///   narrowing is affected — an <c>Or</c> after another step is a probe and keeps that step's order
+	///   either way. <c>Count</c> and a classic <c>Sort</c> seed from the union regardless, as their rows
+	///   carry no encounter order.
+	/// </summary>
+	public bool OrSeed { get; init; } = true;
 
 	/// <summary>
 	///   Make the pipeline's probes read the index instead of the fetched value: a list step probes its

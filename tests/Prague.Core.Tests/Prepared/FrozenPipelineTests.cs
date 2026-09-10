@@ -719,9 +719,9 @@ public class FrozenPipelineTests {
 			Assert.That(_cache.Prepare().Where(static v => v.Flag).UseIndex(_byGroup, 3).Where(static v => v.Id > 0).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "filters around");
 			Assert.That(_cache.Prepare().BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "no narrowing");
 			Assert.That(_cache.Prepare().Where(static v => v.Flag).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "filter only");
-			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 2)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Or");
-			Assert.That(_cache.Prepare<int, PqItem, bool>().UseIndex(_byGroup, 3).If(static c => c, b => b.UseIndex(_flagged)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "If");
-			Assert.That(_cache.Prepare<int, PqItem, int>().Match(static a => a, m => m.Case(0, b => b.UseIndex(_byGroup, 1))).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "Match");
+			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 2)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "Or (step 4)");
+			Assert.That(_cache.Prepare<int, PqItem, bool>().UseIndex(_byGroup, 3).If(static c => c, b => b.UseIndex(_flagged)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "If (step 4)");
+			Assert.That(_cache.Prepare<int, PqItem, int>().Match(static a => a, m => m.Case(0, b => b.UseIndex(_byGroup, 1))).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "Match (step 4)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort (step 3: free seed into the sorting container)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "sort-bounded (step 6: fixed seed into the top-k container)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(new FrozenOptions { Pipeline = false }).Plan.Executor, Is.EqualTo("Replay"), "pipeline off");
