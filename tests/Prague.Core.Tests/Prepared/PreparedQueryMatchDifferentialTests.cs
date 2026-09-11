@@ -125,12 +125,13 @@ public class PreparedQueryMatchDifferentialTests {
 	[TestCase(0)]
 	[TestCase(1)]
 	[TestCase(7)]
-	public void IntTag_NoDefault_UnmatchedIsANoOp_LikeEagerSwitch(int tag) {
+	public void IntTag_EmptyDefault_UnmatchedIsANoOp_LikeEagerSwitch(int tag) {
 		var prepared = _cache.Prepare<int, PqItem, int>()
 			.UseIndex(_byBucket, 1)
 			.Match(static t => t, m => m
 				.Case(0, b => b.UseIndex(_byGroup, 0))
-				.Case(1, b => b.UseIndex(_byGroup, 1)))
+				.Case(1, b => b.UseIndex(_byGroup, 1))
+				.Default())
 			.Build();
 
 		EagerItems Eager() {
@@ -144,19 +145,19 @@ public class PreparedQueryMatchDifferentialTests {
 		}
 
 		AssertParity(Eager, () => prepared.Execute(tag), () => prepared.Count(tag));
-		Assert.That(prepared.Count(7), Is.EqualTo(N / 5), "unmatched with no default narrows nothing further");
+		Assert.That(prepared.Count(7), Is.EqualTo(N / 5), "an empty Default() narrows nothing further");
 	}
 
 	// ── Placement and seeding ─────────────────────────────────────────────────────
 
-	// Seeding falls out of the eager `_first` logic: a Match whose selected arm is a no-op (unmatched,
-	// or a Default that narrows nothing) as the FIRST narrower must let the following UseIndex seed the
+	// Seeding falls out of the eager `_first` logic: a Match whose selected arm narrows nothing — either
+	// spelling of the empty default — as the FIRST narrower must let the following UseIndex seed the
 	// candidate set rather than intersect with an empty one.
 	[TestCase(0)]
 	[TestCase(5)]
 	public void Match_First_NoOpArmSelected_LetsTheNextNarrowerSeed(int tag) {
-		var unmatched = _cache.Prepare<int, PqItem, int>()
-			.Match(static t => t, m => m.Case(0, b => b.UseIndex(_byGroup, 3)))
+		var bareDefault = _cache.Prepare<int, PqItem, int>()
+			.Match(static t => t, m => m.Case(0, b => b.UseIndex(_byGroup, 3)).Default())
 			.UseIndex(_byBucket, 2)
 			.Build();
 		var emptyDefault = _cache.Prepare<int, PqItem, int>()
@@ -170,14 +171,15 @@ public class PreparedQueryMatchDifferentialTests {
 			return q.UseIndex(_byBucket, 2);
 		}
 
-		AssertParity(Eager, () => unmatched.Execute(tag), () => unmatched.Count(tag));
+		AssertParity(Eager, () => bareDefault.Execute(tag), () => bareDefault.Count(tag));
 		AssertParity(Eager, () => emptyDefault.Execute(tag), () => emptyDefault.Count(tag));
-		Assert.That(unmatched.Count(tag), Is.EqualTo(tag == 0 ? 7 : N / 5));
+		Assert.That(bareDefault.Count(tag), Is.EqualTo(tag == 0 ? 7 : N / 5));
+		Assert.That(emptyDefault.Count(tag), Is.EqualTo(bareDefault.Count(tag)), "Default() and Default(b => b) are the same arm");
 	}
 
 	[Test]
-	public void Match_AsOnlyNarrower_UnmatchedIsAnAllRowsScan() {
-		var prepared = _cache.Prepare<int, PqItem, int>().Match(static t => t, m => m.Case(1, b => b.UseIndex(_byGroup, 1))).Build();
+	public void Match_AsOnlyNarrower_EmptyDefaultIsAnAllRowsScan() {
+		var prepared = _cache.Prepare<int, PqItem, int>().Match(static t => t, m => m.Case(1, b => b.UseIndex(_byGroup, 1)).Default()).Build();
 		AssertSame(_cache.Query().Execute(), prepared.Execute(99));
 		Assert.That(prepared.Count(99), Is.EqualTo(N));
 		AssertSame(_cache.Query().UseIndex(_byGroup, 1).Execute(), prepared.Execute(1));
@@ -209,8 +211,10 @@ public class PreparedQueryMatchDifferentialTests {
 			.Match(static a => a.mode, m => m
 				.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, 2).Match(static a => a.inner, n => n
 					.Case(0, c => c.UseIndex(_byBucket, 0))
-					.Case(1, c => c.Where(static v => v.Flag))))
-				.Case(Mode.ByBucket, b => b.UseIndex(_byBucket, 3)))
+					.Case(1, c => c.Where(static v => v.Flag))
+					.Default()))
+				.Case(Mode.ByBucket, b => b.UseIndex(_byBucket, 3))
+				.Default())
 			.Where(static v => v.Id < 200)
 			.Build();
 		var args = (mode, inner);
@@ -245,7 +249,8 @@ public class PreparedQueryMatchDifferentialTests {
 			.UseIndex(_codeRange, static rb => rb.Lt(1200))
 			.If(static a => a.cond, b => b.Match(static a => a.mode, m => m
 				.Case(Mode.ByGroup, c => c.UseIndex(_byGroup, 1))
-				.Case(Mode.ByBucket, c => c.UseIndex(_byBucket, 1).Where(static v => !v.Flag))))
+				.Case(Mode.ByBucket, c => c.UseIndex(_byBucket, 1).Where(static v => !v.Flag))
+				.Default()))
 			.Build();
 		var args = (cond, mode);
 
@@ -274,7 +279,8 @@ public class PreparedQueryMatchDifferentialTests {
 			.UseIndex(_byGroup, 3)
 			.Or(b => b.UseIndex(_byBucket, 1), b => b.Match(static m => m, m => m
 				.Case(Mode.ByGroup, c => c.UseIndex(_byBucket, 4))
-				.Case(Mode.ByBucket, c => c.UseIndex(_byBucket, 0))))
+				.Case(Mode.ByBucket, c => c.UseIndex(_byBucket, 0))
+				.Default()))
 			.Build();
 
 		EagerItems Eager()
@@ -306,14 +312,16 @@ public class PreparedQueryMatchDifferentialTests {
 			.UseIndex(_byProduct, 2)
 			.Match(static a => a.tag, m => m
 				.Case(0, b => b.UseIndex(_byCustomer, static a => a.customer))
-				.Case(1, b => b.UseIndex(_byCustomer, 8)))
+				.Case(1, b => b.UseIndex(_byCustomer, 8))
+				.Default())
 			.JoinOne(_byCustomer, _customers)
 			.Build();
 		var inner = _orders.Prepare<int, PqOrder, (int tag, int customer)>()
 			.UseIndex(_byProduct, 2)
 			.Match(static a => a.tag, m => m
 				.Case(0, b => b.UseIndex(_byCustomer, static a => a.customer))
-				.Case(1, b => b.UseIndex(_byCustomer, 8)))
+				.Case(1, b => b.UseIndex(_byCustomer, 8))
+				.Default())
 			.InnerJoinOne(_byCustomer, _customers)
 			.Build();
 		var args = (tag, customer: 2);
@@ -348,7 +356,8 @@ public class PreparedQueryMatchDifferentialTests {
 		var prepared = _cache.Prepare<int, PqItem, (Mode mode, int g, int bucket)>()
 			.Match(static a => a.mode, m => m
 				.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))
-				.Case(Mode.ByBucket, b => b.UseIndex(_byBucket, static a => a.bucket)))
+				.Case(Mode.ByBucket, b => b.UseIndex(_byBucket, static a => a.bucket))
+				.Default())
 			.SortBounded(new ByGroup())
 			.Build();
 		var args = (mode, g: 4, bucket: 2);
@@ -407,7 +416,7 @@ public class PreparedQueryMatchDifferentialTests {
 		var prepared = _cache.Prepare<int, PqItem, (Mode mode, int g)>()
 			.UseIndex(_byBucket, 2)
 			.Match(static a => a.mode, m => m
-				.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g).Or(x => x.UseIndex(_byBucket, 2), x => x.Match(static a => a.g, n => n.Case(4, i => i.UseIndex(_byBucket, 4)))))
+				.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g).Or(x => x.UseIndex(_byBucket, 2), x => x.Match(static a => a.g, n => n.Case(4, i => i.UseIndex(_byBucket, 4)).Default())))
 				.Case(Mode.ByBucket, b => b.If(static a => a.g > 3, i => i.UseIndex(_byGroup, 1)))
 				.Default(b => b.Where(static (v, a) => v.Id >= a.g)))
 			.Where(static (v, a) => v.Id >= a.g)
@@ -431,11 +440,11 @@ public class PreparedQueryMatchDifferentialTests {
 	public void ThrowingTagSelector_AndThrowingArmSelector_Propagate_LeaveNoRentedArrays_AndCommandStaysUsable() {
 		var selector = _cache.Prepare<int, PqItem, (int tag, int g)>()
 			.UseIndex(_byBucket, 2)
-			.Match(static a => a.tag < 0 ? throw new InvalidOperationException("tag") : a.tag, m => m.Case(1, b => b.UseIndex(_byGroup, static a => a.g)))
+			.Match(static a => a.tag < 0 ? throw new InvalidOperationException("tag") : a.tag, m => m.Case(1, b => b.UseIndex(_byGroup, static a => a.g)).Default())
 			.Build();
 		var arm = _cache.Prepare<int, PqItem, (int tag, int g)>()
 			.UseIndex(_byBucket, 2)
-			.Match(static a => a.tag, m => m.Case(1, b => b.UseIndex(_byGroup, static a => a.g < 0 ? throw new InvalidOperationException("arm") : a.g)))
+			.Match(static a => a.tag, m => m.Case(1, b => b.UseIndex(_byGroup, static a => a.g < 0 ? throw new InvalidOperationException("arm") : a.g)).Default())
 			.Build();
 
 		LeakAssert.Balanced(() => {
@@ -527,7 +536,7 @@ public class PreparedQueryMatchDifferentialTests {
 			Assert.That(match.Children[3][0].Kind, Is.EqualTo(NarrowerKind.Filter));
 			var tags = (MatchArmTags)match.Value!;
 			Assert.That(tags.Tags, Is.EqualTo(new object[] { Mode.ByGroup, Mode.ByBucket, Mode.ByCode }).AsCollection);
-			Assert.That(tags.HasDefault, Is.True);
+			Assert.That(tags.ToString(), Is.EqualTo("[ByGroup, ByBucket, ByCode, default]"));
 		});
 
 		var text = frozen.Explain();
@@ -536,15 +545,21 @@ public class PreparedQueryMatchDifferentialTests {
 			.And.Contain(mode switch { Mode.ByGroup => "select#0 → arm 0", Mode.ByBucket => "select#0 → arm 1", Mode.ByCode => "select#0 → arm 2", _ => "select#0 → arm 3" }));
 	}
 
+	// The empty Default() is a real, described arm — an empty sub-chain the plan carries and explains,
+	// not the absent one the old fall-through left implicit.
 	[Test]
-	public void Frozen_Match_WithoutDefault_DescribesNoDefault() {
-		var frozen = _cache.Prepare<int, PqItem, int>().Match(static t => t, m => m.Case(1, b => b.UseIndex(_byGroup, 1))).BuildFrozen();
+	public void Frozen_Match_EmptyDefault_DescribesAnEmptyDefaultArm() {
+		var frozen = _cache.Prepare<int, PqItem, int>().Match(static t => t, m => m.Case(1, b => b.UseIndex(_byGroup, 1)).Default()).BuildFrozen();
 		var tags = (MatchArmTags)frozen.Plan.Narrowers[0].Value!;
 		Assert.Multiple(() => {
-			Assert.That(tags.HasDefault, Is.False);
 			Assert.That(tags.Tags, Is.EqualTo(new object[] { 1 }).AsCollection);
-			Assert.That(frozen.Plan.Narrowers[0].Children, Has.Count.EqualTo(1));
-			Assert.That(frozen.Explain(), Does.Contain("case 1:").And.Not.Contain("default:"));
+			Assert.That(tags.ToString(), Is.EqualTo("[1, default]"));
+			Assert.That(frozen.Plan.Narrowers[0].Children, Has.Count.EqualTo(2), "the case and the empty default");
+			Assert.That(frozen.Plan.Narrowers[0].Children[1], Is.Empty);
+			Assert.That(frozen.Explain(), Does.Contain("case 1:").And.Contain("default:"));
 		});
+
+		AssertSame(_cache.Query().Execute(), frozen.Execute(99));
+		AssertSame(_cache.Query().UseIndex(_byGroup, 1).Execute(), frozen.Execute(1));
 	}
 }

@@ -109,7 +109,8 @@ public class PreparedGeneratedMatchOptionalRangeTests {
 		var orMatch = _cache.Prepare<(Pick Pick, long Id)>()
 			.Or(b => b.WithCategoryId(static a => a.Id), b => b.Match(static a => a.Pick, m => m
 				.Case(Pick.Department, c => c.WithDepartmentId(static a => a.Id))
-				.Case(Pick.Brand, c => c.WithBrandId(static a => a.Id))))
+				.Case(Pick.Brand, c => c.WithBrandId(static a => a.Id))
+				.Default()))
 			.SortBounded(ProductListingCache.ByDateAscComparer)
 			.Build();
 		foreach (var args in new[] { (Pick.Department, 2L), (Pick.Brand, 2L), (Pick.None, 2L) }) {

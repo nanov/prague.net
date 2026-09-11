@@ -528,7 +528,7 @@ public class FrozenPipelineCompositeTests {
 	[TestCase(Mode.ByTier)]
 	[TestCase(Mode.ByCode)]
 	[TestCase(Mode.Unhandled)]
-	public void Match_EveryArm_Default_Unmatched_First_AndAfterList(Mode mode) {
+	public void Match_EveryArm_WithDefault_AndEmptyDefault_First_AndAfterList(Mode mode) {
 		var withDefault = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().Match(static a => a.mode, m => m
 			.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))
 			.Case(Mode.ByTier, b => b.UseIndex(_byTier, static a => a.t).Where(static (v, a) => v.Id >= a.g))
@@ -553,14 +553,16 @@ public class FrozenPipelineCompositeTests {
 		}, withDefaultP, withDefault, args, "match with default, first");
 		Assert.That(withDefault.Explain(), Does.Contain(mode switch { Mode.ByGroup => "select#0 → arm 0", Mode.ByTier => "select#0 → arm 1", Mode.ByCode => "select#0 → arm 2", _ => "select#0 → arm 3" }));
 
-		var noDefault = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().UseIndex(_byGroup, static a => a.g).Match(static a => a.mode, m => m
+		var emptyDefault = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().UseIndex(_byGroup, static a => a.g).Match(static a => a.mode, m => m
 			.Case(Mode.ByTier, b => b.UseIndex(_byTier, static a => a.t))
 			.Case(Mode.ByCode, b => b.UseIndex(_byCode, static a => a.code))
-			.Case(Mode.ByTier, b => b.UseIndex(_byTier, 99))).BuildFrozen();
-		var noDefaultP = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().UseIndex(_byGroup, static a => a.g).Match(static a => a.mode, m => m
+			.Case(Mode.ByTier, b => b.UseIndex(_byTier, 99))
+			.Default()).BuildFrozen();
+		var emptyDefaultP = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().UseIndex(_byGroup, static a => a.g).Match(static a => a.mode, m => m
 			.Case(Mode.ByTier, b => b.UseIndex(_byTier, static a => a.t))
 			.Case(Mode.ByCode, b => b.UseIndex(_byCode, static a => a.code))
-			.Case(Mode.ByTier, b => b.UseIndex(_byTier, 99))).Build();
+			.Case(Mode.ByTier, b => b.UseIndex(_byTier, 99))
+			.Default()).Build();
 		AssertPipeline(() => {
 			var q = _cache.Query().UseIndex(_byGroup, 3);
 			switch (mode) {
@@ -569,15 +571,15 @@ public class FrozenPipelineCompositeTests {
 			}
 
 			return q;
-		}, noDefaultP, noDefault, args, "match without default after a list (duplicate tag: first arm wins; unmatched: no-op)");
-		Assert.That(noDefault.Explain(), Does.Contain(mode switch { Mode.ByTier => "select#0 → arm 0", Mode.ByCode => "select#0 → arm 1", _ => "select#0 → no arm" }));
+		}, emptyDefaultP, emptyDefault, args, "match with an empty default after a list (duplicate tag: first arm wins; unmatched: no-op)");
+		Assert.That(emptyDefault.Explain(), Does.Contain(mode switch { Mode.ByTier => "select#0 → arm 0", Mode.ByCode => "select#0 → arm 1", _ => "select#0 → arm 3" }));
 
-		var alone = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().Match(static a => a.mode, m => m.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))).BuildFrozen();
-		var aloneP = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().Match(static a => a.mode, m => m.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))).Build();
-		AssertPipeline(() => mode == Mode.ByGroup ? _cache.Query().UseIndex(_byGroup, 3) : _cache.Query(), aloneP, alone, args, "match alone (unmatched: all rows)");
+		var alone = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().Match(static a => a.mode, m => m.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g)).Default()).BuildFrozen();
+		var aloneP = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().Match(static a => a.mode, m => m.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g)).Default()).Build();
+		AssertPipeline(() => mode == Mode.ByGroup ? _cache.Query().UseIndex(_byGroup, 3) : _cache.Query(), aloneP, alone, args, "match alone (empty default: all rows)");
 
-		var inOr = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().UseIndex(_flagged).Or(b => b.Match(static a => a.mode, m => m.Case(Mode.ByGroup, c => c.UseIndex(_byGroup, static a => a.g)).Case(Mode.ByTier, c => c.UseIndex(_byTier, static a => a.t))), b => b.UseIndex(_byCode, static a => a.code)).BuildFrozen(EagerOrder);
-		var inOrP = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().UseIndex(_flagged).Or(b => b.Match(static a => a.mode, m => m.Case(Mode.ByGroup, c => c.UseIndex(_byGroup, static a => a.g)).Case(Mode.ByTier, c => c.UseIndex(_byTier, static a => a.t))), b => b.UseIndex(_byCode, static a => a.code)).Build();
+		var inOr = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().UseIndex(_flagged).Or(b => b.Match(static a => a.mode, m => m.Case(Mode.ByGroup, c => c.UseIndex(_byGroup, static a => a.g)).Case(Mode.ByTier, c => c.UseIndex(_byTier, static a => a.t)).Default()), b => b.UseIndex(_byCode, static a => a.code)).BuildFrozen(EagerOrder);
+		var inOrP = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().UseIndex(_flagged).Or(b => b.Match(static a => a.mode, m => m.Case(Mode.ByGroup, c => c.UseIndex(_byGroup, static a => a.g)).Case(Mode.ByTier, c => c.UseIndex(_byTier, static a => a.t)).Default()), b => b.UseIndex(_byCode, static a => a.code)).Build();
 		AssertPipeline(() => _cache.Query().UseIndex(_flagged).Or(b => mode switch { Mode.ByGroup => b.UseIndex(_byGroup, 3), Mode.ByTier => b.UseIndex(_byTier, 2), _ => b }, b => b.UseIndex(_byCode, 1042)), inOrP, inOr, args, "match inside an or branch");
 
 		var nestedMatch = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().Match(static a => a.mode, m => m
@@ -623,8 +625,8 @@ public class FrozenPipelineCompositeTests {
 		var ifJoinP = _cache.Prepare<int, PqItem, (bool cond, int g1, int g2)>().UseIndex(_byGroup, static a => a.g1).If(static a => a.cond, b => b.UseIndex(_flagged)).SortBounded(new ByFlag()).JoinOne(_bySym, _customers).Build();
 		AssertPipelineJoined(() => { var q = _cache.Query().UseIndex(_byGroup, 2); if (cond) q = q.UseIndex(_flagged); return q.SortBounded(new ByFlag()).JoinOne(_bySym, _customers); }, ifJoinP, ifJoin, (cond, 2, 0), Customer, "if sort-bounded joined");
 
-		var matchJoin = _cache.Prepare<int, PqItem, (bool cond, int g1, int g2)>().Match(static a => a.cond, m => m.Case(true, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g1), c => c.UseIndex(_byGroup, static a => a.g2))).Case(false, b => b.UseIndex(_byTier, static a => a.g2))).InnerJoinOne(_details).BuildFrozen(EagerOrder);
-		var matchJoinP = _cache.Prepare<int, PqItem, (bool cond, int g1, int g2)>().Match(static a => a.cond, m => m.Case(true, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g1), c => c.UseIndex(_byGroup, static a => a.g2))).Case(false, b => b.UseIndex(_byTier, static a => a.g2))).InnerJoinOne(_details).Build();
+		var matchJoin = _cache.Prepare<int, PqItem, (bool cond, int g1, int g2)>().Match(static a => a.cond, m => m.Case(true, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g1), c => c.UseIndex(_byGroup, static a => a.g2))).Case(false, b => b.UseIndex(_byTier, static a => a.g2)).Default()).InnerJoinOne(_details).BuildFrozen(EagerOrder);
+		var matchJoinP = _cache.Prepare<int, PqItem, (bool cond, int g1, int g2)>().Match(static a => a.cond, m => m.Case(true, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g1), c => c.UseIndex(_byGroup, static a => a.g2))).Case(false, b => b.UseIndex(_byTier, static a => a.g2)).Default()).InnerJoinOne(_details).Build();
 		AssertPipelineJoined(() => (cond ? _cache.Query().Or(c => c.UseIndex(_byGroup, 1), c => c.UseIndex(_byGroup, 6)) : _cache.Query().UseIndex(_byTier, 6)).InnerJoinOne(_details), matchJoinP, matchJoin, (cond, 1, 6), Customer, "match(or) inner joined");
 	}
 
@@ -668,7 +670,7 @@ public class FrozenPipelineCompositeTests {
 		var ifCount = _cache.Prepare<int, PqItem, (bool cond, int g)>().If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g)).UseIndex(_flagged).BuildFrozen();
 		Assert.That(ifCount.Count((true, 3)), Is.EqualTo(_cache.Query().UseIndex(_byGroup, 3).UseIndex(_flagged).Count()));
 		Assert.That(ifCount.Count((false, 3)), Is.EqualTo(_cache.Query().UseIndex(_flagged).Count()));
-		var matchCount = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).Match(static t => t, m => m.Case(1, b => b.UseIndex(_byGroup, 1)).Case(2, b => b.Where(static v => v.Id > 100))).BuildFrozen();
+		var matchCount = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).Match(static t => t, m => m.Case(1, b => b.UseIndex(_byGroup, 1)).Case(2, b => b.Where(static v => v.Id > 100)).Default()).BuildFrozen();
 		Assert.That(matchCount.Count(1), Is.EqualTo(_cache.Query().UseIndex(_flagged).UseIndex(_byGroup, 1).Count()));
 		Assert.That(matchCount.Count(2), Is.EqualTo(_cache.Query().UseIndex(_flagged).Where(static v => v.Id > 100).Count()));
 		Assert.That(matchCount.Count(3), Is.EqualTo(_cache.Query().UseIndex(_flagged).Count()));
@@ -719,7 +721,7 @@ public class FrozenPipelineCompositeTests {
 			Assert.That(_cache.Prepare().Or(b => b.UseIndex(_codeRange, static rb => rb.Gte(1100)), b => b.UseIndex(_lastUpdated, 0L)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "range and last-updated branches (an estimated signal)");
 			Assert.That(_cache.Prepare<int, PqItem, bool>().If(static c => c, b => b.Where(static v => v.Flag)).UseIndex(_byGroup, 1).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a filter-only arm beside an index step");
 			Assert.That(_cache.Prepare<int, PqItem, bool>().If(static c => c, b => b.UseIndex(_byGroup, 1)).Sort(new ByCode()).JoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "composite, sort, fused join");
-			Assert.That(_cache.Prepare<int, PqItem, int>().Match(static t => t, m => m.Case(1, b => b.UseIndex(_byGroup, 1))).SortBounded(new ByCode()).JoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "match, sort-bounded, join");
+			Assert.That(_cache.Prepare<int, PqItem, int>().Match(static t => t, m => m.Case(1, b => b.UseIndex(_byGroup, 1)).Default()).SortBounded(new ByCode()).JoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "match, sort-bounded, join");
 		});
 
 		// The replayed shapes still agree with eager.
@@ -740,7 +742,7 @@ public class FrozenPipelineCompositeTests {
 		for (var i = 0; i < 3000; i++)
 			big.AddOrUpdate(i, new PqItem { Id = i, Code = 1000 + i, Group = i % 2, Flag = i % 3 == 0 });
 		var condition = big.Prepare<int, PqItem, (int g, int t)>().UseIndex(byGroup, static a => a.g).If(static a => a.t < 0 ? throw new InvalidOperationException("boom") : a.t > 0, b => b.UseIndex(byTier, static a => a.t)).BuildFrozen();
-		var tag = big.Prepare<int, PqItem, (int g, int t)>().UseIndex(byGroup, static a => a.g).Match(static a => a.t < 0 ? throw new InvalidOperationException("boom") : a.t, m => m.Case(1, b => b.UseIndex(byTier, 1))).BuildFrozen();
+		var tag = big.Prepare<int, PqItem, (int g, int t)>().UseIndex(byGroup, static a => a.g).Match(static a => a.t < 0 ? throw new InvalidOperationException("boom") : a.t, m => m.Case(1, b => b.UseIndex(byTier, 1)).Default()).BuildFrozen();
 		// The arm's selector throws at bind, inside the taken arm, after the list step bound.
 		var armSelector = big.Prepare<int, PqItem, (int g, int t)>().UseIndex(byGroup, static a => a.g).If(static a => true, b => b.UseIndex(byTier, static a => a.t < 0 ? throw new InvalidOperationException("boom") : a.t)).BuildFrozen();
 		// A branch selector throws inside an Or branch, after the first branch bound.

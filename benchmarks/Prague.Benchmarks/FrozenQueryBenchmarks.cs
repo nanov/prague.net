@@ -308,11 +308,11 @@ public class FrozenQueryBenchmarks {
 		_matchPrepared = _items.Prepare<int, PqbItem, (int mode, int group, int code)>().Match(static a => a.mode, m => m
 			.Case(0, b => b.UseIndex(_byCode, static a => a.code))
 			.Case(1, b => b.UseIndex(_byGroup, static a => a.group))
-			.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag))).Build();
+			.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag)).Default()).Build();
 		_matchFrozen = _items.Prepare<int, PqbItem, (int mode, int group, int code)>().Match(static a => a.mode, m => m
 			.Case(0, b => b.UseIndex(_byCode, static a => a.code))
 			.Case(1, b => b.UseIndex(_byGroup, static a => a.group))
-			.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag))).BuildFrozen();
+			.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag)).Default()).BuildFrozen();
 		_optionalRangePrepared = _items.Prepare<int, PqbItem, (int? lo, int? hi)>().UseIndex(_codeRange, static a => a.lo, static a => a.hi, toInclusive: false).Build();
 		_optionalRangeFrozen = _items.Prepare<int, PqbItem, (int? lo, int? hi)>().UseIndex(_codeRange, static a => a.lo, static a => a.hi, toInclusive: false).BuildFrozen();
 

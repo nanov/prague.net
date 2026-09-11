@@ -157,7 +157,8 @@ public class PreparedQueryOptionalRangeDifferentialTests {
 			.UseIndex(_byGroup, 4)
 			.Match(static a => a.cond ? 1 : 0, m => m
 				.Case(1, b => b.UseIndex(_codeRange, static a => a.from, static a => a.to))
-				.Case(0, b => b.UseIndex(_codeRange, 1100, null, fromInclusive: false)))
+				.Case(0, b => b.UseIndex(_codeRange, 1100, null, fromInclusive: false))
+				.Default())
 			.Build();
 		var args = (cond, from, to);
 

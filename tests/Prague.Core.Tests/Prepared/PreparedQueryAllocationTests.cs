@@ -587,12 +587,13 @@ public class PreparedQueryAllocationTests {
 	// prepared side pays one tag-selector call and the arm's own replay, so it allocates no more than
 	// eager whichever arm is selected (and nothing in Release, where the arm bodies are index steps).
 	[Test]
-	public void Match_PooledParameterized_EveryArmAndUnmatched_AllocatesNoMoreThanEager() {
+	public void Match_PooledParameterized_EveryArmAndTheEmptyDefault_AllocatesNoMoreThanEager() {
 		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int mode, int group, int code)>()
 			.Match(static a => a.mode, m => m
 				.Case(0, b => b.UseIndex(_byGroup, static a => a.group))
 				.Case(1, b => b.UseIndex(_byCode, static a => a.code))
-				.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag)))
+				.Case(2, b => b.UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag))
+				.Default())
 			.Build();
 
 		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((int mode, int group, int code) a) {

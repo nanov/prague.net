@@ -5,8 +5,8 @@ using System.Text;
 using QueryBuilders;
 
 /// <summary>
-///   A recorded chain of <c>Match</c> arms: tag + frozen sub-chain per <c>Case</c>, an optional
-///   <c>Default</c> sub-chain at the tail. The same type-level shape as
+///   A recorded chain of <c>Match</c> arms: tag + frozen sub-chain per <c>Case</c>, the <c>Default</c>
+///   sub-chain at the tail. The same type-level shape as
 ///   <see cref="INarrowerChain{TKey,TValue,TArgs}" /> (a closed generic per arm, so the JIT
 ///   specializes the replay and the chain is a plain value). <see cref="TryReplay{TCore}" /> walks
 ///   the arms in declaration order and replays the first whose tag equals the selected one — so a
@@ -20,7 +20,7 @@ public interface IMatchArms<TKey, TValue, TArgs, TTag>
 		where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
 
 	/// <summary>Appends one described sub-chain per arm, in declaration order (the default last), and its tag (boxed) per <c>Case</c>.</summary>
-	void Describe(List<IReadOnlyList<NarrowerDescriptor>> arms, List<object> tags, out bool hasDefault);
+	void Describe(List<IReadOnlyList<NarrowerDescriptor>> arms, List<object> tags);
 }
 
 /// <summary>
@@ -28,6 +28,17 @@ public interface IMatchArms<TKey, TValue, TArgs, TTag>
 ///   so an arm after <c>Default</c> — which could never run — is a compile error.
 /// </summary>
 public interface IOpenMatchArms<TKey, TValue, TArgs, TTag> : IMatchArms<TKey, TValue, TArgs, TTag>
+	where TKey : notnull, IEquatable<TKey>
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TTag : notnull;
+
+/// <summary>
+///   An arm chain closed by a <c>Default</c>: every tag has an arm, so replay can never fall through.
+///   <see cref="DefaultArm{TPrev,TArm,TKey,TValue,TArgs,TTag}" /> is the only implementation, and
+///   <c>Match</c> accepts only arm lambdas that return one — an unmatched tag is a compile error,
+///   not a silent no-op.
+/// </summary>
+public interface IClosedMatchArms<TKey, TValue, TArgs, TTag> : IMatchArms<TKey, TValue, TArgs, TTag>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTag : notnull;
@@ -42,7 +53,7 @@ public readonly struct EmptyArms<TKey, TValue, TArgs, TTag> : IOpenMatchArms<TKe
 		where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
 		=> false;
 
-	public void Describe(List<IReadOnlyList<NarrowerDescriptor>> arms, List<object> tags, out bool hasDefault) => hasDefault = false;
+	public void Describe(List<IReadOnlyList<NarrowerDescriptor>> arms, List<object> tags) { }
 }
 
 /// <summary>
@@ -78,8 +89,8 @@ public readonly struct MatchArms<TPrev, TArm, TKey, TValue, TArgs, TTag> : IOpen
 		return true;
 	}
 
-	public void Describe(List<IReadOnlyList<NarrowerDescriptor>> arms, List<object> tags, out bool hasDefault) {
-		_prev.Describe(arms, tags, out hasDefault);
+	public void Describe(List<IReadOnlyList<NarrowerDescriptor>> arms, List<object> tags) {
+		_prev.Describe(arms, tags);
 		var arm = new List<NarrowerDescriptor>();
 		_arm.Describe(arm);
 		arms.Add(arm);
@@ -87,8 +98,12 @@ public readonly struct MatchArms<TPrev, TArm, TKey, TValue, TArgs, TTag> : IOpen
 	}
 }
 
-/// <summary>The <c>Default</c> arm: replays when no <c>Case</c> before it matched. Closes the chain.</summary>
-public readonly struct DefaultArm<TPrev, TArm, TKey, TValue, TArgs, TTag> : IMatchArms<TKey, TValue, TArgs, TTag>
+/// <summary>
+///   The <c>Default</c> arm: replays when no <c>Case</c> before it matched. Closes the chain — the
+///   only <see cref="IClosedMatchArms{TKey,TValue,TArgs,TTag}" />, so a <c>Match</c> cannot be built
+///   without one, and <see cref="TryReplay{TCore}" /> always runs exactly one arm.
+/// </summary>
+public readonly struct DefaultArm<TPrev, TArm, TKey, TValue, TArgs, TTag> : IClosedMatchArms<TKey, TValue, TArgs, TTag>
 	where TPrev : struct, IOpenMatchArms<TKey, TValue, TArgs, TTag>
 	where TArm : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
@@ -110,29 +125,30 @@ public readonly struct DefaultArm<TPrev, TArm, TKey, TValue, TArgs, TTag> : IMat
 		return true;
 	}
 
-	public void Describe(List<IReadOnlyList<NarrowerDescriptor>> arms, List<object> tags, out bool hasDefault) {
-		_prev.Describe(arms, tags, out _);
+	public void Describe(List<IReadOnlyList<NarrowerDescriptor>> arms, List<object> tags) {
+		_prev.Describe(arms, tags);
 		var arm = new List<NarrowerDescriptor>();
 		_arm.Describe(arm);
 		arms.Add(arm);
-		hasDefault = true;
 	}
 }
 
 /// <summary>
 ///   Tag-dispatched narrowing: one delegate call selects the tag from the execution arguments, the
-///   arm chain replays the first <c>Case</c> whose tag equals it, else the <c>Default</c> when there
-///   is one, else nothing. The arms were recorded once at build (the prepared twin of a C#
-///   <c>switch</c> over type-preserving builder reassignments), so the plan stays analyzable — which
-///   is why an opaque per-execution <c>Eval</c> callback was rejected in its favour. Seeding is the
-///   eager core's, as for <see cref="IfNarrower{TKey,TValue,TArgs,TSub}" />: a <c>Match</c> whose
-///   selected arm is a no-op leaves <c>_first</c> untouched and the next narrower seeds.
+///   arm chain replays the first <c>Case</c> whose tag equals it, else the <c>Default</c> — which
+///   <typeparamref name="TArms" />'s <see cref="IClosedMatchArms{TKey,TValue,TArgs,TTag}" />
+///   constraint guarantees is there, so exactly one arm always runs. The arms were recorded once at
+///   build (the prepared twin of a C# <c>switch</c> over type-preserving builder reassignments), so
+///   the plan stays analyzable — which is why an opaque per-execution <c>Eval</c> callback was
+///   rejected in its favour. Seeding is the eager core's, as for
+///   <see cref="IfNarrower{TKey,TValue,TArgs,TSub}" />: a <c>Match</c> whose selected arm is a no-op
+///   (an empty <c>Default()</c>, say) leaves <c>_first</c> untouched and the next narrower seeds.
 /// </summary>
 public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrower<TKey, TValue, TArgs>, IBranchSelectorSource<TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTag : notnull
-	where TArms : struct, IMatchArms<TKey, TValue, TArgs, TTag> {
+	where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, TTag> {
 	private readonly Func<TArgs, TTag> _selector;
 	private readonly TArms _arms;
 
@@ -151,8 +167,8 @@ public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrow
 	public void Describe(List<NarrowerDescriptor> plan) {
 		var arms = new List<IReadOnlyList<NarrowerDescriptor>>();
 		var tags = new List<object>();
-		_arms.Describe(arms, tags, out var hasDefault);
-		plan.Add(NarrowerDescriptor.ForMatch(_selector, new MatchArmTags(tags, hasDefault), arms, this));
+		_arms.Describe(arms, tags);
+		plan.Add(NarrowerDescriptor.ForMatch(_selector, new MatchArmTags(tags), arms, this));
 	}
 
 	// The pipeline's bind-time dispatch (design §5.2): the same selector, the tags unboxed once at build.
@@ -160,35 +176,25 @@ public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrow
 		var typed = new TTag[tags.Tags.Count];
 		for (var i = 0; i < typed.Length; i++)
 			typed[i] = (TTag)tags.Tags[i];
-		return new MatchSelector<TArgs, TTag>(_selector, typed, tags.HasDefault);
+		return new MatchSelector<TArgs, TTag>(_selector, typed);
 	}
 }
 
 /// <summary>
 ///   The <see cref="NarrowerDescriptor.Value" /> of a <see cref="NarrowerKind.Match" /> step: the
-///   boxed tag of every <c>Case</c> in declaration order, and whether a <c>Default</c> closes the
-///   chain. <c>Children[i]</c> is the sub-chain of <c>Tags[i]</c>; the default, when present, is the
-///   last child.
+///   boxed tag of every <c>Case</c> in declaration order. <c>Children[i]</c> is the sub-chain of
+///   <c>Tags[i]</c>; the <c>Default</c> — always present — is the last child.
 /// </summary>
 public sealed class MatchArmTags {
 	public IReadOnlyList<object> Tags { get; }
 
-	public bool HasDefault { get; }
-
-	public MatchArmTags(IReadOnlyList<object> tags, bool hasDefault) {
-		Tags = tags;
-		HasDefault = hasDefault;
-	}
+	public MatchArmTags(IReadOnlyList<object> tags) => Tags = tags;
 
 	public override string ToString() {
 		var sb = new StringBuilder();
 		sb.Append('[');
-		for (var i = 0; i < Tags.Count; i++) {
-			if (i > 0) sb.Append(", ");
-			sb.Append(Tags[i]);
-		}
-
-		if (HasDefault) sb.Append(Tags.Count > 0 ? ", default" : "default");
-		return sb.Append(']').ToString();
+		for (var i = 0; i < Tags.Count; i++)
+			sb.Append(Tags[i]).Append(", ");
+		return sb.Append("default]").ToString();
 	}
 }

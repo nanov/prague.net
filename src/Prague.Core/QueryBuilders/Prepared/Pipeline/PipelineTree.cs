@@ -67,7 +67,7 @@ internal sealed class FilterNode<TArgs> : PipelineNode<TArgs> {
 	internal override void Explain(StringBuilder sb) => sb.Append("branch filter ").Append(Filter);
 }
 
-/// <summary>Picks the arm of an <c>If</c> / <c>IfElse</c> / <c>Match</c> for one execution's arguments: the arm's index, or -1 for none (a false <c>If</c>, an unmatched <c>Match</c> without a default).</summary>
+/// <summary>Picks the arm of an <c>If</c> / <c>IfElse</c> / <c>Match</c> for one execution's arguments: the arm's index, or -1 for none (a false <c>If</c> with no <c>else</c>). <c>Match</c> always picks an arm — its chain is closed by a <c>Default</c>.</summary>
 internal interface IBranchSelector<TArgs> {
 	int Select(in TArgs args);
 }
@@ -80,15 +80,15 @@ internal sealed class IfSelector<TArgs>(Func<TArgs, bool> condition, bool hasEls
 /// <summary>
 ///   The <c>Match</c> dispatch: the first arm whose tag equals the selected one under
 ///   <see cref="EqualityComparer{T}.Default" /> (the replay's rule — a tag declared twice resolves to its
-///   first arm), else the default arm (the last) when there is one, else none.
+///   first arm), else the default arm, which is always the last and always there.
 /// </summary>
-internal sealed class MatchSelector<TArgs, TTag>(Func<TArgs, TTag> selector, TTag[] tags, bool hasDefault) : IBranchSelector<TArgs> {
+internal sealed class MatchSelector<TArgs, TTag>(Func<TArgs, TTag> selector, TTag[] tags) : IBranchSelector<TArgs> {
 	public int Select(in TArgs args) {
 		var tag = selector(args);
 		for (var i = 0; i < tags.Length; i++)
 			if (EqualityComparer<TTag>.Default.Equals(tags[i], tag))
 				return i;
-		return hasDefault ? tags.Length : -1;
+		return tags.Length;
 	}
 }
 

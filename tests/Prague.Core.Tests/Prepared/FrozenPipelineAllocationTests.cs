@@ -326,10 +326,10 @@ public class FrozenPipelineAllocationTests {
 		var orAfter = _cache.Prepare<int, PqItem, (int g, int c1, int c2)>().UseIndex(_byGroup, static a => a.g).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).BuildFrozen();
 		var ifPrepared = _cache.Prepare<int, PqItem, (bool cond, int g, int code)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code)).Build();
 		var @if = _cache.Prepare<int, PqItem, (bool cond, int g, int code)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code)).BuildFrozen();
-		var matchPrepared = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(1, b => b.UseIndex(_byCode, static a => a.g)).Case(2, b => b.UseIndex(_byGroup, static a => a.g).Where(static v => v.Flag))).Build();
-		var match = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(1, b => b.UseIndex(_byCode, static a => a.g)).Case(2, b => b.UseIndex(_byGroup, static a => a.g).Where(static v => v.Flag))).BuildFrozen();
-		var matchJoinPrepared = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(2, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g), c => c.UseIndex(_byGroup, static a => a.g + 1)))).SortBounded(new ByCode()).JoinOne(_bySym, _customers).Build();
-		var matchJoin = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(2, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g), c => c.UseIndex(_byGroup, static a => a.g + 1)))).SortBounded(new ByCode()).JoinOne(_bySym, _customers).BuildFrozen();
+		var matchPrepared = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(1, b => b.UseIndex(_byCode, static a => a.g)).Case(2, b => b.UseIndex(_byGroup, static a => a.g).Where(static v => v.Flag)).Default()).Build();
+		var match = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(1, b => b.UseIndex(_byCode, static a => a.g)).Case(2, b => b.UseIndex(_byGroup, static a => a.g).Where(static v => v.Flag)).Default()).BuildFrozen();
+		var matchJoinPrepared = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(2, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g), c => c.UseIndex(_byGroup, static a => a.g + 1))).Default()).SortBounded(new ByCode()).JoinOne(_bySym, _customers).Build();
+		var matchJoin = _cache.Prepare<int, PqItem, (int mode, int g)>().Match(static a => a.mode, m => m.Case(2, b => b.Or(c => c.UseIndex(_byGroup, static a => a.g), c => c.UseIndex(_byGroup, static a => a.g + 1))).Default()).SortBounded(new ByCode()).JoinOne(_bySym, _customers).BuildFrozen();
 		Assert.Multiple(() => {
 			Assert.That(or.Plan.Executor, Is.EqualTo("Pipeline"));
 			Assert.That(orEagerOrder.Plan.Executor, Is.EqualTo("Pipeline"));
