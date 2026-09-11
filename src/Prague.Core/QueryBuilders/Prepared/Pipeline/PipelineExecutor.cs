@@ -202,7 +202,7 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 					var select = Unsafe.As<SelectNode<TArgs>>(node);
 					var arm = select.Select(in args);
 					_plan.RecordArm(select.Id, arm);
-					if (arm >= 0 && !BindNodes(select.Arms[arm], in args, ref frame, ref active))
+					if (!BindNodes(select.Arms[arm], in args, ref frame, ref active))
 						return false;
 					break;
 				}
@@ -271,8 +271,6 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 				var select = Unsafe.As<SelectNode<TArgs>>(node);
 				var arm = select.Select(in args);
 				_plan.RecordArm(select.Id, arm);
-				if (arm < 0)
-					continue;
 				bound |= BindBranch(select.Arms[arm], in args, ref frame, ref firstLeaf, ref activeLeaves, ref empty);
 				if (empty)
 					return true;

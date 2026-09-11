@@ -11,7 +11,7 @@ internal enum PipelineNodeKind : byte {
 	/// <summary>A <c>Where</c> inside an <c>If</c> / <c>Match</c> arm: its index into the plan's branch filters, active only when its arm is.</summary>
 	Filter,
 
-	/// <summary>An <c>If</c> / <c>IfElse</c> / <c>Match</c>: one arm is chosen per execution at bind and walked in place of the node.</summary>
+	/// <summary>A <c>Match</c> — and so an <c>If</c> / <c>IfElse</c>, which is one: one arm is chosen per execution at bind and walked in place of the node.</summary>
 	Select,
 
 	/// <summary>An <c>Or</c>: the step (an <see cref="OrStep{TKey,TValue,TArgs}" />) carries its branches and binds them itself.</summary>
@@ -70,16 +70,10 @@ internal sealed class FilterNode<TArgs> : PipelineNode<TArgs>
 	internal override void Explain(StringBuilder sb) => sb.Append("branch filter ").Append(Filter);
 }
 
-/// <summary>Picks the arm of an <c>If</c> / <c>IfElse</c> / <c>Match</c> for one execution's arguments: the arm's index, or -1 for none (a false <c>If</c> with no <c>else</c>). <c>Match</c> always picks an arm — its chain is closed by a <c>Default</c>.</summary>
+/// <summary>Picks the arm of a <c>Match</c> for one execution's arguments. Always an arm index, never "none": every arm chain is closed by a <c>Default</c>, which is the last arm.</summary>
 internal interface IBranchSelector<TArgs>
 	where TArgs : struct {
 	int Select(in TArgs args);
-}
-
-/// <summary>The <c>If</c> (one arm) and <c>IfElse</c> (two arms) condition, the descriptor's own delegate.</summary>
-internal sealed class IfSelector<TArgs>(Func<TArgs, bool> condition, bool hasElse) : IBranchSelector<TArgs>
-	where TArgs : struct {
-	public int Select(in TArgs args) => condition(args) ? 0 : hasElse ? 1 : -1;
 }
 
 /// <summary>
@@ -95,6 +89,27 @@ internal sealed class GuardSelector<TArgs>(Func<TArgs, bool>[] guards) : IBranch
 				return i;
 		return guards.Length;
 	}
+}
+
+/// <summary>
+///   The one-guard case of the above — which is every <c>If</c> and <c>IfElse</c>, both being a
+///   <c>Match</c> with a single <c>Case</c> — as the ternary it is: no array, no bounds check, no loop.
+///   <see cref="SelectNode{TArgs}" /> holds it in a typed field, so the call is direct and inlinable;
+///   this is the shape the retired <c>IfSelector</c> had, kept because one <c>Case</c> is the common
+///   guard <c>Match</c> by far and the node can devirtualize to exactly one sealed type.
+///   <para>
+///   Kept on structure, not on a measured win: on the <c>IfTaken</c> shape (a bind plus a one-row walk)
+///   the loop form was indistinguishable from this one. That row is **bimodal** on this machine —
+///   ~103 ns or ~124 ns depending on the process, with the tight 0.4 ns error bars of a stable state in
+///   both modes — and an alternating three-round A/B found both modes on the base commit, on the guard
+///   form alone, and on the sugar (base 103.3 / 124.7 / 125.3, sugar 123.6 / 103.1 / 102.8). Anyone
+///   chasing a ~20 ns delta on a composite pipeline plan should sample it three times per side before
+///   believing it.
+///   </para>
+/// </summary>
+internal sealed class SingleGuardSelector<TArgs>(Func<TArgs, bool> guard) : IBranchSelector<TArgs>
+	where TArgs : struct {
+	public int Select(in TArgs args) => guard(args) ? 0 : 1;
 }
 
 /// <summary>
@@ -125,36 +140,35 @@ internal interface IBranchSelectorSource<TArgs>
 	IBranchSelector<TArgs> CreateSelector(object arms);
 }
 
-/// <summary>An <c>If</c> / <c>IfElse</c> / <c>Match</c> node: the selector and one node list per arm (a <c>Match</c>'s <c>Default</c> last).</summary>
+/// <summary>A <c>Match</c> node: the selector and one node list per arm, the <c>Default</c> last.</summary>
 internal sealed class SelectNode<TArgs> : PipelineNode<TArgs>
 	where TArgs : struct {
 	/// <summary>The node's index among the plan's select nodes, for the last-bind record.</summary>
 	internal readonly int Id;
-	internal readonly NarrowerKind Kind;
 	internal readonly IBranchSelector<TArgs> Selector;
-	// Resolved once at build, not per execution: If / IfElse's selector is IfSelector<TArgs>, a sealed
-	// class closed over TArgs alone, so a call through this field is a direct (non-virtual) call the
-	// JIT can inline — IfSelector.Select is a one-line ternary. Match's selector stays behind the
-	// interface: MatchSelector<TArgs,TTag> is generic over a TTag this node never names, so there is
-	// no sealed reference to devirtualize to here.
-	private readonly IfSelector<TArgs>? _ifSelector;
+	// Resolved once at build, not per execution: a one-guard Match — every If and IfElse — selects
+	// through SingleGuardSelector<TArgs>, a sealed class closed over TArgs alone, so a call through this
+	// field is a direct (non-virtual) call the JIT inlines, its body being one ternary. Everything else
+	// (a multi-guard Match, and the tag form, whose MatchSelector<TArgs,TTag> is generic over a TTag
+	// this node never names) goes through the interface: there is no sealed reference to devirtualize
+	// to, and those plans do more per execution than the dispatch costs.
+	private readonly SingleGuardSelector<TArgs>? _singleGuard;
 	internal readonly PipelineNode<TArgs>[][] Arms;
 	internal readonly string[] Labels;
 
-	internal SelectNode(int id, NarrowerKind kind, IBranchSelector<TArgs> selector, PipelineNode<TArgs>[][] arms, string[] labels) : base(PipelineNodeKind.Select) {
+	internal SelectNode(int id, IBranchSelector<TArgs> selector, PipelineNode<TArgs>[][] arms, string[] labels) : base(PipelineNodeKind.Select) {
 		Id = id;
-		Kind = kind;
 		Selector = selector;
-		_ifSelector = selector as IfSelector<TArgs>;
+		_singleGuard = selector as SingleGuardSelector<TArgs>;
 		Arms = arms;
 		Labels = labels;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal int Select(in TArgs args) => _ifSelector is not null ? _ifSelector.Select(in args) : Selector.Select(in args);
+	internal int Select(in TArgs args) => _singleGuard is not null ? _singleGuard.Select(in args) : Selector.Select(in args);
 
 	internal override void Explain(StringBuilder sb) {
-		sb.Append(Kind switch { NarrowerKind.If => "if", NarrowerKind.IfElse => "if-else", _ => "match" }).Append('#').Append(Id).Append(" {");
+		sb.Append("match#").Append(Id).Append(" {");
 		for (var a = 0; a < Arms.Length; a++) {
 			if (a > 0)
 				sb.Append("; ");

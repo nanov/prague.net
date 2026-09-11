@@ -7,9 +7,17 @@ using TypeSystem;
 ///   from the arguments, the prepared twin of an eager query built with a C# <c>if</c> around a
 ///   type-preserving <c>UseIndex</c> / <c>Where</c> reassignment. The branch lambda receives a fresh
 ///   prepared branch builder over the same cache, runs once here, and the chain it returns is frozen
-///   into one <see cref="IfNarrower{TKey,TValue,TArgs,TSub}" /> (or
-///   <see cref="IfElseNarrower{TKey,TValue,TArgs,TThen,TElse}" />) link; the returned builder keeps the
-///   enclosing discriminator and resolver chain because a conditional never changes the query's shape.
+///   into the plan; the returned builder keeps the enclosing discriminator and resolver chain because
+///   a conditional never changes the query's shape.
+///   <para>
+///   <b>Both verbs are sugar over the guard form of <c>Match</c></b> (<c>Narrowers.Match.Guard.cs</c>):
+///   <c>If(c, b)</c> is <c>Match(m =&gt; m.Case(c, b).Default())</c> and <c>IfElse(c, t, e)</c> is
+///   <c>Match(m =&gt; m.Case(c, t).Default(e))</c> — one <c>Case</c> whose guard is the condition, and the
+///   <c>Default</c> the arm chain must end in. There is no <c>If</c> narrower, no <c>If</c> selector and
+///   no "bind nothing" arm: a skipped <c>If</c> takes its empty <c>Default</c>, which has nothing to
+///   replay and no leaf to bind, so it costs what falling through used to. Writing <c>Match</c> with two
+///   or more <c>Case</c>s is the <c>else if</c> chain these two cannot spell.
+///   </para>
 ///   <para>
 ///   Two branch families, selected by the receiver's discriminator. On a top-level builder or inside
 ///   another conditional the branch is discriminated by <see cref="PreparedConditionalBranch{TCache}" />,
@@ -28,9 +36,12 @@ using TypeSystem;
 public static class PreparedQueryBuilderIfExtensions {
 	// ── Top-level receiver ───────────────────────────────────────────────────────
 
-	/// <summary>Replays <paramref name="branch" /> only when <paramref name="condition" /> holds for the execution arguments.</summary>
+	/// <summary>Replays <paramref name="branch" /> only when <paramref name="condition" /> holds for the execution arguments; otherwise the empty <c>Default</c> arm, which narrows nothing.</summary>
 	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
-			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, IfNarrower<TKey, TValue, TArgs, TSub>, TKey, TValue, TArgs>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain,
+				GuardMatchNarrower<TKey, TValue, TArgs,
+					DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TSub, TKey, TValue, TArgs>, EmptyNarrowers<TKey, TValue, TArgs>, TKey, TValue, TArgs, NoTag>>,
+				TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
 		If<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TSub>(
 			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
@@ -51,7 +62,10 @@ public static class PreparedQueryBuilderIfExtensions {
 
 	/// <summary>Replays <paramref name="then" /> when <paramref name="condition" /> holds for the execution arguments, <paramref name="otherwise" /> when it does not.</summary>
 	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
-			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, IfElseNarrower<TKey, TValue, TArgs, TThen, TElse>, TKey, TValue, TArgs>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain,
+				GuardMatchNarrower<TKey, TValue, TArgs,
+					DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TThen, TKey, TValue, TArgs>, TElse, TKey, TValue, TArgs, NoTag>>,
+				TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
 		IfElse<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TThen, TElse>(
 			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
@@ -78,9 +92,12 @@ public static class PreparedQueryBuilderIfExtensions {
 
 	// ── Nested-conditional receiver ──────────────────────────────────────────────
 
-	/// <summary>Nested conditional narrowing inside an <c>If</c> / <c>IfElse</c> branch.</summary>
+	/// <summary>Nested conditional narrowing inside an <c>If</c> / <c>IfElse</c> branch or a <c>Match</c> arm.</summary>
 	public static CacheQueryBuilderCombined<PreparedConditionalBranch<TCache>,
-			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, IfNarrower<TKey, TValue, TArgs, TSub>, TKey, TValue, TArgs>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain,
+				GuardMatchNarrower<TKey, TValue, TArgs,
+					DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TSub, TKey, TValue, TArgs>, EmptyNarrowers<TKey, TValue, TArgs>, TKey, TValue, TArgs, NoTag>>,
+				TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
 		If<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TSub>(
 			this in CacheQueryBuilderCombined<PreparedConditionalBranch<TCache>,
@@ -99,9 +116,12 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TArgs : struct
 		=> IfCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), condition, branch);
 
-	/// <summary>Nested two-way conditional narrowing inside an <c>If</c> / <c>IfElse</c> branch.</summary>
+	/// <summary>Nested two-way conditional narrowing inside an <c>If</c> / <c>IfElse</c> branch or a <c>Match</c> arm.</summary>
 	public static CacheQueryBuilderCombined<PreparedConditionalBranch<TCache>,
-			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, IfElseNarrower<TKey, TValue, TArgs, TThen, TElse>, TKey, TValue, TArgs>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain,
+				GuardMatchNarrower<TKey, TValue, TArgs,
+					DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TThen, TKey, TValue, TArgs>, TElse, TKey, TValue, TArgs, NoTag>>,
+				TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
 		IfElse<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TThen, TElse>(
 			this in CacheQueryBuilderCombined<PreparedConditionalBranch<TCache>,
@@ -130,7 +150,10 @@ public static class PreparedQueryBuilderIfExtensions {
 
 	/// <summary>Conditional narrowing inside an <c>Or</c> branch: the branch is narrow-only, as the enclosing <c>Or</c> branch is.</summary>
 	public static CacheQueryBuilderCombined<PreparedNarrowOnly<TCache>,
-			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, IfNarrower<TKey, TValue, TArgs, TSub>, TKey, TValue, TArgs>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain,
+				GuardMatchNarrower<TKey, TValue, TArgs,
+					DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TSub, TKey, TValue, TArgs>, EmptyNarrowers<TKey, TValue, TArgs>, TKey, TValue, TArgs, NoTag>>,
+				TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
 		If<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TSub>(
 			this in CacheQueryBuilderCombined<PreparedNarrowOnly<TCache>,
@@ -151,7 +174,10 @@ public static class PreparedQueryBuilderIfExtensions {
 
 	/// <summary>Two-way conditional narrowing inside an <c>Or</c> branch: both branches are narrow-only, as the enclosing <c>Or</c> branch is.</summary>
 	public static CacheQueryBuilderCombined<PreparedNarrowOnly<TCache>,
-			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, IfElseNarrower<TKey, TValue, TArgs, TThen, TElse>, TKey, TValue, TArgs>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain,
+				GuardMatchNarrower<TKey, TValue, TArgs,
+					DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TThen, TKey, TValue, TArgs>, TElse, TKey, TValue, TArgs, NoTag>>,
+				TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
 		IfElse<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TThen, TElse>(
 			this in CacheQueryBuilderCombined<PreparedNarrowOnly<TCache>,
@@ -179,10 +205,17 @@ public static class PreparedQueryBuilderIfExtensions {
 	// ── Cores ────────────────────────────────────────────────────────────────────
 	//
 	// The branch lambdas run once, at build time, against the empty seed recorder over the enclosing
-	// query's cache; the resolver chain and result type only type the seed (a branch cannot join or execute).
+	// query's cache; the resolver chain and result type only type the seed (a branch cannot join or
+	// execute). What they record is then closed into the same one-Case guard arm chain the arm-recorder
+	// lambda would have built — Case(condition, branch) then Default() / Default(otherwise) — and linked
+	// as one GuardMatchNarrower. Built here rather than through MatchArmsBuilder because the arms are
+	// known: two `new`s over values the caller already handed us, no recorder lambda to allocate.
 
 	private static CacheQueryBuilderCombined<TDiscriminator,
-			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, IfNarrower<TKey, TValue, TArgs, TSub>, TKey, TValue, TArgs>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain,
+				GuardMatchNarrower<TKey, TValue, TArgs,
+					DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TSub, TKey, TValue, TArgs>, EmptyNarrowers<TKey, TValue, TArgs>, TKey, TValue, TArgs, NoTag>>,
+				TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
 		IfCore<TDiscriminator, TBranchDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TSub>(
 			in CacheQueryBuilderCombined<TDiscriminator,
@@ -206,11 +239,20 @@ public static class PreparedQueryBuilderIfExtensions {
 		ArgumentNullException.ThrowIfNull(condition);
 		ArgumentNullException.ThrowIfNull(branch);
 		var sub = branch(seed)._leftQuery._chain;
-		return PreparedQueryBuilderExtensions.Link(in builder, new IfNarrower<TKey, TValue, TArgs, TSub>(condition, in sub));
+		var guarded = new GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TSub, TKey, TValue, TArgs>(default, condition, in sub);
+		var arms = new DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TSub, TKey, TValue, TArgs>,
+			EmptyNarrowers<TKey, TValue, TArgs>, TKey, TValue, TArgs, NoTag>(in guarded, default);
+		return PreparedQueryBuilderExtensions.Link(in builder,
+			new GuardMatchNarrower<TKey, TValue, TArgs,
+				DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TSub, TKey, TValue, TArgs>,
+					EmptyNarrowers<TKey, TValue, TArgs>, TKey, TValue, TArgs, NoTag>>(in arms));
 	}
 
 	private static CacheQueryBuilderCombined<TDiscriminator,
-			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, IfElseNarrower<TKey, TValue, TArgs, TThen, TElse>, TKey, TValue, TArgs>>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain,
+				GuardMatchNarrower<TKey, TValue, TArgs,
+					DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TThen, TKey, TValue, TArgs>, TElse, TKey, TValue, TArgs, NoTag>>,
+				TKey, TValue, TArgs>>,
 			TKey, TValue, TResolverChain, TResult>
 		IfElseCore<TDiscriminator, TBranchDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TThen, TElse>(
 			in CacheQueryBuilderCombined<TDiscriminator,
@@ -242,6 +284,11 @@ public static class PreparedQueryBuilderIfExtensions {
 		ArgumentNullException.ThrowIfNull(otherwise);
 		var thenChain = then(seed)._leftQuery._chain;
 		var elseChain = otherwise(seed)._leftQuery._chain;
-		return PreparedQueryBuilderExtensions.Link(in builder, new IfElseNarrower<TKey, TValue, TArgs, TThen, TElse>(condition, in thenChain, in elseChain));
+		var guarded = new GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TThen, TKey, TValue, TArgs>(default, condition, in thenChain);
+		var arms = new DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TThen, TKey, TValue, TArgs>,
+			TElse, TKey, TValue, TArgs, NoTag>(in guarded, in elseChain);
+		return PreparedQueryBuilderExtensions.Link(in builder,
+			new GuardMatchNarrower<TKey, TValue, TArgs,
+				DefaultArm<GuardArms<EmptyArms<TKey, TValue, TArgs, NoTag>, TThen, TKey, TValue, TArgs>, TElse, TKey, TValue, TArgs, NoTag>>(in arms));
 	}
 }

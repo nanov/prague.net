@@ -93,9 +93,13 @@ public readonly struct GuardMatchNarrower<TKey, TValue, TArgs, TArms> : INarrowe
 		plan.Add(NarrowerDescriptor.ForGuardMatch(new MatchArmGuards(guards), arms, this));
 	}
 
-	// The pipeline's bind-time dispatch (design §5.2): the same guards, typed once at build.
+	// The pipeline's bind-time dispatch (design §5.2): the same guards, typed once at build. A single
+	// Case — every If and IfElse, and much the commonest guard Match — gets the ternary selector the
+	// node can devirtualize; more than one gets the loop.
 	IBranchSelector<TArgs> IBranchSelectorSource<TArgs>.CreateSelector(object arms) {
 		var guards = ((MatchArmGuards)arms).Guards;
+		if (guards.Count == 1)
+			return new SingleGuardSelector<TArgs>((Func<TArgs, bool>)guards[0]);
 		var typed = new Func<TArgs, bool>[guards.Count];
 		for (var i = 0; i < typed.Length; i++)
 			typed[i] = (Func<TArgs, bool>)guards[i];

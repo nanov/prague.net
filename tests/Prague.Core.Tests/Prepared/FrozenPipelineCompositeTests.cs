@@ -485,7 +485,7 @@ public class FrozenPipelineCompositeTests {
 		var first = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g)).UseIndex(_byTier, static a => a.t).BuildFrozen();
 		var firstP = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g)).UseIndex(_byTier, static a => a.t).Build();
 		AssertPipeline(() => { var q = _cache.Query(); if (cond) q = q.UseIndex(_byGroup, 3); return q.UseIndex(_byTier, 3); }, firstP, first, (cond, 3, 3), "if first");
-		Assert.That(first.Explain(), Does.Contain(cond ? "select#0 → arm 0" : "select#0 → no arm"));
+		Assert.That(first.Explain(), Does.Contain(cond ? "select#0 → arm 0" : "select#0 → arm 1"), "the skipped side is the empty Default arm");
 
 		var alone = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g)).BuildFrozen();
 		var aloneP = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g)).Build();
@@ -695,13 +695,14 @@ public class FrozenPipelineCompositeTests {
 		var text = frozen.Explain();
 		Assert.That(text, Does.Contain("steps: [0 KeySet probe: value-side, 1 Or probe: value-side, 2 ListEq probe: value-side, 3 ListEq probe: value-side, 4 UniqueEq probe: key-side, 5 ListEq probe: value-side]"));
 		Assert.That(text, Does.Contain("branch filters: 2"));
-		Assert.That(text, Does.Contain("shape: [if#0 {then: [step 0 KeySet, branch filter 0]}, step 1 Or {branch 1: [step 2 ListEq, step 3 ListEq]; branch 2: [step 4 UniqueEq]}, match#1 {case 1: [step 5 ListEq]; default: [branch filter 1]}]"));
+		Assert.That(text, Does.Contain("shape: [match#0 {guard#0: [step 0 KeySet, branch filter 0]; default: []}, step 1 Or {branch 1: [step 2 ListEq, step 3 ListEq]; branch 2: [step 4 UniqueEq]}, match#1 {case 1: [step 5 ListEq]; default: [branch filter 1]}]"),
+			"an If is a one-guard Match: its skipped side is the empty Default arm, not a missing one");
 		Assert.That(text, Does.Contain("seeds the store walk in store order kept to the union of its branches (PreserveEagerOrder"));
 		Assert.That(text, Does.Not.Contain("last bind"), "nothing executed yet");
 
 		frozen.Execute((false, 1, 3)).Dispose();
 		text = frozen.Explain();
-		Assert.That(text, Does.Contain("last bind: select#0 → no arm, select#1 → arm 0, step 1 Or → branches {1, 2}"));
+		Assert.That(text, Does.Contain("last bind: select#0 → arm 1, select#1 → arm 0, step 1 Or → branches {1, 2}"), "the skipped If takes its empty Default arm");
 		Assert.That(text, Does.Contain("last seed: step 1 Or (signal 35), fixed: first active step — the store walk kept to the branch union"));
 
 		frozen.Execute((true, 7, 99)).Dispose();

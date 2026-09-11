@@ -590,4 +590,56 @@ public class PreparedQueryGuardMatchDifferentialTests {
 		AssertSame(_cache.Query().Execute(), frozen.Execute(99));
 		AssertSame(_cache.Query().UseIndex(_byGroup, 1).Execute(), frozen.Execute(1));
 	}
+
+	// An If and the one-Case guard Match it is sugar for must produce the same plan shape and the same
+	// rows — the pin on the sugar claim.
+	[TestCase(true)]
+	[TestCase(false)]
+	public void If_IsAOneCaseGuardMatch_SamePlanShape_SameRows(bool cond) {
+		var sugar = _cache.Prepare<int, PqItem, (bool cond, int g)>()
+			.If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g))
+			.UseIndex(_byBucket, 2)
+			.BuildFrozen();
+		var spelled = _cache.Prepare<int, PqItem, (bool cond, int g)>()
+			.Match(m => m.Case(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g)).Default())
+			.UseIndex(_byBucket, 2)
+			.BuildFrozen();
+		var args = (cond, g: 3);
+
+		EagerItems Eager() {
+			var q = _cache.Query();
+			if (cond) q = q.UseIndex(_byGroup, 3);
+			return q.UseIndex(_byBucket, 2);
+		}
+
+		AssertSame(Eager().Execute(), sugar.Execute(args));
+		AssertSame(sugar.Execute(args), spelled.Execute(args));
+		Assert.That(sugar.Count(args), Is.EqualTo(spelled.Count(args)));
+
+		Assert.Multiple(() => {
+			Assert.That(sugar.Plan.Narrowers[0].Kind, Is.EqualTo(NarrowerKind.Match));
+			Assert.That(sugar.Plan.Narrowers[0].Value, Is.InstanceOf<MatchArmGuards>());
+			Assert.That(((MatchArmGuards)sugar.Plan.Narrowers[0].Value!).Guards, Has.Count.EqualTo(1));
+			Assert.That(sugar.Plan.Narrowers[0].Children, Has.Count.EqualTo(2));
+			Assert.That(sugar.Plan.Narrowers[0].Children[1], Is.Empty, "the skipped side is the empty Default arm");
+			Assert.That(sugar.Explain(), Does.Contain("match#0 {guard#0: [step 0 ListEq]; default: []}"));
+		});
+	}
+
+	// IfElse is the same one Case with a non-empty Default.
+	[TestCase(true)]
+	[TestCase(false)]
+	public void IfElse_IsAOneCaseGuardMatchWithANonEmptyDefault_SamePlanShape_SameRows(bool cond) {
+		var sugar = _cache.Prepare<int, PqItem, (bool cond, int g)>()
+			.IfElse(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g), b => b.UseIndex(_byBucket, 1))
+			.BuildFrozen();
+		var spelled = _cache.Prepare<int, PqItem, (bool cond, int g)>()
+			.Match(m => m.Case(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g)).Default(b => b.UseIndex(_byBucket, 1)))
+			.BuildFrozen();
+		var args = (cond, g: 3);
+
+		AssertSame((cond ? _cache.Query().UseIndex(_byGroup, 3) : _cache.Query().UseIndex(_byBucket, 1)).Execute(), sugar.Execute(args));
+		AssertSame(sugar.Execute(args), spelled.Execute(args));
+		Assert.That(sugar.Explain(), Does.Contain("match#0 {guard#0: [step 0 ListEq]; default: [step 1 ListEq]}"));
+	}
 }

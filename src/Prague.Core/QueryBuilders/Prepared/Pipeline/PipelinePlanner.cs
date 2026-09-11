@@ -4,8 +4,8 @@ namespace Prague.Core;
 ///   Builds a pipeline plan's step array and shape from the flattened descriptors (design §5, §9).
 ///   Every non-composite narrower becomes one leaf step through <see cref="IPipelineStepSource{TKey,TValue,TArgs}" />
 ///   wherever it sits — top level or inside an arm or branch — so an execution binds only the steps its
-///   taken arms reach. Composites become nodes: an <c>If</c> / <c>IfElse</c> / <c>Match</c> a
-///   <see cref="SelectNode{TArgs}" /> (a <c>Where</c> inside its arm a branch filter), an <c>Or</c> an
+///   taken arms reach. Composites become nodes: a <c>Match</c> — tag or guard form, and so an <c>If</c> /
+///   <c>IfElse</c> — a <see cref="SelectNode{TArgs}" /> (a <c>Where</c> inside its arm a branch filter), an <c>Or</c> an
 ///   <see cref="OrStep{TKey,TValue,TArgs}" /> holding its branches. Rejected (the plan replays): more
 ///   than <see cref="PipelineLimits.MaxSteps" /> steps or branch filters, an <c>Or</c> with more than
 ///   <see cref="PipelineLimits.MaxOrBranches" /> branches after flattening, a narrower that cannot build
@@ -81,8 +81,6 @@ internal sealed class PipelinePlanner<TKey, TValue, TArgs>
 						? new FilterStep<TValue, TArgs>((Predicate<TValue>)d.Filter!)
 						: new FilterStep<TValue, TArgs>((ArgFilter<TValue, TArgs>)d.Filter!));
 					break;
-				case NarrowerKind.If:
-				case NarrowerKind.IfElse:
 				case NarrowerKind.Match:
 					if (!TrySelect(d, inOr, first, out var select))
 						return false;
@@ -123,38 +121,27 @@ internal sealed class PipelinePlanner<TKey, TValue, TArgs>
 	private bool TrySelect(NarrowerDescriptor d, bool inOr, bool leftmost, out PipelineNode<TArgs> node) {
 		node = null!;
 		_composites = true;
-		IBranchSelector<TArgs> selector;
-		string[] labels;
-		if (d.Kind == NarrowerKind.Match) {
-			if (d.Source is not IBranchSelectorSource<TArgs> source)
+		if (d.Source is not IBranchSelectorSource<TArgs> source)
+			return false;
+		var labels = new string[d.Children.Count];
+		switch (d.Value) {
+			case MatchArmTags tags:
+				for (var a = 0; a < labels.Length; a++)
+					labels[a] = a < tags.Tags.Count ? "case " + tags.Tags[a] : "default";
+				break;
+			case MatchArmGuards guards:
+				for (var a = 0; a < labels.Length; a++)
+					labels[a] = a < guards.Guards.Count ? "guard#" + a : "default";
+				break;
+			default:
 				return false;
-			labels = new string[d.Children.Count];
-			switch (d.Value) {
-				case MatchArmTags tags:
-					for (var a = 0; a < labels.Length; a++)
-						labels[a] = a < tags.Tags.Count ? "case " + tags.Tags[a] : "default";
-					break;
-				case MatchArmGuards guards:
-					for (var a = 0; a < labels.Length; a++)
-						labels[a] = a < guards.Guards.Count ? "guard#" + a : "default";
-					break;
-				default:
-					return false;
-			}
-
-			selector = source.CreateSelector(d.Value);
-		} else {
-			if (d.Selector is not Func<TArgs, bool> condition)
-				return false;
-			selector = new IfSelector<TArgs>(condition, d.Kind == NarrowerKind.IfElse);
-			labels = d.Kind == NarrowerKind.IfElse ? ["then", "else"] : ["then"];
 		}
 
 		var arms = new PipelineNode<TArgs>[d.Children.Count][];
 		for (var a = 0; a < arms.Length; a++)
 			if (!TryNodes(d.Children[a], top: false, inOr, leftmost, out arms[a]))
 				return false;
-		node = new SelectNode<TArgs>(_selects++, d.Kind, selector, arms, labels);
+		node = new SelectNode<TArgs>(_selects++, source.CreateSelector(d.Value), arms, labels);
 		return true;
 	}
 

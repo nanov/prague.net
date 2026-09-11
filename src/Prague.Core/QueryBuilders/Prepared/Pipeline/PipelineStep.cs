@@ -518,7 +518,7 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	/// <summary>True when an <c>Or</c> that seeds walks the union of its branches rather than the store — the default, off under <see cref="FrozenOptions.PreserveEagerOrder" />.</summary>
 	internal bool OrSeed => _orSeed;
 
-	/// <summary>The arm one select node took (-1: none); written only when it changes.</summary>
+	/// <summary>The arm one select node took — always one, every arm chain ends in a <c>Default</c>; written only when it changes.</summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void RecordArm(int node, int arm) {
 		if (_lastArms[node] != arm)
@@ -607,7 +607,7 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 		for (var i = 0; i < _lastArms.Length; i++) {
 			if (_lastArms[i] == -2)
 				continue;
-			sb.Append(any ? ", " : "  last bind: ").Append("select#").Append(i).Append(" → ").Append(_lastArms[i] < 0 ? "no arm" : "arm " + _lastArms[i]);
+			sb.Append(any ? ", " : "  last bind: ").Append("select#").Append(i).Append(" → arm ").Append(_lastArms[i]);
 			any = true;
 		}
 

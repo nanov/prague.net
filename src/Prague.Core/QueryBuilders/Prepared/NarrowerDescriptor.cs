@@ -16,8 +16,6 @@ public enum NarrowerKind {
 	Filter,
 	FilterArg,
 	Or,
-	If,
-	IfElse,
 	Match,
 }
 
@@ -25,9 +23,10 @@ public enum NarrowerKind {
 ///   Build-time description of one narrower: the flattened, inspectable twin of a link in the typed
 ///   chain. Produced once by <c>INarrower.Describe</c> when a query is frozen; never touched at execute
 ///   time, so it holds the index as an <see cref="object" /> (for identity), the bound value boxed, and
-///   the delegates as <see cref="Delegate" />. Composite narrowers (<c>Or</c>, <c>If</c>, <c>IfElse</c>,
-///   <c>Match</c>) describe their sub-chains recursively in <see cref="Children" />; a <c>Match</c> keeps
-///   its arm discriminators in <see cref="Value" /> as a <see cref="MatchArmTags" /> (tag form) or a
+///   the delegates as <see cref="Delegate" />. Composite narrowers (<c>Or</c>, <c>Match</c> — and so
+///   <c>If</c> / <c>IfElse</c>, which are a one-<c>Case</c> guard <c>Match</c>) describe their sub-chains
+///   recursively in <see cref="Children" />; a <c>Match</c> keeps its arm discriminators in
+///   <see cref="Value" /> as a <see cref="MatchArmTags" /> (tag form) or a
 ///   <see cref="MatchArmGuards" /> (guard form).
 /// </summary>
 public sealed class NarrowerDescriptor {
@@ -44,13 +43,13 @@ public sealed class NarrowerDescriptor {
 	/// <summary>The bound value(s), boxed; <c>null</c> when the step is parameterized or has no value.</summary>
 	public object? Value { get; }
 
-	/// <summary>The argument selector, range builder, key projection or branch condition; <c>null</c> when none.</summary>
+	/// <summary>The argument selector, range builder or key projection; <c>null</c> when none — a guard-form <c>Match</c> keeps its per-arm predicates in <see cref="Value" />.</summary>
 	public Delegate? Selector { get; }
 
 	/// <summary>The predicate of a <see cref="NarrowerKind.Filter" /> / <see cref="NarrowerKind.FilterArg" /> step.</summary>
 	public Delegate? Filter { get; }
 
-	/// <summary>Sub-chains of a composite step, in branch order (<c>Or</c>: two, <c>If</c>: one, <c>IfElse</c>: then/else, <c>Match</c>: one per <c>Case</c> then the <c>Default</c>).</summary>
+	/// <summary>Sub-chains of a composite step, in branch order (<c>Or</c>: two; <c>Match</c>: one per <c>Case</c> then the <c>Default</c>, so an <c>If</c> is then/default and an <c>IfElse</c> then/else).</summary>
 	public IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> Children { get; }
 
 	// The narrower that produced the descriptor, when it can seed a specialized executor (a unique

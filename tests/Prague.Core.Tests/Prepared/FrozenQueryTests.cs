@@ -238,8 +238,8 @@ public class FrozenQueryTests {
 		Assert.That(kinds, Is.EqualTo(new[] {
 			NarrowerKind.UniqueEq, NarrowerKind.UniqueIn, NarrowerKind.ListEq, NarrowerKind.ListEq, NarrowerKind.ListIn, NarrowerKind.ListInProjected,
 			NarrowerKind.Range, NarrowerKind.Range, NarrowerKind.KeySet, NarrowerKind.LastUpdatedAfter, NarrowerKind.LastUpdatedBetween,
-			NarrowerKind.Filter, NarrowerKind.FilterArg, NarrowerKind.Or, NarrowerKind.If, NarrowerKind.IfElse,
-		}).AsCollection);
+			NarrowerKind.Filter, NarrowerKind.FilterArg, NarrowerKind.Or, NarrowerKind.Match, NarrowerKind.Match,
+		}).AsCollection, "If / IfElse describe as the one-guard Match they are");
 
 		Assert.Multiple(() => {
 			Assert.That(ops[0].IsParameterized, Is.True);
@@ -265,14 +265,19 @@ public class FrozenQueryTests {
 			Assert.That(or.Children[0], Has.Count.EqualTo(1));
 			Assert.That(or.Children[0][0].Kind, Is.EqualTo(NarrowerKind.ListEq));
 			Assert.That(or.Children[1], Has.Count.EqualTo(1));
-			Assert.That(or.Children[1][0].Kind, Is.EqualTo(NarrowerKind.If));
+			Assert.That(or.Children[1][0].Kind, Is.EqualTo(NarrowerKind.Match));
 			Assert.That(or.Children[1][0].Children[0][0].Kind, Is.EqualTo(NarrowerKind.ListEq));
 
 			var @if = ops[14];
 			Assert.That(@if.IsParameterized, Is.True);
-			Assert.That(@if.Selector, Is.InstanceOf<Func<(int code, int min), bool>>());
-			Assert.That(@if.Children, Has.Count.EqualTo(1));
+			Assert.That(@if.Selector, Is.Null, "the guard form has no tag selector — the predicates are the arms'");
+			var guards = (MatchArmGuards)@if.Value!;
+			Assert.That(guards.Guards, Has.Count.EqualTo(1));
+			Assert.That(guards.Guards[0], Is.InstanceOf<Func<(int code, int min), bool>>());
+			Assert.That(guards.ToString(), Is.EqualTo("[guard#0, default]"));
+			Assert.That(@if.Children, Has.Count.EqualTo(2), "the guarded arm and the empty Default");
 			Assert.That(@if.Children[0].Select(static d => d.Kind), Is.EqualTo(new[] { NarrowerKind.UniqueEq, NarrowerKind.Filter }).AsCollection);
+			Assert.That(@if.Children[1], Is.Empty);
 
 			var ifElse = ops[15];
 			Assert.That(ifElse.Children, Has.Count.EqualTo(2));
