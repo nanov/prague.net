@@ -44,6 +44,7 @@ public static class PreparedQueryBuilderOrExtensions {
 		where TResolverChain : struct, IResolvers
 		where TBranch1 : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TBranch2 : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> OrCore(in builder, builder._discriminator.Cache, b1, b2);
 
 	/// <summary>Nested disjunction inside an <c>Or</c> branch.</summary>
@@ -69,6 +70,7 @@ public static class PreparedQueryBuilderOrExtensions {
 		where TResolverChain : struct, IResolvers
 		where TBranch1 : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TBranch2 : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> OrCore(in builder, builder._discriminator.Cache, b1, b2);
 
 	/// <summary>Disjunction inside an <c>If</c> / <c>IfElse</c> branch.</summary>
@@ -94,6 +96,7 @@ public static class PreparedQueryBuilderOrExtensions {
 		where TResolverChain : struct, IResolvers
 		where TBranch1 : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TBranch2 : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> OrCore(in builder, builder._discriminator.Cache, b1, b2);
 
 	// ── Core ─────────────────────────────────────────────────────────────────────
@@ -125,7 +128,8 @@ public static class PreparedQueryBuilderOrExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TBranch1 : struct, INarrowerChain<TKey, TValue, TArgs>
-		where TBranch2 : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TBranch2 : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		ArgumentNullException.ThrowIfNull(b1);
 		ArgumentNullException.ThrowIfNull(b2);
 		var cache = builder._leftQuery._cache;
@@ -147,6 +151,7 @@ internal static class PreparedBranchSeeds {
 		NarrowOnly<TCache, TKey, TValue, TArgs>(TCache carrier, InMemoryDataCache<TKey, TValue> cache)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TArgs : struct
 		=> new(new PreparedNarrowOnly<TCache>(carrier),
 			new PreparedNarrowers<TKey, TValue, TArgs, EmptyNarrowers<TKey, TValue, TArgs>>(cache, default),
 			new Resolvers<BaseResolver<TKey, TValue>>(default),
@@ -157,6 +162,7 @@ internal static class PreparedBranchSeeds {
 		Conditional<TCache, TKey, TValue, TArgs>(TCache carrier, InMemoryDataCache<TKey, TValue> cache)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TArgs : struct
 		=> new(new PreparedConditionalBranch<TCache>(carrier),
 			new PreparedNarrowers<TKey, TValue, TArgs, EmptyNarrowers<TKey, TValue, TArgs>>(cache, default),
 			new Resolvers<BaseResolver<TKey, TValue>>(default),

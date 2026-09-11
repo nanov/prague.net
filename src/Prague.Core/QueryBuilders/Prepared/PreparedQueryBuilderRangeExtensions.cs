@@ -20,6 +20,7 @@ public static class PreparedQueryBuilderRangeExtensions {
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : IComparable<TIndexKey>
 		where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey>
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs>(index, rangeBuilder));
 
 	/// <summary>Range index narrowing with bounds taken from the execution arguments, the eager <c>(rb, args) =&gt; rb.Gte(args.min)</c> shape (use a static lambda).</summary>
@@ -38,6 +39,7 @@ public static class PreparedQueryBuilderRangeExtensions {
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : IComparable<TIndexKey>
 		where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey>
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TArgs>(index, rangeBuilder));
 }
 
@@ -67,7 +69,8 @@ public static class PreparedQueryBuilderOptionalRangeExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
-		where TIndexKey : struct, IComparable<TIndexKey> {
+		where TIndexKey : struct, IComparable<TIndexKey>
+		where TArgs : struct {
 		ArgumentNullException.ThrowIfNull(from);
 		ArgumentNullException.ThrowIfNull(to);
 		return PreparedQueryBuilderExtensions.Link(in builder, new RangeOptionalArgNarrower<TKey, TValue, TIndexKey, TArgs>(index, from, to, fromInclusive, toInclusive));
@@ -90,7 +93,8 @@ public static class PreparedQueryBuilderOptionalRangeExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
-		where TIndexKey : class, IComparable<TIndexKey> {
+		where TIndexKey : class, IComparable<TIndexKey>
+		where TArgs : struct {
 		ArgumentNullException.ThrowIfNull(from);
 		ArgumentNullException.ThrowIfNull(to);
 		return PreparedQueryBuilderExtensions.Link(in builder, new RangeOptionalRefArgNarrower<TKey, TValue, TIndexKey, TArgs>(index, from, to, fromInclusive, toInclusive));
@@ -114,6 +118,7 @@ public static class PreparedQueryBuilderOptionalRangeExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : struct, IComparable<TIndexKey>
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs>(index,
 			new OptionalRange<TIndexKey>(OptionalRange<TIndexKey>.Bound(from.HasValue, from.GetValueOrDefault(), fromInclusive), OptionalRange<TIndexKey>.Bound(to.HasValue, to.GetValueOrDefault(), toInclusive))));
 
@@ -135,6 +140,7 @@ public static class PreparedQueryBuilderOptionalRangeExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : class, IComparable<TIndexKey>
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs>(index,
 			new OptionalRange<TIndexKey>(OptionalRange<TIndexKey>.Bound(from is not null, from!, fromInclusive), OptionalRange<TIndexKey>.Bound(to is not null, to!, toInclusive))));
 }

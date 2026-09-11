@@ -6,7 +6,8 @@ using QueryBuilders;
 /// <summary>Chain head: no narrowing recorded yet. Replaying it leaves the core untouched (all-rows query).</summary>
 public readonly struct EmptyNarrowers<TKey, TValue, TArgs> : INarrowerChain<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> { }
 
@@ -21,7 +22,8 @@ public readonly struct NarrowerLink<TPrev, TNarrower, TKey, TValue, TArgs> : INa
 	where TPrev : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TNarrower : struct, INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly TPrev _prev;
 	private readonly TNarrower _narrower;
 

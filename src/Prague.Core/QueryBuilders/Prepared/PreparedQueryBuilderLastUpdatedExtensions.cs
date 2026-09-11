@@ -25,6 +25,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new GlobalLastUpdatedAfter<TKey, TValue, DateTime, TArgs>(lastUpdatedIndex, updatedAfter));
 
 	/// <summary>Rows updated after <paramref name="updatedAfter" /> up to and including <paramref name="updatedUntilInclusive" />, global last-update index, bound now.</summary>
@@ -42,6 +43,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new GlobalLastUpdatedBetween<TKey, TValue, DateTime, TArgs>(lastUpdatedIndex, updatedAfter, updatedUntilInclusive));
 
 	/// <summary>Rows updated strictly after <paramref name="updatedAfter" />, global last-update index, bound now.</summary>
@@ -58,6 +60,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new GlobalLastUpdatedAfter<TKey, TValue, DateTimeOffset, TArgs>(lastUpdatedIndex, updatedAfter));
 
 	/// <summary>Rows updated after <paramref name="updatedAfter" /> up to and including <paramref name="updatedUntilInclusive" />, global last-update index, bound now.</summary>
@@ -75,6 +78,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new GlobalLastUpdatedBetween<TKey, TValue, DateTimeOffset, TArgs>(lastUpdatedIndex, updatedAfter, updatedUntilInclusive));
 
 	/// <summary>Rows updated strictly after <paramref name="updatedAfter" /> (unix ms), global last-update index, bound now.</summary>
@@ -91,6 +95,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new GlobalLastUpdatedAfter<TKey, TValue, long, TArgs>(lastUpdatedIndex, updatedAfter));
 
 	/// <summary>Rows updated after <paramref name="updatedAfter" /> up to and including <paramref name="updatedUntilInclusive" /> (unix ms), global last-update index, bound now.</summary>
@@ -108,6 +113,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new GlobalLastUpdatedBetween<TKey, TValue, long, TArgs>(lastUpdatedIndex, updatedAfter, updatedUntilInclusive));
 
 	/// <summary>Rows updated strictly after a unix-ms instant selected from the execution arguments, global last-update index. Convert DateTime / DateTimeOffset inside the selector.</summary>
@@ -124,6 +130,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new GlobalLastUpdatedAfterArg<TKey, TValue, TArgs>(lastUpdatedIndex, updatedAfter));
 
 	/// <summary>Rows updated within a unix-ms window (exclusive start, inclusive end) selected from the execution arguments, global last-update index.</summary>
@@ -141,6 +148,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs>(lastUpdatedIndex, updatedAfter, updatedUntilInclusive));
 
 	/// <summary>Rows updated strictly after <paramref name="updatedAfter" />, raw last-updated index, bound now.</summary>
@@ -157,6 +165,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new LastUpdatedAfter<TKey, TValue, DateTime, TArgs>(lastUpdatedIndex, updatedAfter));
 
 	/// <summary>Rows updated after <paramref name="updatedAfter" /> up to and including <paramref name="updatedUntilInclusive" />, raw last-updated index, bound now.</summary>
@@ -174,6 +183,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new LastUpdatedBetween<TKey, TValue, DateTime, TArgs>(lastUpdatedIndex, updatedAfter, updatedUntilInclusive));
 
 	/// <summary>Rows updated strictly after <paramref name="updatedAfter" />, raw last-updated index, bound now.</summary>
@@ -190,6 +200,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new LastUpdatedAfter<TKey, TValue, DateTimeOffset, TArgs>(lastUpdatedIndex, updatedAfter));
 
 	/// <summary>Rows updated after <paramref name="updatedAfter" /> up to and including <paramref name="updatedUntilInclusive" />, raw last-updated index, bound now.</summary>
@@ -207,6 +218,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new LastUpdatedBetween<TKey, TValue, DateTimeOffset, TArgs>(lastUpdatedIndex, updatedAfter, updatedUntilInclusive));
 
 	/// <summary>Rows updated strictly after <paramref name="updatedAfter" /> (unix ms), raw last-updated index, bound now.</summary>
@@ -223,6 +235,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new LastUpdatedAfter<TKey, TValue, long, TArgs>(lastUpdatedIndex, updatedAfter));
 
 	/// <summary>Rows updated after <paramref name="updatedAfter" /> up to and including <paramref name="updatedUntilInclusive" /> (unix ms), raw last-updated index, bound now.</summary>
@@ -240,6 +253,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new LastUpdatedBetween<TKey, TValue, long, TArgs>(lastUpdatedIndex, updatedAfter, updatedUntilInclusive));
 
 	/// <summary>Rows updated strictly after a unix-ms instant selected from the execution arguments, raw last-updated index. Convert DateTime / DateTimeOffset inside the selector.</summary>
@@ -256,6 +270,7 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new LastUpdatedAfterArg<TKey, TValue, TArgs>(lastUpdatedIndex, updatedAfter));
 
 	/// <summary>Rows updated within a unix-ms window (exclusive start, inclusive end) selected from the execution arguments, raw last-updated index.</summary>
@@ -273,5 +288,6 @@ public static class PreparedQueryBuilderLastUpdatedExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> PreparedQueryBuilderExtensions.Link(in builder, new LastUpdatedBetweenArg<TKey, TValue, TArgs>(lastUpdatedIndex, updatedAfter, updatedUntilInclusive));
 }

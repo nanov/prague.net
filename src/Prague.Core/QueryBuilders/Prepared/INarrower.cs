@@ -12,7 +12,8 @@ using QueryBuilders;
 /// </summary>
 public interface INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
 
 	/// <summary>
@@ -30,7 +31,8 @@ public interface INarrower<TKey, TValue, TArgs>
 /// </summary>
 public interface INarrowerChain<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	void Replay<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
 
 	/// <summary>

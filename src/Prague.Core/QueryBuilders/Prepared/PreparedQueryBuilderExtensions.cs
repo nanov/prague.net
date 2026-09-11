@@ -31,6 +31,7 @@ public static class PreparedQueryBuilderExtensions {
 		Prepare<TKey, TValue, TArgs>(this InMemoryDataCache<TKey, TValue> cache)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TArgs : struct
 		=> cache.Prepare<InMemoryDataCache<TKey, TValue>, TKey, TValue, TArgs>(cache);
 
 	/// <summary>
@@ -50,6 +51,7 @@ public static class PreparedQueryBuilderExtensions {
 		Prepare<TCache, TKey, TValue, TArgs>(this InMemoryDataCache<TKey, TValue> cache, TCache carrier)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TArgs : struct
 		=> new(new PreparedQueryDiscriminator<TCache>(carrier),
 			new PreparedNarrowers<TKey, TValue, TArgs, EmptyNarrowers<TKey, TValue, TArgs>>(cache, default),
 			new Resolvers<BaseResolver<TKey, TValue>>(new BaseResolver<TKey, TValue>()),
@@ -71,7 +73,8 @@ public static class PreparedQueryBuilderExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
-		where TNarrower : struct, INarrower<TKey, TValue, TArgs> {
+		where TNarrower : struct, INarrower<TKey, TValue, TArgs>
+		where TArgs : struct {
 		ref readonly var left = ref builder._leftQuery;
 		return new(builder._discriminator,
 			new PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, TNarrower, TKey, TValue, TArgs>>(
@@ -95,6 +98,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new UniqueIndexEq<TKey, TValue, TIndexKey, TArgs>(index, value));
 
 	/// <summary>Unique index equality, value selected from the execution arguments (use a static lambda).</summary>
@@ -112,6 +116,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs>(index, selector));
 
 	/// <summary>List index equality, value bound now.</summary>
@@ -129,6 +134,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new ListIndexEq<TKey, TValue, TIndexKey, TArgs>(index, value));
 
 	/// <summary>List index equality, value selected from the execution arguments (use a static lambda).</summary>
@@ -146,6 +152,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new ListIndexEqArg<TKey, TValue, TIndexKey, TArgs>(index, selector));
 
 	/// <summary>Value predicate bound now. Chained calls are ANDed in order, as in the eager builder.</summary>
@@ -161,6 +168,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> Link(in builder, new FilterNarrower<TKey, TValue, TArgs>(predicate));
 
 	/// <summary>
@@ -181,6 +189,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> Link(in builder, new FilterArgNarrower<TKey, TValue, TArgs>(predicate));
 
 	// ── Multi-value ──────────────────────────────────────────────────────────────
@@ -208,6 +217,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new UniqueIndexIn<TKey, TValue, TIndexKey, TArgs>(index, values));
 
 	/// <summary>Unique index membership in an array of values bound now.</summary>
@@ -225,6 +235,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new UniqueIndexIn<TKey, TValue, TIndexKey, TArgs>(index, values));
 
 	/// <summary>Unique index membership in a value set selected from the execution arguments (use a static lambda).</summary>
@@ -242,6 +253,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new UniqueIndexInArg<TKey, TValue, TIndexKey, TArgs>(index, selector));
 
 	/// <summary>List index membership in a value set bound now. Empty set yields no rows, as in the eager span overload.</summary>
@@ -259,6 +271,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new ListIndexIn<TKey, TValue, TIndexKey, TArgs>(index, values));
 
 	/// <summary>List index membership in an array of values bound now.</summary>
@@ -276,6 +289,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new ListIndexIn<TKey, TValue, TIndexKey, TArgs>(index, values));
 
 	/// <summary>List index membership in a value set selected from the execution arguments (use a static lambda).</summary>
@@ -293,6 +307,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new ListIndexInArg<TKey, TValue, TIndexKey, TArgs>(index, selector));
 
 	/// <summary>List index membership over bound foreign values, each projected to an index key by <paramref name="keySelector" /> at replay.</summary>
@@ -311,6 +326,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TIndexKey : notnull
+		where TArgs : struct
 		=> Link(in builder, new ListIndexInProjected<TKey, TValue, TIndexKey, TOtherValue, TArgs>(index, values, keySelector));
 
 	/// <summary>Key-set (predicate) index.</summary>
@@ -326,6 +342,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
+		where TArgs : struct
 		=> Link(in builder, new KeySetNarrower<TKey, TValue, TArgs>(index));
 
 	// ── Terminal ─────────────────────────────────────────────────────────────────
@@ -342,6 +359,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolver : struct, IJoinResolver
+		where TArgs : struct
 		=> new PreparedSimpleQuery<TKey, TValue, TArgs, TChain, TResolver, ClassicSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain);
 
 	/// <summary>
@@ -370,6 +388,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
+		where TArgs : struct
 		=> new PreparedJoinedQuery<TKey, TValue, TArgs, TChain, TResolverChain, TResult, ClassicJoinedPlan>(
 			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount);
 
@@ -389,6 +408,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolver : struct, IJoinResolver
+		where TArgs : struct
 		=> FrozenPlanner.Simple<TKey, TValue, TArgs, TChain, TResolver, ClassicSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, false, options ?? FrozenOptions.Default);
 
 	/// <summary>The joined <see cref="Build{TCache,TKey,TValue,TArgs,TChain,TResolverChain,TResult}" /> with plan metadata; joined shapes always replay in stage 1.</summary>
@@ -400,6 +420,7 @@ public static class PreparedQueryBuilderExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
+		where TArgs : struct
 		=> FrozenPlanner.Joined<TKey, TValue, TArgs, TChain, TResolverChain, TResult, ClassicJoinedPlan>(
 			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount, false, options ?? FrozenOptions.Default);
 }

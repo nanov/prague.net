@@ -552,6 +552,11 @@ to the bound form; write the selectors as `static` lambdas so the delegate is cr
 `Execute`, `ExecutePooled`, `Count` and the `*Cloned` variants take `in TArgs` plus the usual
 `skip`/`take`.
 
+**`TArgs` must be a struct** — a tuple, a `readonly record struct`, a primitive like `int`, or
+`NoArgs` for the parameterless `Prepare()`. A class or record class is a compile error: the whole
+prepared path is constrained `where TArgs : struct`, which keeps every generic over it
+JIT-specialized and gives the `in TArgs` passing below something to avoid copying.
+
 **The arg `Where` predicate takes `TArgs` by `in`** — it is the one callback that runs once per
 candidate row rather than once per execution, so a by-value `TArgs` would copy the whole struct per
 row. Its type is `ArgFilter<TValue, TArgs>`, not `Func<TValue, TArgs, bool>`, and the lambda has to

@@ -105,7 +105,9 @@ public class FrozenPipelineSortBoundedTests {
 
 	// ── Helpers ───────────────────────────────────────────────────────────────────
 
-	private static QueryResults<T> Run<TArgs, T>(PreparedQuery<TArgs, T> q, in TArgs args, Variant v, int skip, int take) => v switch {
+	private static QueryResults<T> Run<TArgs, T>(PreparedQuery<TArgs, T> q, in TArgs args, Variant v, int skip, int take)
+		where TArgs : struct
+		=> v switch {
 		Variant.Execute => q.Execute(in args, skip, take),
 		Variant.ExecuteCloned => q.ExecuteCloned(in args, skip, take),
 		Variant.ExecutePooled => q.ExecutePooled(in args, skip, take),
@@ -147,7 +149,8 @@ public class FrozenPipelineSortBoundedTests {
 	/// <summary>(a): every variant × page byte-identical to eager (with identity) and to prepared; Count.</summary>
 	private void AssertBounded<TArgs, TComparer>(Func<CacheQueryBuilderCombined<SortedQuery<ExecutableQuery<InMemoryDataCache<int, PqItem>>>, CacheQueryBuilderCoreCombined<int, PqItem>, int, PqItem, Resolvers<SortResolver<int, PqItem, PqItem, TComparer>>, PqItem>> eager,
 		PreparedQuery<TArgs, PqItem> prepared, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label)
-		where TComparer : IComparer<PqItem> {
+		where TComparer : IComparer<PqItem>
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		foreach (var v in Variants)
 			foreach (var (skip, take) in Pages) {
@@ -162,7 +165,8 @@ public class FrozenPipelineSortBoundedTests {
 	}
 
 	/// <summary>Consecutive frozen pages of an unchanged result concatenate to the eager whole — the bounded plan's contract — for every page size.</summary>
-	private static void AssertPagesPartition<TArgs>(QueryResults<PqItem> whole, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label) {
+	private static void AssertPagesPartition<TArgs>(QueryResults<PqItem> whole, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label)
+		where TArgs : struct {
 		try {
 			var expected = new int[whole.Count];
 			for (var i = 0; i < whole.Count; i++) expected[i] = whole[i].Id;

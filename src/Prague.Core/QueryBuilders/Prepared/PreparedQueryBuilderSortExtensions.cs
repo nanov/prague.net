@@ -31,7 +31,8 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
-		where TComparer : IComparer<TResult> {
+		where TComparer : IComparer<TResult>
+		where TArgs : struct {
 		var resolver = new SortResolver<TKey, TValue, TResult, TComparer>(comparer);
 		return Unsafe.AsRef(in builder).AddResolver(
 			new SortedQuery<PreparedQueryDiscriminator<TCache>>(builder._discriminator),
@@ -52,7 +53,8 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
-		where TComparer : IComparer<TResult> {
+		where TComparer : IComparer<TResult>
+		where TArgs : struct {
 		var resolver = new SortResolver<TKey, TValue, TResult, TComparer>(comparer);
 		return Unsafe.AsRef(in builder).AddResolver(
 			new SortedQuery<PreparedQueryDiscriminator<TCache>>(builder._discriminator),
@@ -75,7 +77,8 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
-		where TComparer : IComparer<TResult> {
+		where TComparer : IComparer<TResult>
+		where TArgs : struct {
 		var resolver = new SortResolver<TKey, TValue, TResult, TComparer>(comparer, allowBounded: true);
 		return Unsafe.AsRef(in builder).AddResolver(
 			new SortedQuery<PreparedQueryDiscriminator<TCache>>(builder._discriminator),
@@ -96,7 +99,8 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
-		where TComparer : IComparer<TResult> {
+		where TComparer : IComparer<TResult>
+		where TArgs : struct {
 		var resolver = new SortResolver<TKey, TValue, TResult, TComparer>(comparer, allowBounded: true);
 		return Unsafe.AsRef(in builder).AddResolver(
 			new SortedQuery<PreparedQueryDiscriminator<TCache>>(builder._discriminator),
@@ -117,6 +121,7 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolver : struct, IJoinResolver
+		where TArgs : struct
 		=> new PreparedSimpleQuery<TKey, TValue, TArgs, TChain, TResolver, TopSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain);
 
 	/// <summary>
@@ -134,6 +139,7 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
+		where TArgs : struct
 		=> new PreparedJoinedQuery<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TopJoinedPlan>(
 			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount);
 
@@ -147,6 +153,7 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolver : struct, IJoinResolver
+		where TArgs : struct
 		=> FrozenPlanner.Simple<TKey, TValue, TArgs, TChain, TResolver, TopSimplePlan>(builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, true, options ?? FrozenOptions.Default);
 
 	/// <summary>The sorted joined <c>Build()</c> with plan metadata: a <c>SortBounded</c> before outer <c>JoinOne</c>s over pipeline-capable index steps takes the joined pipeline (stage 3, step 6), the rest replays.</summary>
@@ -158,6 +165,7 @@ public static class PreparedQueryBuilderSortExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
+		where TArgs : struct
 		=> FrozenPlanner.Joined<TKey, TValue, TArgs, TChain, TResolverChain, TResult, TopJoinedPlan>(
 			builder._leftQuery._cache, in builder._leftQuery._chain, in builder._resolverChain, builder._manyCount, true, options ?? FrozenOptions.Default);
 }

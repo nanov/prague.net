@@ -16,7 +16,8 @@ public readonly struct OrNarrower<TKey, TValue, TArgs, TBranch1, TBranch2> : INa
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TBranch1 : struct, INarrowerChain<TKey, TValue, TArgs>
-	where TBranch2 : struct, INarrowerChain<TKey, TValue, TArgs> {
+	where TBranch2 : struct, INarrowerChain<TKey, TValue, TArgs>
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly TBranch1 _branch1;
 	private readonly TBranch2 _branch2;
@@ -63,7 +64,8 @@ public readonly struct PreparedOrBranch<TKey, TValue, TArgs, TBranch1, TBranch2,
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TBranch1 : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TBranch2 : struct, INarrowerChain<TKey, TValue, TArgs>
-	where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore> {
+	where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
+	where TArgs : struct {
 	private readonly TBranch1 _branch1;
 	private readonly TBranch2 _branch2;
 	private readonly TArgs _args;

@@ -7147,7 +7147,7 @@ public class CacheGenerator : IIncrementalGenerator {
 		var builderType = $"CacheQueryBuilderCombined<TDiscriminator, {recorder}, {keyTypeName}, {documentTypeName}, TResolverChain, TResult>";
 		var builderParam = $"this in {builderType} builder";
 		var genericParams = "TDiscriminator, TArgs, TChain, TResolverChain, TResult";
-		var constraints = $"where TDiscriminator : struct, Prague.Core.TypeSystem.IIndexNarrower, Prague.Core.TypeSystem.ICacheCarrier<{cacheClassName}>\n        where TChain : struct, INarrowerChain<{keyTypeName}, {documentTypeName}, TArgs>\n        where TResolverChain : struct, IResolvers";
+		var constraints = $"where TDiscriminator : struct, Prague.Core.TypeSystem.IIndexNarrower, Prague.Core.TypeSystem.ICacheCarrier<{cacheClassName}>\n        where TChain : struct, INarrowerChain<{keyTypeName}, {documentTypeName}, TArgs>\n        where TResolverChain : struct, IResolvers\n        where TArgs : struct";
 		var getDisc = $"{builderType}.GetDiscriminator(ref Unsafe.AsRef(in builder))";
 
 		string ReturnType(string narrower)
@@ -7595,7 +7595,7 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine();
 		sb.AppendLine("        /// <summary>Starts a prepared query parameterized by <typeparamref name=\"TArgs\" />, supplied on every execution. Terminal is <c>Build()</c>.</summary>");
 		sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-		sb.AppendLine($"        public {PreparedBuilderType("TArgs")} Prepare<TArgs>() =>");
+		sb.AppendLine($"        public {PreparedBuilderType("TArgs")} Prepare<TArgs>() where TArgs : struct =>");
 		sb.AppendLine($"            Cache.Prepare<{cacheClassName}, {keyTypeName}, {documentTypeName}, TArgs>(this);");
 	}
 

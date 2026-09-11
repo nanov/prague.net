@@ -9,7 +9,8 @@ using System.Runtime.CompilerServices;
 ///   writes and no allocation. Boxes are owned by <see cref="ArgPredicatePool{TValue,TArgs}" /> and
 ///   are only ever touched by the thread that rented them.
 /// </summary>
-internal sealed class ArgPredicate<TValue, TArgs> {
+internal sealed class ArgPredicate<TValue, TArgs>
+	where TArgs : struct {
 	private ArgFilter<TValue, TArgs>? _func;
 	private TArgs _args;
 	private FusedFilter<TValue, TArgs>? _fused;
@@ -74,7 +75,8 @@ internal sealed class ArgPredicate<TValue, TArgs> {
 ///   underneath the outer execution. Thread-static storage is what makes it thread-safe: one
 ///   command executed concurrently from many threads binds many boxes, one per thread.
 /// </summary>
-internal static class ArgPredicatePool<TValue, TArgs> {
+internal static class ArgPredicatePool<TValue, TArgs>
+	where TArgs : struct {
 	private const int InitialCapacity = 4;
 
 	[ThreadStatic] private static ArgPredicate<TValue, TArgs>[]? _boxes;

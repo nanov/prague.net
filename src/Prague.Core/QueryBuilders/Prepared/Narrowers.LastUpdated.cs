@@ -14,7 +14,8 @@ using QueryBuilders;
 public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTime : struct {
+	where TTime : struct
+	where TArgs : struct {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
 	private readonly TTime _after;
 
@@ -41,7 +42,8 @@ public readonly struct GlobalLastUpdatedAfter<TKey, TValue, TTime, TArgs> : INar
 public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTime : struct {
+	where TTime : struct
+	where TArgs : struct {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
 	private readonly TTime _after;
 	private readonly TTime _untilInclusive;
@@ -72,7 +74,8 @@ public readonly struct GlobalLastUpdatedBetween<TKey, TValue, TTime, TArgs> : IN
 /// <summary><c>updatedAfter</c> (unix ms) against a global last-update index, selected from the execution arguments.</summary>
 public readonly struct GlobalLastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
 	private readonly Func<TArgs, long> _after;
 
@@ -94,7 +97,8 @@ public readonly struct GlobalLastUpdatedAfterArg<TKey, TValue, TArgs> : INarrowe
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> (unix ms) against a global last-update index, both selected from the execution arguments.</summary>
 public readonly struct GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly IDataCacheGlobalLastUpdateIndex<TKey> _index;
 	private readonly Func<TArgs, long> _after;
 	private readonly Func<TArgs, long> _untilInclusive;
@@ -119,7 +123,8 @@ public readonly struct GlobalLastUpdatedBetweenArg<TKey, TValue, TArgs> : INarro
 public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTime : struct {
+	where TTime : struct
+	where TArgs : struct {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly TTime _after;
 
@@ -146,7 +151,8 @@ public readonly struct LastUpdatedAfter<TKey, TValue, TTime, TArgs> : INarrower<
 public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTime : struct {
+	where TTime : struct
+	where TArgs : struct {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly TTime _after;
 	private readonly TTime _untilInclusive;
@@ -177,7 +183,8 @@ public readonly struct LastUpdatedBetween<TKey, TValue, TTime, TArgs> : INarrowe
 /// <summary><c>updatedAfter</c> (unix ms) against a raw <see cref="LastUpdatedIndex{TKey}" />, selected from the execution arguments.</summary>
 public readonly struct LastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly Func<TArgs, long> _after;
 
@@ -199,7 +206,8 @@ public readonly struct LastUpdatedAfterArg<TKey, TValue, TArgs> : INarrower<TKey
 /// <summary><c>updatedAfter</c> .. <c>updatedUntilInclusive</c> (unix ms) against a raw <see cref="LastUpdatedIndex{TKey}" />, both selected from the execution arguments.</summary>
 public readonly struct LastUpdatedBetweenArg<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly Func<TArgs, long> _after;
 	private readonly Func<TArgs, long> _untilInclusive;

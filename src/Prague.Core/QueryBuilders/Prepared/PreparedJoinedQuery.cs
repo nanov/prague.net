@@ -64,7 +64,8 @@ internal sealed class PreparedJoinedQuery<TKey, TValue, TArgs, TChain, TResolver
 	where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TResolverChain : struct, IResolvers
 	where TResult : struct, IJoinResult<TValue>
-	where TPlan : struct, IPreparedJoinedPlan {
+	where TPlan : struct, IPreparedJoinedPlan
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly TChain _chain;
 	private readonly TResolverChain _resolvers;

@@ -76,9 +76,9 @@ public class PreparedGeneratedKeySetLastUpdatedTests {
 
 	[Test]
 	public void HasValue_KeySet_WithParameterizedLane_LikeEager() {
-		var prepared = _users.Prepare<string>().WithEmail().WithStatus(static s => s).Where(static u => u.Id > 10).Build();
+		var prepared = _users.Prepare<TextArg>().WithEmail().WithStatus(static a => a.Text).Where(static u => u.Id > 10).Build();
 		foreach (var status in new[] { "Active", "Inactive", "Missing" })
-			AssertSame(_users.Query().WithEmail().WithStatus(status).Where(static u => u.Id > 10).Execute(), prepared.Execute(status), UserRow);
+			AssertSame(_users.Query().WithEmail().WithStatus(status).Where(static u => u.Id > 10).Execute(), prepared.Execute(new TextArg(status)), UserRow);
 	}
 
 	[Test]

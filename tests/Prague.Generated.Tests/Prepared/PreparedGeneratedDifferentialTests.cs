@@ -46,8 +46,8 @@ public class PreparedGeneratedDifferentialTests {
 	public void KeyProperty_Bound_LikeEager() {
 		var prepared = _cache.Prepare().WithCompositeId("P7_2").Build();
 		AssertSame(_cache.Query().WithCompositeId("P7_2").Execute(), prepared.Execute());
-		var parameterized = _cache.Prepare<string>().WithCompositeId(static k => k).Build();
-		AssertSame(_cache.Query().WithCompositeId("P10_2").Execute(), parameterized.Execute("P10_2"));
+		var parameterized = _cache.Prepare<TextArg>().WithCompositeId(static a => a.Text).Build();
+		AssertSame(_cache.Query().WithCompositeId("P10_2").Execute(), parameterized.Execute(new TextArg("P10_2")));
 	}
 
 	// ── Many ──────────────────────────────────────────────────────────────────────
@@ -86,9 +86,9 @@ public class PreparedGeneratedDifferentialTests {
 
 	[Test]
 	public void MultiValue_Parameterized_Memory_LikeEager() {
-		var prepared = _cache.Prepare<long[]>().WithDepartmentId(static a => a.AsMemory()).Build();
+		var prepared = _cache.Prepare<ValuesArg>().WithDepartmentId(static a => a.Values.AsMemory()).Build();
 		foreach (var set in new[] { new long[] { 0 }, new long[] { 2, 6 }, new long[] { 1, 2, 3, 4, 5, 6 } })
-			AssertSame(_cache.Query().WithDepartmentId(set).Execute(), prepared.Execute(set));
+			AssertSame(_cache.Query().WithDepartmentId(set).Execute(), prepared.Execute(new ValuesArg(set)));
 	}
 
 	// ── Range ─────────────────────────────────────────────────────────────────────

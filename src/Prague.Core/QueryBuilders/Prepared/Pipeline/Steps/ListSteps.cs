@@ -14,7 +14,8 @@ using Collections;
 internal sealed class ListEqStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepBase<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly TIndexKey _value;
 	private readonly Func<TArgs, TIndexKey>? _selector;
@@ -70,7 +71,8 @@ internal sealed class ListEqStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepB
 internal sealed class ListInStep<TKey, TValue, TIndexKey, TOtherValue, TArgs> : PipelineStepBase<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly bool _keySide;
 	private ReadOnlyMemory<TIndexKey> _values;

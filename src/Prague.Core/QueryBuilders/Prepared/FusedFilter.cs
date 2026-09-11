@@ -48,7 +48,8 @@ using System.Text;
 ///   plans should build with <see cref="FrozenOptions.AdaptiveFilterOrdering" /> off.
 ///   </para>
 /// </summary>
-internal sealed class FusedFilter<TValue, TArgs> : IPlanExplainable {
+internal sealed class FusedFilter<TValue, TArgs> : IPlanExplainable
+	where TArgs : struct {
 	internal const int SampleEvery = 256;
 	internal const int MinCalls = 32;
 	internal const int MaxTimedCalls = 4096;
@@ -266,7 +267,8 @@ internal sealed class FusedFilter<TValue, TArgs> : IPlanExplainable {
 ///   predicates for the tightest loop. A new instance is published per order change; an execution
 ///   that captured the previous one keeps evaluating a complete, valid permutation.
 /// </summary>
-internal sealed class FusedOrdering<TValue, TArgs> {
+internal sealed class FusedOrdering<TValue, TArgs>
+	where TArgs : struct {
 	internal readonly int[] Order;
 	internal readonly FilterStep<TValue, TArgs>[] Steps;
 	internal readonly Predicate<TValue>[]? Constants;

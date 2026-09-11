@@ -46,6 +46,7 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TSub : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> IfCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), condition, branch);
 
 	/// <summary>Replays <paramref name="then" /> when <paramref name="condition" /> holds for the execution arguments, <paramref name="otherwise" /> when it does not.</summary>
@@ -72,6 +73,7 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TResolverChain : struct, IResolvers
 		where TThen : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TElse : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> IfElseCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), condition, then, otherwise);
 
 	// ── Nested-conditional receiver ──────────────────────────────────────────────
@@ -94,6 +96,7 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TSub : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> IfCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), condition, branch);
 
 	/// <summary>Nested two-way conditional narrowing inside an <c>If</c> / <c>IfElse</c> branch.</summary>
@@ -120,6 +123,7 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TResolverChain : struct, IResolvers
 		where TThen : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TElse : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> IfElseCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), condition, then, otherwise);
 
 	// ── Or-branch receiver (narrow-only) ─────────────────────────────────────────
@@ -142,6 +146,7 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TSub : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> IfCore(in builder, PreparedBranchSeeds.NarrowOnly<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), condition, branch);
 
 	/// <summary>Two-way conditional narrowing inside an <c>Or</c> branch: both branches are narrow-only, as the enclosing <c>Or</c> branch is.</summary>
@@ -168,6 +173,7 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TResolverChain : struct, IResolvers
 		where TThen : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TElse : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct
 		=> IfElseCore(in builder, PreparedBranchSeeds.NarrowOnly<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), condition, then, otherwise);
 
 	// ── Cores ────────────────────────────────────────────────────────────────────
@@ -195,7 +201,8 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
-		where TSub : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TSub : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		ArgumentNullException.ThrowIfNull(condition);
 		ArgumentNullException.ThrowIfNull(branch);
 		var sub = branch(seed)._leftQuery._chain;
@@ -228,7 +235,8 @@ public static class PreparedQueryBuilderIfExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TThen : struct, INarrowerChain<TKey, TValue, TArgs>
-		where TElse : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TElse : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		ArgumentNullException.ThrowIfNull(condition);
 		ArgumentNullException.ThrowIfNull(then);
 		ArgumentNullException.ThrowIfNull(otherwise);

@@ -11,7 +11,8 @@ using QueryBuilders;
 public readonly struct UniqueIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPointLookupSource<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly TIndexKey _value;
 
@@ -38,7 +39,8 @@ public readonly struct UniqueIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower
 public readonly struct UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPointLookupSource<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, TIndexKey> _selector;
 
@@ -65,7 +67,8 @@ public readonly struct UniqueIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarro
 public readonly struct ListIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly TIndexKey _value;
 
@@ -88,7 +91,8 @@ public readonly struct ListIndexEq<TKey, TValue, TIndexKey, TArgs> : INarrower<T
 public readonly struct ListIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, TIndexKey> _selector;
 
@@ -115,7 +119,8 @@ public readonly struct ListIndexEqArg<TKey, TValue, TIndexKey, TArgs> : INarrowe
 public readonly struct UniqueIndexIn<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly ReadOnlyMemory<TIndexKey> _values;
 
@@ -138,7 +143,8 @@ public readonly struct UniqueIndexIn<TKey, TValue, TIndexKey, TArgs> : INarrower
 public readonly struct UniqueIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, ReadOnlyMemory<TIndexKey>> _selector;
 
@@ -161,7 +167,8 @@ public readonly struct UniqueIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarro
 public readonly struct ListIndexIn<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly ReadOnlyMemory<TIndexKey> _values;
 
@@ -184,7 +191,8 @@ public readonly struct ListIndexIn<TKey, TValue, TIndexKey, TArgs> : INarrower<T
 public readonly struct ListIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, ReadOnlyMemory<TIndexKey>> _selector;
 
@@ -210,7 +218,8 @@ public readonly struct ListIndexInArg<TKey, TValue, TIndexKey, TArgs> : INarrowe
 public readonly struct ListIndexInProjected<TKey, TValue, TIndexKey, TOtherValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueListIndex<TKey, TValue, TIndexKey> _index;
 	private readonly ReadOnlyMemory<TOtherValue> _values;
 	private readonly Func<TOtherValue, TIndexKey> _keySelector;
@@ -234,7 +243,8 @@ public readonly struct ListIndexInProjected<TKey, TValue, TIndexKey, TOtherValue
 /// <summary>Key-set (predicate) index: the index itself is the whole description, nothing to bind.</summary>
 public readonly struct KeySetNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly CacheKeySetIndex<TKey, TValue> _index;
 
 	public KeySetNarrower(CacheKeySetIndex<TKey, TValue> index) => _index = index;
@@ -255,7 +265,8 @@ public readonly struct KeySetNarrower<TKey, TValue, TArgs> : INarrower<TKey, TVa
 /// </summary>
 public readonly struct FilterNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly Predicate<TValue> _predicate;
 
 	public FilterNarrower(Predicate<TValue> predicate) => _predicate = predicate;
@@ -277,7 +288,8 @@ public readonly struct FilterNarrower<TKey, TValue, TArgs> : INarrower<TKey, TVa
 /// </summary>
 public readonly struct FilterArgNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly ArgFilter<TValue, TArgs> _predicate;
 
 	public FilterArgNarrower(ArgFilter<TValue, TArgs> predicate) => _predicate = predicate;

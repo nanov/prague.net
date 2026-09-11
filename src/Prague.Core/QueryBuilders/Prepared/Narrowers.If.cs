@@ -14,7 +14,8 @@ using QueryBuilders;
 public readonly struct IfNarrower<TKey, TValue, TArgs, TSub> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TSub : struct, INarrowerChain<TKey, TValue, TArgs> {
+	where TSub : struct, INarrowerChain<TKey, TValue, TArgs>
+	where TArgs : struct {
 	private readonly Func<TArgs, bool> _condition;
 	private readonly TSub _sub;
 
@@ -42,7 +43,8 @@ public readonly struct IfElseNarrower<TKey, TValue, TArgs, TThen, TElse> : INarr
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TThen : struct, INarrowerChain<TKey, TValue, TArgs>
-	where TElse : struct, INarrowerChain<TKey, TValue, TArgs> {
+	where TElse : struct, INarrowerChain<TKey, TValue, TArgs>
+	where TArgs : struct {
 	private readonly Func<TArgs, bool> _condition;
 	private readonly TThen _then;
 	private readonly TElse _else;

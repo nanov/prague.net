@@ -144,7 +144,9 @@ public class FrozenPipelineJoinTests {
 
 	private static bool IsClone(Variant v) => v is Variant.ExecuteCloned or Variant.ExecutePooledCloned;
 
-	private static QueryResults<T> Run<TArgs, T>(PreparedQuery<TArgs, T> q, in TArgs args, Variant v, int skip, int take) => v switch {
+	private static QueryResults<T> Run<TArgs, T>(PreparedQuery<TArgs, T> q, in TArgs args, Variant v, int skip, int take)
+		where TArgs : struct
+		=> v switch {
 		Variant.Execute => q.Execute(in args, skip, take),
 		Variant.ExecuteCloned => q.ExecuteCloned(in args, skip, take),
 		Variant.ExecutePooled => q.ExecutePooled(in args, skip, take),
@@ -256,7 +258,8 @@ public class FrozenPipelineJoinTests {
 
 	/// <summary>(a): frozen takes the pipeline; every variant × page equals eager (sequence, or per <see cref="AssertSamePageOfSet{TResult}" /> when asked) and prepared; Count agrees three ways.</summary>
 	private static void AssertParity<TArgs, TResult>(Func<Variant, int, int, QueryResults<TResult>> eager, Func<int> eagerCount, PreparedQuery<TArgs, TResult> prepared, FrozenQuery<TArgs, TResult> frozen,
-		TArgs args, Func<TResult, string> row, string label, bool sequence = true, Action<QueryResults<TResult>, bool, string>? identity = null) {
+		TArgs args, Func<TResult, string> row, string label, bool sequence = true, Action<QueryResults<TResult>, bool, string>? identity = null)
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		using var whole = frozen.Execute(in args);
 		foreach (var v in Variants)

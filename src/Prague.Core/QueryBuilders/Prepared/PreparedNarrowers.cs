@@ -16,7 +16,8 @@ using Collections;
 public readonly struct PreparedNarrowers<TKey, TValue, TArgs, TChain> : ICandidatesExecutor<TKey, TValue>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TChain : struct, INarrowerChain<TKey, TValue, TArgs> {
+	where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+	where TArgs : struct {
 	internal readonly InMemoryDataCache<TKey, TValue> _cache;
 	internal readonly TChain _chain;
 

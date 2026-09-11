@@ -33,4 +33,5 @@ namespace Prague.Core;
 ///   pooled binding box, <c>ArgPredicate&lt;TValue, TArgs&gt;</c>.
 ///   </para>
 /// </remarks>
-public delegate bool ArgFilter<in TValue, TArgs>(TValue value, in TArgs args);
+public delegate bool ArgFilter<in TValue, TArgs>(TValue value, in TArgs args)
+	where TArgs : struct;

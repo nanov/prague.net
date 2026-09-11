@@ -38,7 +38,8 @@ using Collections;
 /// </summary>
 internal sealed unsafe class OrStep<TKey, TValue, TArgs> : IPipelineStep<TKey, TValue, TArgs>, IOrStepExplain
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	/// <summary>One branch: its nodes (leaves and narrow-only <c>If</c> / <c>Match</c>), every leaf reachable in it, and whether it counts as a narrowing of the Or (a branch flattened out of a nested Or does not — the eager nested <c>OrWith</c> unions its bits into the enclosing branch without touching its <c>_first</c>).</summary>
 	internal sealed class Branch(PipelineNode<TArgs>[] nodes, byte[] leaves, bool narrows) {
 		internal readonly PipelineNode<TArgs>[] Nodes = nodes;

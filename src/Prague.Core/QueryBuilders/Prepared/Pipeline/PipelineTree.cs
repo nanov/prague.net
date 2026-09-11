@@ -24,7 +24,8 @@ internal enum PipelineNodeKind : byte {
 ///   binds its steps flat. The leaf steps of every node — taken arms or not — live in the plan's one
 ///   step array, so an untaken arm's steps simply stay unbound and cost nothing in the pass.
 /// </summary>
-internal abstract class PipelineNode<TArgs> {
+internal abstract class PipelineNode<TArgs>
+	where TArgs : struct {
 	// A plain field, not a virtual property: BindNodes / BindBranch switch on this once per node per
 	// execution, and every concrete node type is sealed — a field read beats a virtual dispatch through
 	// the (necessarily unsealed, since every node kind shares it) base-typed array element with no
@@ -47,7 +48,8 @@ internal abstract class PipelineNode<TArgs> {
 	}
 }
 
-internal sealed class LeafNode<TArgs> : PipelineNode<TArgs> {
+internal sealed class LeafNode<TArgs> : PipelineNode<TArgs>
+	where TArgs : struct {
 	internal readonly byte Step;
 	private readonly NarrowerKind _kind;
 
@@ -59,7 +61,8 @@ internal sealed class LeafNode<TArgs> : PipelineNode<TArgs> {
 	internal override void Explain(StringBuilder sb) => sb.Append("step ").Append(Step).Append(' ').Append(_kind);
 }
 
-internal sealed class FilterNode<TArgs> : PipelineNode<TArgs> {
+internal sealed class FilterNode<TArgs> : PipelineNode<TArgs>
+	where TArgs : struct {
 	internal readonly byte Filter;
 
 	internal FilterNode(byte filter) : base(PipelineNodeKind.Filter) => Filter = filter;
@@ -68,12 +71,14 @@ internal sealed class FilterNode<TArgs> : PipelineNode<TArgs> {
 }
 
 /// <summary>Picks the arm of an <c>If</c> / <c>IfElse</c> / <c>Match</c> for one execution's arguments: the arm's index, or -1 for none (a false <c>If</c> with no <c>else</c>). <c>Match</c> always picks an arm — its chain is closed by a <c>Default</c>.</summary>
-internal interface IBranchSelector<TArgs> {
+internal interface IBranchSelector<TArgs>
+	where TArgs : struct {
 	int Select(in TArgs args);
 }
 
 /// <summary>The <c>If</c> (one arm) and <c>IfElse</c> (two arms) condition, the descriptor's own delegate.</summary>
-internal sealed class IfSelector<TArgs>(Func<TArgs, bool> condition, bool hasElse) : IBranchSelector<TArgs> {
+internal sealed class IfSelector<TArgs>(Func<TArgs, bool> condition, bool hasElse) : IBranchSelector<TArgs>
+	where TArgs : struct {
 	public int Select(in TArgs args) => condition(args) ? 0 : hasElse ? 1 : -1;
 }
 
@@ -82,7 +87,8 @@ internal sealed class IfSelector<TArgs>(Func<TArgs, bool> condition, bool hasEls
 ///   <see cref="EqualityComparer{T}.Default" /> (the replay's rule — a tag declared twice resolves to its
 ///   first arm), else the default arm, which is always the last and always there.
 /// </summary>
-internal sealed class MatchSelector<TArgs, TTag>(Func<TArgs, TTag> selector, TTag[] tags) : IBranchSelector<TArgs> {
+internal sealed class MatchSelector<TArgs, TTag>(Func<TArgs, TTag> selector, TTag[] tags) : IBranchSelector<TArgs>
+	where TArgs : struct {
 	public int Select(in TArgs args) {
 		var tag = selector(args);
 		for (var i = 0; i < tags.Length; i++)
@@ -93,12 +99,14 @@ internal sealed class MatchSelector<TArgs, TTag>(Func<TArgs, TTag> selector, TTa
 }
 
 /// <summary>A narrower that can build the typed <see cref="IBranchSelector{TArgs}" /> for its descriptor (the <c>Match</c> narrower, which alone knows its <c>TTag</c>).</summary>
-internal interface IBranchSelectorSource<TArgs> {
+internal interface IBranchSelectorSource<TArgs>
+	where TArgs : struct {
 	IBranchSelector<TArgs> CreateSelector(MatchArmTags tags);
 }
 
 /// <summary>An <c>If</c> / <c>IfElse</c> / <c>Match</c> node: the selector and one node list per arm (the <c>Match</c> default last).</summary>
-internal sealed class SelectNode<TArgs> : PipelineNode<TArgs> {
+internal sealed class SelectNode<TArgs> : PipelineNode<TArgs>
+	where TArgs : struct {
 	/// <summary>The node's index among the plan's select nodes, for the last-bind record.</summary>
 	internal readonly int Id;
 	internal readonly NarrowerKind Kind;
@@ -138,7 +146,8 @@ internal sealed class SelectNode<TArgs> : PipelineNode<TArgs> {
 }
 
 /// <summary>An <c>Or</c> node: the index of its <see cref="OrStep{TKey,TValue,TArgs}" /> in the plan's step array, which carries the branches.</summary>
-internal sealed class OrNode<TArgs> : PipelineNode<TArgs> {
+internal sealed class OrNode<TArgs> : PipelineNode<TArgs>
+	where TArgs : struct {
 	internal readonly byte Step;
 	private readonly IOrStepExplain _or;
 
@@ -159,7 +168,8 @@ internal interface IOrStepExplain {
 }
 
 /// <summary>A pipeline plan's shape when it has composites: the top-level nodes and how many select nodes they hold (for the last-bind record).</summary>
-internal sealed class PipelineTree<TArgs>(PipelineNode<TArgs>[] top, int selectCount) {
+internal sealed class PipelineTree<TArgs>(PipelineNode<TArgs>[] top, int selectCount)
+	where TArgs : struct {
 	internal readonly PipelineNode<TArgs>[] Top = top;
 	internal readonly int SelectCount = selectCount;
 }

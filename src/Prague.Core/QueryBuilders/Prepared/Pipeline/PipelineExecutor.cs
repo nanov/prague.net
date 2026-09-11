@@ -22,7 +22,8 @@ using Collections;
 /// </summary>
 internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly IPipelineStep<TKey, TValue, TArgs>[] _steps;
 	private readonly FilterStep<TValue, TArgs>[] _filters;
@@ -601,7 +602,8 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFrozenExecutor<TArgs, TValue>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TResolver : struct, IJoinResolver {
+	where TResolver : struct, IJoinResolver
+	where TArgs : struct {
 	private readonly PipelineCore<TKey, TValue, TArgs> _core;
 	private readonly Resolvers<TResolver> _resolvers;
 	// The resolver half of the eager gate, decided once: the resolver is immutable after build.

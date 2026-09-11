@@ -16,7 +16,8 @@ using Collections;
 internal sealed class RangeStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepBase<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : IComparable<TIndexKey> {
+	where TIndexKey : IComparable<TIndexKey>
+	where TArgs : struct {
 	private readonly CacheRangeIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, (RangeValue<TIndexKey> From, RangeValue<TIndexKey> To)> _bounds;
 

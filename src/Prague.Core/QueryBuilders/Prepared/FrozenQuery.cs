@@ -14,7 +14,8 @@ using TypeSystem;
 ///   inspection surface; the typed chain is kept alongside the metadata so the replay fallback (and
 ///   future specialized executors that still want JIT-specialized sub-steps) have it.
 /// </summary>
-public abstract class FrozenQuery<TArgs, TResult> : PreparedQuery<TArgs, TResult> {
+public abstract class FrozenQuery<TArgs, TResult> : PreparedQuery<TArgs, TResult>
+	where TArgs : struct {
 	internal abstract PlanInfo Plan { get; }
 
 	/// <summary>The flattened ops, the executor <c>BuildFrozen()</c> chose and the optimizations active on the plan (with their live state). Cold path; allocates.</summary>
@@ -32,7 +33,8 @@ public abstract class FrozenQuery<TArgs, TResult> : PreparedQuery<TArgs, TResult
 ///   <c>Execute</c> lands in a body that is fully specialized per executor — the constrained call on
 ///   the struct field devirtualizes and inlines.
 /// </summary>
-internal interface IFrozenExecutor<TArgs, TResult> {
+internal interface IFrozenExecutor<TArgs, TResult>
+	where TArgs : struct {
 	static abstract string Name { get; }
 
 	QueryResults<TResult> Execute(in TArgs args, bool pool, bool clone, int skip, int take);
@@ -41,7 +43,8 @@ internal interface IFrozenExecutor<TArgs, TResult> {
 }
 
 internal sealed class FrozenQuery<TArgs, TResult, TExecutor> : FrozenQuery<TArgs, TResult>
-	where TExecutor : struct, IFrozenExecutor<TArgs, TResult> {
+	where TExecutor : struct, IFrozenExecutor<TArgs, TResult>
+	where TArgs : struct {
 	// Not readonly on purpose: an interface call on a readonly field whose type is a struct type
 	// parameter makes the compiler copy the whole executor (chain included) per execution. The field is
 	// never written after construction.
@@ -81,7 +84,8 @@ internal readonly struct ReplaySimpleExecutor<TKey, TValue, TArgs, TChain, TReso
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TResolver : struct, IJoinResolver
-	where TPlan : struct, IPreparedSimplePlan {
+	where TPlan : struct, IPreparedSimplePlan
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly TChain _chain;
 	private readonly Resolvers<TResolver> _resolvers;
@@ -114,7 +118,8 @@ internal readonly struct OptimizedReplaySimpleExecutor<TKey, TValue, TArgs, TCha
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TResolver : struct, IJoinResolver
-	where TPlan : struct, IPreparedSimplePlan {
+	where TPlan : struct, IPreparedSimplePlan
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly TChain _chain;
 	private readonly Resolvers<TResolver> _resolvers;
@@ -146,7 +151,8 @@ internal readonly struct ReplayJoinedExecutor<TKey, TValue, TArgs, TChain, TReso
 	where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TResolverChain : struct, IResolvers
 	where TResult : struct, IJoinResult<TValue>
-	where TPlan : struct, IPreparedJoinedPlan {
+	where TPlan : struct, IPreparedJoinedPlan
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly TChain _chain;
 	private readonly TResolverChain _resolvers;
@@ -176,7 +182,8 @@ internal readonly struct OptimizedReplayJoinedExecutor<TKey, TValue, TArgs, TCha
 	where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TResolverChain : struct, IResolvers
 	where TResult : struct, IJoinResult<TValue>
-	where TPlan : struct, IPreparedJoinedPlan {
+	where TPlan : struct, IPreparedJoinedPlan
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly TChain _chain;
 	private readonly TResolverChain _resolvers;
@@ -217,7 +224,8 @@ internal static class FrozenReplay {
 	internal static void ApplyFused<TKey, TValue, TArgs, TCore>(ref TCore core, FusedFilter<TValue, TArgs> fused, bool sampled, in TArgs args)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TCore : struct, ICandidatesFilterer<TKey, TValue> {
+		where TCore : struct, ICandidatesFilterer<TKey, TValue>
+		where TArgs : struct {
 		if (fused.HasArgs)
 			core.WhereInternal(ArgPredicatePool<TValue, TArgs>.RentFused(fused, fused.Ordering, sampled, in args));
 		else
@@ -228,6 +236,7 @@ internal static class FrozenReplay {
 	internal static void ApplyFused<TKey, TValue, TArgs>(ref CacheQueryBuilderCoreCombined<TKey, TValue> core, FusedFilter<TValue, TArgs> fused, bool sampled, in TArgs args)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TArgs : struct
 		=> ApplyFused<TKey, TValue, TArgs, CacheQueryBuilderCoreCombined<TKey, TValue>>(ref core, fused, sampled, in args);
 
 	// The hint pre-creates the candidate set the eager core would create lazily on its first index
@@ -248,7 +257,8 @@ internal static class FrozenReplay {
 		InMemoryDataCache<TKey, TValue> cache, in TChain chain, in TArgs args, FusedFilter<TValue, TArgs>? fused, bool sampled, FrozenHints? hints)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TChain : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		var core = new CacheQueryBuilderCoreCombined<TKey, TValue>(cache);
 		if (hints is not null)
 			PreSize(ref core, hints);
@@ -276,7 +286,8 @@ internal static class FrozenReplay {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolver : struct, IJoinResolver
-		where TPlan : struct, IPreparedSimplePlan {
+		where TPlan : struct, IPreparedSimplePlan
+		where TArgs : struct {
 		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
 		var sampled = fused is not null && fused.BeginExecution();
 		try {
@@ -296,7 +307,8 @@ internal static class FrozenReplay {
 	internal static int CountSimple<TKey, TValue, TArgs, TChain>(InMemoryDataCache<TKey, TValue> cache, in TChain chain, in TArgs args, FusedFilter<TValue, TArgs>? fused, FrozenHints? hints)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TChain : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
 		var sampled = fused is not null && fused.BeginExecution();
 		try {
@@ -319,7 +331,8 @@ internal static class FrozenReplay {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
-		where TPlan : struct, IPreparedJoinedPlan {
+		where TPlan : struct, IPreparedJoinedPlan
+		where TArgs : struct {
 		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
 		var sampled = fused is not null && fused.BeginExecution();
 		try {
@@ -342,7 +355,8 @@ internal static class FrozenReplay {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
-		where TResult : struct, IJoinResult<TValue> {
+		where TResult : struct, IJoinResult<TValue>
+		where TArgs : struct {
 		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
 		var sampled = fused is not null && fused.BeginExecution();
 		try {
@@ -400,7 +414,8 @@ internal static class FrozenPlanner {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolver : struct, IJoinResolver
-		where TPlan : struct, IPreparedSimplePlan {
+		where TPlan : struct, IPreparedSimplePlan
+		where TArgs : struct {
 		var narrowers = new List<NarrowerDescriptor>();
 		chain.Describe(narrowers);
 		var hasResolvers = typeof(TResolver) != typeof(BaseResolver<TKey, TValue>);
@@ -453,7 +468,8 @@ internal static class FrozenPlanner {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
-		where TPlan : struct, IPreparedJoinedPlan {
+		where TPlan : struct, IPreparedJoinedPlan
+		where TArgs : struct {
 		var narrowers = new List<NarrowerDescriptor>();
 		chain.Describe(narrowers);
 		var names = new List<string>();
@@ -496,7 +512,8 @@ internal static class FrozenPlanner {
 
 	// Two or more top-level filters fuse; a single one is already one delegate in the eager core and
 	// gains nothing from a wrapper. Filters inside composite branches stay in their sub-chains.
-	private static FusedFilter<TValue, TArgs>? Fuse<TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers, FrozenOptions options, List<string> names, List<IPlanExplainable> live) {
+	private static FusedFilter<TValue, TArgs>? Fuse<TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers, FrozenOptions options, List<string> names, List<IPlanExplainable> live)
+		where TArgs : struct {
 		if (!options.FuseFilters)
 			return null;
 		var count = 0;
@@ -566,7 +583,8 @@ internal static class FrozenPlanner {
 	}
 
 	// Every top-level filter in build order, unboxed once; the pipeline applies them directly.
-	private static FilterStep<TValue, TArgs>[] TopLevelFilterSteps<TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers) {
+	private static FilterStep<TValue, TArgs>[] TopLevelFilterSteps<TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers)
+		where TArgs : struct {
 		var list = new List<FilterStep<TValue, TArgs>>();
 		for (var i = 0; i < narrowers.Count; i++) {
 			var d = narrowers[i];
@@ -580,7 +598,8 @@ internal static class FrozenPlanner {
 	}
 
 	// The filters after the unique step, unboxed once into typed steps the executor applies in order.
-	private static FilterStep<TValue, TArgs>[] FilterSteps<TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers) {
+	private static FilterStep<TValue, TArgs>[] FilterSteps<TValue, TArgs>(IReadOnlyList<NarrowerDescriptor> narrowers)
+		where TArgs : struct {
 		if (narrowers.Count == 1)
 			return [];
 		var steps = new FilterStep<TValue, TArgs>[narrowers.Count - 1];

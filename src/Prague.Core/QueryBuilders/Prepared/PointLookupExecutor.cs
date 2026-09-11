@@ -11,7 +11,8 @@ using Utils;
 /// </summary>
 internal interface IPointLookupSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	FrozenQuery<TArgs, TValue> CreateFrozen(InMemoryDataCache<TKey, TValue> cache, FilterStep<TValue, TArgs>[] filters, IReadOnlyList<NarrowerDescriptor> narrowers);
 }
 
@@ -21,7 +22,8 @@ internal interface IPointLookupSource<TKey, TValue, TArgs>
 ///   box on this path, because the executor applies its own filters instead of handing a
 ///   <see cref="Predicate{T}" /> to the eager core.
 /// </summary>
-internal readonly struct FilterStep<TValue, TArgs> {
+internal readonly struct FilterStep<TValue, TArgs>
+	where TArgs : struct {
 	private readonly Predicate<TValue>? _constant;
 	private readonly ArgFilter<TValue, TArgs>? _arg;
 
@@ -47,7 +49,8 @@ internal readonly struct FilterStep<TValue, TArgs> {
 internal readonly struct PointLookupExecutor<TKey, TValue, TArgs, TIndexKey> : IFrozenExecutor<TArgs, TValue>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly TIndexKey _value;

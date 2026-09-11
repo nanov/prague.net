@@ -12,7 +12,8 @@ using Collections;
 /// </summary>
 internal sealed class LastUpdatedStep<TKey, TValue, TArgs> : PipelineStepBase<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly LastUpdatedIndex<TKey> _index;
 	private readonly long _after;
 	private readonly long _until;

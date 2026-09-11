@@ -63,3 +63,12 @@ internal static class PreparedParity {
 		return cache;
 	}
 }
+
+/// <summary>
+///   A one-field box for a prepared query whose only execution argument is a reference type. <c>TArgs</c>
+///   is constrained to <c>struct</c>, so a bare <c>string</c> or array can never be the argument type.
+/// </summary>
+internal readonly record struct TextArg(string Text);
+
+/// <summary>The array twin of <see cref="TextArg" />, for multi-value lanes fed from the arguments.</summary>
+internal readonly record struct ValuesArg(long[] Values);

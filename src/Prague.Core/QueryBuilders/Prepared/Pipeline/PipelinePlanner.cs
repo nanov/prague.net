@@ -19,7 +19,8 @@ namespace Prague.Core;
 /// </summary>
 internal sealed class PipelinePlanner<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly FrozenOptions _options;
 	private readonly List<IPipelineStep<TKey, TValue, TArgs>> _steps = [];

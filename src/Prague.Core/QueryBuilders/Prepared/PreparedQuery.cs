@@ -12,7 +12,8 @@ using TypeSystem;
 ///   The abstract base exists only to give the unnameable closed builder type a storable name — the
 ///   single allocation of a prepared query is the derived instance created by <c>Build()</c>.
 /// </summary>
-public abstract class PreparedQuery<TArgs, TResult> {
+public abstract class PreparedQuery<TArgs, TResult>
+	where TArgs : struct {
 	public abstract QueryResults<TResult> Execute(in TArgs args, int skip = 0, int take = int.MaxValue);
 
 	public abstract QueryResults<TResult> ExecuteCloned(in TArgs args, int skip = 0, int take = int.MaxValue);
@@ -94,7 +95,8 @@ internal sealed class PreparedSimpleQuery<TKey, TValue, TArgs, TChain, TResolver
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TResolver : struct, IJoinResolver
-	where TPlan : struct, IPreparedSimplePlan {
+	where TPlan : struct, IPreparedSimplePlan
+	where TArgs : struct {
 	private readonly InMemoryDataCache<TKey, TValue> _cache;
 	private readonly TChain _chain;
 	private readonly Resolvers<TResolver> _resolvers;
@@ -136,7 +138,8 @@ internal static class PreparedReplay {
 	internal static CacheQueryBuilderCoreCombined<TKey, TValue> Into<TKey, TValue, TArgs, TChain>(InMemoryDataCache<TKey, TValue> cache, in TChain chain, in TArgs args)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TChain : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		var core = new CacheQueryBuilderCoreCombined<TKey, TValue>(cache);
 		try {
 			chain.Replay(ref core, in args);
@@ -157,7 +160,8 @@ internal static class PreparedReplay {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolver : struct, IJoinResolver
-		where TPlan : struct, IPreparedSimplePlan {
+		where TPlan : struct, IPreparedSimplePlan
+		where TArgs : struct {
 		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
 		try {
 			// The eager path's Query() also copies the core into the combined builder; the copy inside
@@ -177,7 +181,8 @@ internal static class PreparedReplay {
 	internal static int CountSimple<TKey, TValue, TArgs, TChain>(InMemoryDataCache<TKey, TValue> cache, in TChain chain, in TArgs args)
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-		where TChain : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
 		try {
 			var core = Into(cache, in chain, in args);
@@ -199,7 +204,8 @@ internal static class PreparedReplay {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
-		where TPlan : struct, IPreparedJoinedPlan {
+		where TPlan : struct, IPreparedJoinedPlan
+		where TArgs : struct {
 		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
 		try {
 			var builder = WrapJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(cache, in chain, in resolvers, manyCount, in args);
@@ -218,7 +224,8 @@ internal static class PreparedReplay {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
-		where TResult : struct, IJoinResult<TValue> {
+		where TResult : struct, IJoinResult<TValue>
+		where TArgs : struct {
 		var mark = ArgPredicatePool<TValue, TArgs>.Mark();
 		try {
 			var builder = WrapJoined<TKey, TValue, TArgs, TChain, TResolverChain, TResult>(cache, in chain, in resolvers, manyCount, in args);
@@ -236,5 +243,6 @@ internal static class PreparedReplay {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TResult : struct, IJoinResult<TValue>
+		where TArgs : struct
 		=> new(new ExecutableQuery<InMemoryDataCache<TKey, TValue>>(cache), Into(cache, in chain, in args), resolvers, manyCount);
 }

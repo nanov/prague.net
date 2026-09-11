@@ -60,7 +60,8 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TResolverChain : struct, IResolvers
-	where TResult : struct, IJoinResult<TValue> {
+	where TResult : struct, IJoinResult<TValue>
+	where TArgs : struct {
 	private readonly PipelineCore<TKey, TValue, TArgs> _core;
 	private readonly TResolverChain _resolvers;
 	private readonly int _manyCount;

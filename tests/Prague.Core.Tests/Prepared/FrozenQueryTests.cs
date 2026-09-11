@@ -72,7 +72,9 @@ public class FrozenQueryTests {
 
 	// ── Helpers ───────────────────────────────────────────────────────────────────
 
-	private static QueryResults<PqItem> Run<TArgs>(PreparedQuery<TArgs, PqItem> q, in TArgs args, Variant v, int skip, int take) => v switch {
+	private static QueryResults<PqItem> Run<TArgs>(PreparedQuery<TArgs, PqItem> q, in TArgs args, Variant v, int skip, int take)
+		where TArgs : struct
+		=> v switch {
 		Variant.Execute => q.Execute(in args, skip, take),
 		Variant.ExecuteCloned => q.ExecuteCloned(in args, skip, take),
 		Variant.ExecutePooled => q.ExecutePooled(in args, skip, take),
@@ -113,7 +115,8 @@ public class FrozenQueryTests {
 		}
 	}
 
-	private void AssertAllVariantsAndPages<TArgs>(Func<EagerItems> eager, PreparedQuery<TArgs, PqItem> prepared, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label) {
+	private void AssertAllVariantsAndPages<TArgs>(Func<EagerItems> eager, PreparedQuery<TArgs, PqItem> prepared, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label)
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("PointLookup"), label);
 		foreach (var v in Variants)
 			foreach (var (skip, take) in Pages) {

@@ -15,7 +15,8 @@ public readonly struct MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArg
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTag : notnull
-	where TArms : struct, IMatchArms<TKey, TValue, TArgs, TTag> {
+	where TArms : struct, IMatchArms<TKey, TValue, TArgs, TTag>
+	where TArgs : struct {
 	internal readonly CacheQueryBuilderCombined<TBranchDiscriminator,
 		PreparedNarrowers<TKey, TValue, TArgs, EmptyNarrowers<TKey, TValue, TArgs>>, TKey, TValue, Resolvers<BaseResolver<TKey, TValue>>, TValue> _seed;
 	internal readonly TArms _arms;
@@ -71,7 +72,8 @@ public static class PreparedQueryBuilderMatchExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TTag : notnull
 		where TArms : struct, IOpenMatchArms<TKey, TValue, TArgs, TTag>
-		where TArm : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TArm : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		ArgumentNullException.ThrowIfNull(arm);
 		var chain = arm(arms._seed)._leftQuery._chain;
 		return new(in arms._seed, new MatchArms<TArms, TArm, TKey, TValue, TArgs, TTag>(in arms._arms, tag, in chain));
@@ -94,7 +96,8 @@ public static class PreparedQueryBuilderMatchExtensions {
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TTag : notnull
 		where TArms : struct, IOpenMatchArms<TKey, TValue, TArgs, TTag>
-		where TArm : struct, INarrowerChain<TKey, TValue, TArgs> {
+		where TArm : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
 		ArgumentNullException.ThrowIfNull(arm);
 		var chain = arm(arms._seed)._leftQuery._chain;
 		return new(in arms._seed, new DefaultArm<TArms, TArm, TKey, TValue, TArgs, TTag>(in arms._arms, in chain));
@@ -113,7 +116,8 @@ public static class PreparedQueryBuilderMatchExtensions {
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 		where TTag : notnull
-		where TArms : struct, IOpenMatchArms<TKey, TValue, TArgs, TTag> {
+		where TArms : struct, IOpenMatchArms<TKey, TValue, TArgs, TTag>
+		where TArgs : struct {
 		var chain = arms._seed._leftQuery._chain;
 		return new(in arms._seed, new DefaultArm<TArms, EmptyNarrowers<TKey, TValue, TArgs>, TKey, TValue, TArgs, TTag>(in arms._arms, in chain));
 	}
@@ -137,6 +141,7 @@ public static class PreparedQueryBuilderMatchExtensions {
 		where TResolverChain : struct, IResolvers
 		where TTag : notnull
 		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, TTag>
+		where TArgs : struct
 		=> MatchCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), selector, arms);
 
 	// ── Nested receiver (inside an If branch or a Match arm) ─────────────────────
@@ -158,6 +163,7 @@ public static class PreparedQueryBuilderMatchExtensions {
 		where TResolverChain : struct, IResolvers
 		where TTag : notnull
 		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, TTag>
+		where TArgs : struct
 		=> MatchCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), selector, arms);
 
 	// ── Or-branch receiver (narrow-only arms) ────────────────────────────────────
@@ -179,6 +185,7 @@ public static class PreparedQueryBuilderMatchExtensions {
 		where TResolverChain : struct, IResolvers
 		where TTag : notnull
 		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, TTag>
+		where TArgs : struct
 		=> MatchCore(in builder, PreparedBranchSeeds.NarrowOnly<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), selector, arms);
 
 	// ── Core ─────────────────────────────────────────────────────────────────────
@@ -207,7 +214,8 @@ public static class PreparedQueryBuilderMatchExtensions {
 		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
 		where TResolverChain : struct, IResolvers
 		where TTag : notnull
-		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, TTag> {
+		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, TTag>
+		where TArgs : struct {
 		ArgumentNullException.ThrowIfNull(selector);
 		ArgumentNullException.ThrowIfNull(arms);
 		var recorded = arms(new MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArgs, TTag, EmptyArms<TKey, TValue, TArgs, TTag>>(in seed, default))._arms;

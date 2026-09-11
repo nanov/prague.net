@@ -9,7 +9,8 @@ using Collections;
 /// </summary>
 internal sealed class KeySetStep<TKey, TValue, TArgs> : PipelineStepBase<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly CacheKeySetIndex<TKey, TValue> _index;
 	private readonly bool _keySide;
 

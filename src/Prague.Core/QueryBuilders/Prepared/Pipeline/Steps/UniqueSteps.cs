@@ -10,7 +10,8 @@ using Collections;
 internal sealed class UniqueEqStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepBase<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly TIndexKey _value;
 	private readonly Func<TArgs, TIndexKey>? _selector;
@@ -53,7 +54,8 @@ internal sealed class UniqueEqStep<TKey, TValue, TIndexKey, TArgs> : PipelineSte
 internal sealed class UniqueInStep<TKey, TValue, TIndexKey, TArgs> : PipelineStepBase<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : notnull {
+	where TIndexKey : notnull
+	where TArgs : struct {
 	private readonly CacheKeyValueIndex<TKey, TValue, TIndexKey> _index;
 	private readonly ReadOnlyMemory<TIndexKey> _values;
 	private readonly Func<TArgs, ReadOnlyMemory<TIndexKey>>? _selector;

@@ -194,10 +194,10 @@ public class PreparedGeneratedFrozenJoinTests {
 		for (var b = 0; b < 30; b++)
 			books.AddOrUpdate(new CfkBook { Id = b, Title = b % 3 == 0 ? "alpha" : "beta", TagIds = b % 5 == 0 ? [] : [b % 8, (b + 3) % 8, 9] });
 
-		var forward = books.Prepare<string>().WithTitle(static t => t).JoinWithCfkTag().BuildFrozen();
-		var forwardInner = books.Prepare<string>().WithTitle(static t => t).InnerJoinWithCfkTag().BuildFrozen();
-		var reverse = tags.Prepare<string>().WithName(static n => n).JoinWithCfkBook().BuildFrozen();
-		var reverseInner = tags.Prepare<string>().WithName(static n => n).InnerJoinWithCfkBook().BuildFrozen();
+		var forward = books.Prepare<TextArg>().WithTitle(static a => a.Text).JoinWithCfkTag().BuildFrozen();
+		var forwardInner = books.Prepare<TextArg>().WithTitle(static a => a.Text).InnerJoinWithCfkTag().BuildFrozen();
+		var reverse = tags.Prepare<TextArg>().WithName(static a => a.Text).JoinWithCfkBook().BuildFrozen();
+		var reverseInner = tags.Prepare<TextArg>().WithName(static a => a.Text).InnerJoinWithCfkBook().BuildFrozen();
 		Assert.Multiple(() => {
 			Assert.That(forward.Explain(), Does.Contain("executor: Pipeline").And.Contain("many: 1"));
 			Assert.That(forwardInner.Explain(), Does.Contain("executor: Pipeline").And.Contain("many: 1"));
@@ -205,18 +205,20 @@ public class PreparedGeneratedFrozenJoinTests {
 			Assert.That(reverseInner.Explain(), Does.Contain("executor: Pipeline").And.Contain("many: 1"));
 		});
 		foreach (var title in new[] { "alpha", "beta", "gamma" }) {
-			AssertSameSet(books.Query().WithTitle(title).JoinWithCfkTag().Execute(), forward.Execute(title), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
-			AssertSameSet(books.Query().WithTitle(title).JoinWithCfkTag().ExecutePooledCloned(), forward.ExecutePooledCloned(title), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
-			AssertSameSet(books.Query().WithTitle(title).InnerJoinWithCfkTag().ExecutePooled(), forwardInner.ExecutePooled(title), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
-			Assert.That(forward.Count(title), Is.EqualTo(books.Query().WithTitle(title).JoinWithCfkTag().Count()), "forward Count " + title);
-			Assert.That(forwardInner.Count(title), Is.EqualTo(books.Query().WithTitle(title).InnerJoinWithCfkTag().Count()), "inner forward Count " + title);
+			var arg = new TextArg(title);
+			AssertSameSet(books.Query().WithTitle(title).JoinWithCfkTag().Execute(), forward.Execute(arg), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
+			AssertSameSet(books.Query().WithTitle(title).JoinWithCfkTag().ExecutePooledCloned(), forward.ExecutePooledCloned(arg), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
+			AssertSameSet(books.Query().WithTitle(title).InnerJoinWithCfkTag().ExecutePooled(), forwardInner.ExecutePooled(arg), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
+			Assert.That(forward.Count(arg), Is.EqualTo(books.Query().WithTitle(title).JoinWithCfkTag().Count()), "forward Count " + title);
+			Assert.That(forwardInner.Count(arg), Is.EqualTo(books.Query().WithTitle(title).InnerJoinWithCfkTag().Count()), "inner forward Count " + title);
 		}
 
 		foreach (var name in new[] { "fantasy", "scifi", "none" }) {
-			AssertSameSet(tags.Query().WithName(name).JoinWithCfkBook().Execute(), reverse.Execute(name), static r => CollectionRow(r, static t => t.Id, static b => b.Id));
-			AssertSameSet(tags.Query().WithName(name).InnerJoinWithCfkBook().ExecutePooled(1, 2), reverseInner.ExecutePooled(name, 1, 2), static r => CollectionRow(r, static t => t.Id, static b => b.Id));
-			Assert.That(reverse.Count(name), Is.EqualTo(tags.Query().WithName(name).JoinWithCfkBook().Count()), "reverse Count " + name);
-			Assert.That(reverseInner.Count(name), Is.EqualTo(tags.Query().WithName(name).InnerJoinWithCfkBook().Count()), "inner reverse Count " + name);
+			var arg = new TextArg(name);
+			AssertSameSet(tags.Query().WithName(name).JoinWithCfkBook().Execute(), reverse.Execute(arg), static r => CollectionRow(r, static t => t.Id, static b => b.Id));
+			AssertSameSet(tags.Query().WithName(name).InnerJoinWithCfkBook().ExecutePooled(1, 2), reverseInner.ExecutePooled(arg, 1, 2), static r => CollectionRow(r, static t => t.Id, static b => b.Id));
+			Assert.That(reverse.Count(arg), Is.EqualTo(tags.Query().WithName(name).JoinWithCfkBook().Count()), "reverse Count " + name);
+			Assert.That(reverseInner.Count(arg), Is.EqualTo(tags.Query().WithName(name).InnerJoinWithCfkBook().Count()), "inner reverse Count " + name);
 		}
 	}
 }

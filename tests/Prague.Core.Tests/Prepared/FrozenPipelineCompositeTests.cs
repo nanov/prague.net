@@ -89,7 +89,9 @@ public class FrozenPipelineCompositeTests {
 
 	// ── Helpers ───────────────────────────────────────────────────────────────────
 
-	private static QueryResults<T> Run<TArgs, T>(PreparedQuery<TArgs, T> q, in TArgs args, Variant v, int skip, int take) => v switch {
+	private static QueryResults<T> Run<TArgs, T>(PreparedQuery<TArgs, T> q, in TArgs args, Variant v, int skip, int take)
+		where TArgs : struct
+		=> v switch {
 		Variant.Execute => q.Execute(in args, skip, take),
 		Variant.ExecuteCloned => q.ExecuteCloned(in args, skip, take),
 		Variant.ExecutePooled => q.ExecutePooled(in args, skip, take),
@@ -149,7 +151,8 @@ public class FrozenPipelineCompositeTests {
 		Func<CacheQueryBuilderCombined<SortedQuery<TDisc>, CacheQueryBuilderCoreCombined<int, PqItem>, int, PqItem, Resolvers<TResolver>, PqItem>> eager,
 		PreparedQuery<TArgs, PqItem> prepared, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label)
 		where TDisc : struct, IExecutableQuery
-		where TResolver : struct, IJoinResolver {
+		where TResolver : struct, IJoinResolver
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		foreach (var v in Variants)
 			foreach (var (skip, take) in Pages) {
@@ -168,7 +171,8 @@ public class FrozenPipelineCompositeTests {
 		PreparedQuery<TArgs, TResult> prepared, FrozenQuery<TArgs, TResult> frozen, TArgs args, Func<TResult, string> row, string label)
 		where TDisc : struct, IExecutableQuery
 		where TChain : struct, IResolvers
-		where TResult : struct, IJoinResult<PqItem> {
+		where TResult : struct, IJoinResult<PqItem>
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		foreach (var v in Variants)
 			foreach (var (skip, take) in Pages) {
@@ -203,7 +207,8 @@ public class FrozenPipelineCompositeTests {
 		Func<CacheQueryBuilderCombined<TDisc, CacheQueryBuilderCoreCombined<int, PqItem>, int, PqItem, Resolvers<TResolver>, PqItem>> eager,
 		PreparedQuery<TArgs, PqItem> prepared, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label)
 		where TDisc : struct, IExecutableQuery
-		where TResolver : struct, IJoinResolver {
+		where TResolver : struct, IJoinResolver
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		foreach (var v in Variants)
 			foreach (var (skip, take) in Pages) {
@@ -222,7 +227,8 @@ public class FrozenPipelineCompositeTests {
 		PreparedQuery<TArgs, TResult> prepared, FrozenQuery<TArgs, TResult> frozen, TArgs args, Func<TResult, string> row, string label)
 		where TDisc : struct, IExecutableQuery
 		where TChain : struct, IResolvers
-		where TResult : struct, IJoinResult<PqItem> {
+		where TResult : struct, IJoinResult<PqItem>
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		foreach (var v in Variants)
 			foreach (var (skip, take) in Pages) {

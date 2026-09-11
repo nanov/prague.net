@@ -62,7 +62,9 @@ public class FrozenPipelineSeedTests {
 
 	// ── Helpers ───────────────────────────────────────────────────────────────────
 
-	private static QueryResults<PqItem> Run<TArgs>(PreparedQuery<TArgs, PqItem> q, in TArgs args, Variant v, int skip, int take) => v switch {
+	private static QueryResults<PqItem> Run<TArgs>(PreparedQuery<TArgs, PqItem> q, in TArgs args, Variant v, int skip, int take)
+		where TArgs : struct
+		=> v switch {
 		Variant.Execute => q.Execute(in args, skip, take),
 		Variant.ExecuteCloned => q.ExecuteCloned(in args, skip, take),
 		Variant.ExecutePooled => q.ExecutePooled(in args, skip, take),
@@ -112,7 +114,8 @@ public class FrozenPipelineSeedTests {
 	}
 
 	/// <summary>(a): the pipeline, every variant × page byte-identical to eager (with identity) and to prepared; Count.</summary>
-	private void AssertSequence<TArgs>(Func<EagerItems> eager, PreparedQuery<TArgs, PqItem> prepared, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label) {
+	private void AssertSequence<TArgs>(Func<EagerItems> eager, PreparedQuery<TArgs, PqItem> prepared, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label)
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		foreach (var v in Variants)
 			foreach (var (skip, take) in Pages) {
@@ -135,7 +138,8 @@ public class FrozenPipelineSeedTests {
 
 	/// <summary>(a) for a classic Sort: the sorted eager builder is its own closed type.</summary>
 	private void AssertSortedSequence<TArgs, TComparer>(Func<CacheQueryBuilderCombined<SortedQuery<ExecutableQuery<InMemoryDataCache<int, PqItem>>>, CacheQueryBuilderCoreCombined<int, PqItem>, int, PqItem, Resolvers<SortResolver<int, PqItem, PqItem, TComparer>>, PqItem>> eager, PreparedQuery<TArgs, PqItem> prepared, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label)
-		where TComparer : IComparer<PqItem> {
+		where TComparer : IComparer<PqItem>
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		foreach (var v in Variants)
 			foreach (var (skip, take) in Pages) {
@@ -150,7 +154,8 @@ public class FrozenPipelineSeedTests {
 	}
 
 	/// <summary>(b): the free seed — same set, same TotalCount, pages partition the whole, Count.</summary>
-	private static void AssertSet<TArgs>(Func<EagerItems> eager, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label) {
+	private static void AssertSet<TArgs>(Func<EagerItems> eager, FrozenQuery<TArgs, PqItem> frozen, TArgs args, string label)
+		where TArgs : struct {
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), label);
 		var expected = Ids(eager().Execute());
 		var all = Ids(frozen.Execute(in args));
@@ -172,7 +177,8 @@ public class FrozenPipelineSeedTests {
 
 	// The plan records a decision (and its signals) only when the decision changes, so the signals shown
 	// are those of the execution that last changed it: a fresh plan pins one execution's decision exactly.
-	private static string Decision<TArgs>(FrozenQuery<TArgs, PqItem> fresh, TArgs args, bool count = false) {
+	private static string Decision<TArgs>(FrozenQuery<TArgs, PqItem> fresh, TArgs args, bool count = false)
+		where TArgs : struct {
 		if (count)
 			fresh.Count(in args);
 		else

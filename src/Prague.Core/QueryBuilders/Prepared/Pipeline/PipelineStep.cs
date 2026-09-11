@@ -277,7 +277,8 @@ internal ref struct PipelineFrame<TKey> {
 /// </summary>
 internal interface IPipelineStep<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	NarrowerKind Kind { get; }
 
 	/// <summary>Which of <see cref="ProbeKey" /> / <see cref="ProbeValue" /> the pipeline calls when the step is not the seed.</summary>
@@ -316,7 +317,8 @@ internal interface IPipelineStep<TKey, TValue, TArgs>
 /// </summary>
 internal interface IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	/// <summary>The step, or <c>null</c> when this narrower cannot run in the pipeline under <paramref name="options" /> (a key the binding cannot hold, a range probe with <see cref="FrozenOptions.IndexSideProbes" />): the plan replays.</summary>
 	IPipelineStep<TKey, TValue, TArgs>? CreatePipelineStep(FrozenOptions options);
 }
@@ -324,7 +326,8 @@ internal interface IPipelineStepSource<TKey, TValue, TArgs>
 /// <summary>Defaults shared by the steps: no rental, the unused probe side answers true.</summary>
 internal abstract class PipelineStepBase<TKey, TValue, TArgs> : IPipelineStep<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	public abstract NarrowerKind Kind { get; }
 
 	public abstract ProbeSide Side { get; }
@@ -469,7 +472,8 @@ internal static unsafe class SeedCollectors<TKey, TValue>
 /// </summary>
 internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	where TKey : notnull, IEquatable<TKey>
-	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
+	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+	where TArgs : struct {
 	private readonly IPipelineStep<TKey, TValue, TArgs>[] _steps;
 	private readonly int _filters;
 	private readonly bool _fused;

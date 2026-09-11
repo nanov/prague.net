@@ -9,7 +9,8 @@ public readonly struct RangeNarrower<TKey, TValue, TIndexKey, TQueryBuilder, TAr
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : IComparable<TIndexKey>
-	where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey> {
+	where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey>
+	where TArgs : struct {
 	private readonly CacheRangeIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<RangeQueryBuilder<TIndexKey>, TQueryBuilder> _rangeBuilder;
 
@@ -45,7 +46,8 @@ public readonly struct RangeArgNarrower<TKey, TValue, TIndexKey, TQueryBuilder, 
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TIndexKey : IComparable<TIndexKey>
-	where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey> {
+	where TQueryBuilder : struct, IRangeQueryBuilder<TIndexKey>
+	where TArgs : struct {
 	private readonly CacheRangeIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<RangeQueryBuilder<TIndexKey>, TArgs, TQueryBuilder> _rangeBuilder;
 
@@ -114,7 +116,8 @@ public readonly struct OptionalRange<TIndexKey> : IRangeQueryBuilder<TIndexKey> 
 public readonly struct RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : IComparable<TIndexKey> {
+	where TIndexKey : IComparable<TIndexKey>
+	where TArgs : struct {
 	private readonly CacheRangeIndex<TKey, TValue, TIndexKey> _index;
 	private readonly OptionalRange<TIndexKey> _range;
 
@@ -148,7 +151,8 @@ public readonly struct RangeOptionalNarrower<TKey, TValue, TIndexKey, TArgs> : I
 public readonly struct RangeOptionalArgNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : struct, IComparable<TIndexKey> {
+	where TIndexKey : struct, IComparable<TIndexKey>
+	where TArgs : struct {
 	private readonly CacheRangeIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, TIndexKey?> _from;
 	private readonly Func<TArgs, TIndexKey?> _to;
@@ -191,7 +195,8 @@ public readonly struct RangeOptionalArgNarrower<TKey, TValue, TIndexKey, TArgs> 
 public readonly struct RangeOptionalRefArgNarrower<TKey, TValue, TIndexKey, TArgs> : INarrower<TKey, TValue, TArgs>, IPipelineStepSource<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TIndexKey : class, IComparable<TIndexKey> {
+	where TIndexKey : class, IComparable<TIndexKey>
+	where TArgs : struct {
 	private readonly CacheRangeIndex<TKey, TValue, TIndexKey> _index;
 	private readonly Func<TArgs, TIndexKey?> _from;
 	private readonly Func<TArgs, TIndexKey?> _to;

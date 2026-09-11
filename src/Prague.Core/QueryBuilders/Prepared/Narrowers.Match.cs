@@ -15,7 +15,8 @@ using QueryBuilders;
 public interface IMatchArms<TKey, TValue, TArgs, TTag>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTag : notnull {
+	where TTag : notnull
+	where TArgs : struct {
 	bool TryReplay<TCore>(ref TCore core, in TArgs args, in TTag tag)
 		where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>;
 
@@ -30,7 +31,8 @@ public interface IMatchArms<TKey, TValue, TArgs, TTag>
 public interface IOpenMatchArms<TKey, TValue, TArgs, TTag> : IMatchArms<TKey, TValue, TArgs, TTag>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTag : notnull;
+	where TTag : notnull
+	where TArgs : struct;
 
 /// <summary>
 ///   An arm chain closed by a <c>Default</c>: every tag has an arm, so replay can never fall through.
@@ -41,13 +43,15 @@ public interface IOpenMatchArms<TKey, TValue, TArgs, TTag> : IMatchArms<TKey, TV
 public interface IClosedMatchArms<TKey, TValue, TArgs, TTag> : IMatchArms<TKey, TValue, TArgs, TTag>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTag : notnull;
+	where TTag : notnull
+	where TArgs : struct;
 
 /// <summary>Arm-chain head: no arm recorded yet. Never matches.</summary>
 public readonly struct EmptyArms<TKey, TValue, TArgs, TTag> : IOpenMatchArms<TKey, TValue, TArgs, TTag>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTag : notnull {
+	where TTag : notnull
+	where TArgs : struct {
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool TryReplay<TCore>(ref TCore core, in TArgs args, in TTag tag)
 		where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>
@@ -67,7 +71,8 @@ public readonly struct MatchArms<TPrev, TArm, TKey, TValue, TArgs, TTag> : IOpen
 	where TArm : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTag : notnull {
+	where TTag : notnull
+	where TArgs : struct {
 	private readonly TPrev _prev;
 	private readonly TTag _tag;
 	private readonly TArm _arm;
@@ -108,7 +113,8 @@ public readonly struct DefaultArm<TPrev, TArm, TKey, TValue, TArgs, TTag> : IClo
 	where TArm : struct, INarrowerChain<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
-	where TTag : notnull {
+	where TTag : notnull
+	where TArgs : struct {
 	private readonly TPrev _prev;
 	private readonly TArm _arm;
 
@@ -148,7 +154,8 @@ public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrow
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
 	where TTag : notnull
-	where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, TTag> {
+	where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, TTag>
+	where TArgs : struct {
 	private readonly Func<TArgs, TTag> _selector;
 	private readonly TArms _arms;
 
