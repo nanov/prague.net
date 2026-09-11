@@ -135,7 +135,7 @@ public sealed class PlanInfo {
 	/// <summary>The executor <c>BuildFrozen()</c> selected: <c>PointLookup</c>, <c>Pipeline</c> or <c>Replay</c>.</summary>
 	public string Executor { get; }
 
-	/// <summary>The optimizations active on this plan (<c>FusedFilters</c>, <c>AdaptiveFilterOrder</c>, <c>CapacityHints</c>, <c>ReorderIndexNarrowers</c>); empty when none applies.</summary>
+	/// <summary>The optimizations active on this plan (<c>FusedFilters</c>, <c>AdaptiveFilterOrder</c>, <c>CapacityHints</c>, <c>PreserveEagerOrder</c>); empty when none applies.</summary>
 	public IReadOnlyList<string> Optimizations { get; }
 
 	// Live state the optimizations keep (the fused filter's current order, the capacity hint), printed by Explain.

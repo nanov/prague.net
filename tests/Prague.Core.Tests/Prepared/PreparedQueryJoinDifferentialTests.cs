@@ -130,6 +130,48 @@ public class PreparedQueryJoinDifferentialTests {
 
 	private static PqOrder MakeOrder(int i) => new() { Id = i, CustomerId = i % Customers, ProductId = i % Products, Qty = i % 13 };
 
+	/// <summary>
+	///   The default-path page check: <c>Count</c> / <c>TotalCount</c> / <c>Truncated</c> only. A page's rows
+	///   are not comparable once the free seed has moved comparer-equal rows across the page boundary — the
+	///   whole result is where the multiset is asserted.
+	/// </summary>
+	internal static void AssertSameJoinedCounts<TLeft, TRight>(QueryResults<TLeft> eager, QueryResults<TRight> frozen) {
+		try {
+			Assert.Multiple(() => {
+				Assert.That(frozen.Count, Is.EqualTo(eager.Count), "Count");
+				Assert.That(frozen.TotalCount, Is.EqualTo(eager.TotalCount), "TotalCount");
+				Assert.That(frozen.Truncated, Is.EqualTo(eager.Truncated), "Truncated");
+			});
+		} finally {
+			eager.Dispose();
+			frozen.Dispose();
+		}
+	}
+
+	/// <summary>
+	///   The default-path twin of <see cref="AssertSameJoined{TResult}" /> for a result whose row order the
+	///   frozen contract leaves free (an unsorted result; the ties of a sorted one): the same rows with the
+	///   same multiplicity and the same <c>Count</c> / <c>TotalCount</c> / <c>Truncated</c>, in whatever
+	///   sequence the seed produced them.
+	/// </summary>
+	internal static void AssertSameJoinedRows<TResult>(QueryResults<TResult> eager, QueryResults<TResult> frozen, Func<TResult, string> row) {
+		try {
+			Assert.Multiple(() => {
+				Assert.That(frozen.Count, Is.EqualTo(eager.Count), "Count");
+				Assert.That(frozen.TotalCount, Is.EqualTo(eager.TotalCount), "TotalCount");
+				Assert.That(frozen.Truncated, Is.EqualTo(eager.Truncated), "Truncated");
+			});
+			var eagerRows = new string[eager.Count];
+			var frozenRows = new string[frozen.Count];
+			for (var i = 0; i < eager.Count; i++) eagerRows[i] = row(eager[i]);
+			for (var i = 0; i < frozen.Count; i++) frozenRows[i] = row(frozen[i]);
+			Assert.That(frozenRows, Is.EquivalentTo(eagerRows), "row multiset");
+		} finally {
+			eager.Dispose();
+			frozen.Dispose();
+		}
+	}
+
 	// ── Assertion helpers ──────────────────────────────────────────────────────────
 
 	// One line per row: the left id and the right value(s)' ids, in result order. A JoinMany right is

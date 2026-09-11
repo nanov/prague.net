@@ -33,7 +33,6 @@ public class FrozenPipelineSortBoundedTests {
 	// Small page, a page crossing the end of a ~34-row group, skip beyond the end, unbounded (the classic
 	// container), unbounded with a skip, an empty page, one row, a middle page, everything but the first.
 	private static readonly (int skip, int take)[] Pages = [(0, 5), (30, 10), (300, 5), (0, int.MaxValue), (3, int.MaxValue), (0, 0), (0, 1), (5, 5), (1, int.MaxValue), (2, 100)];
-	private static readonly FrozenOptions Reorder = new() { ReorderIndexNarrowers = true };
 	private static readonly FrozenOptions NoPipeline = new() { Pipeline = false };
 
 	private InMemoryDataCache<int, PqItem> _cache = null!;
@@ -205,7 +204,7 @@ public class FrozenPipelineSortBoundedTests {
 	}
 
 	[Test]
-	public void TotalComparer_SmallProbeSeeds_ListList_ListListList_ListUnique_ByteIdentical() {
+	public void TotalComparer_ListList_ListListList_ListUnique_ByteIdentical() {
 		var listList = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).SortBounded(new ByCode()).Build();
 		var listListFrozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).SortBounded(new ByCode()).BuildFrozen();
 		var three = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).SortBounded(new ByCode()).Build();
@@ -219,7 +218,7 @@ public class FrozenPipelineSortBoundedTests {
 		foreach (var (g, c) in new[] { (3, 1003), (3, 1004), (0, 1007), (2, 5000) })
 			AssertBounded(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byCode, c).SortBounded(new ByCode()), listUnique, listUniqueFrozen, (g, c), $"list∩unique {g}/{c}");
 		listListFrozen.ExecutePooled((3, 3), 0, 2).Dispose();
-		Assert.That(listListFrozen.Explain(), Does.Contain("probe: slot-sorted into step 0 ListEq").And.Contain("sort: bounded"));
+		Assert.That(listListFrozen.Explain(), Does.Contain("free: smallest signal").And.Contain("sort: bounded"));
 	}
 
 	[Test]
@@ -278,20 +277,19 @@ public class FrozenPipelineSortBoundedTests {
 		AssertPagesPartition(_cache.Query().UseIndex(_flagged).SortBounded(new ByGroup()).ExecutePooled(0, N), keySetFrozen, default(NoArgs), "ties keyset");
 	}
 
-	// ── (b) The opt-in free seed ──────────────────────────────────────────────────
+	// ── (b) The free seed under SortBounded ──────────────────────────────────────
 
-	// ReorderIndexNarrowers seeds from the smaller tier bucket: a total comparer's pages are still eager's
+	// The default free seed takes the smaller tier bucket: a total comparer's pages are still eager's
 	// byte for byte (the order is the comparer's), a tie comparer's pages hold the same rows per tie
 	// group, are sorted, and partition the frozen whole; Count is unchanged.
 	[Test]
-	public void ReorderIndexNarrowers_TotalComparerByteIdentical_TieComparerKeepsTheSetAndTheContract() {
+	public void FreeSeed_TotalComparerByteIdentical_TieComparerKeepsTheSetAndTheContract() {
 		var total = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).SortBounded(new ByCode()).Build();
-		var totalFrozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).SortBounded(new ByCode()).BuildFrozen(Reorder);
-		var ties = _cache.Prepare<int, PqItem, (int group, int band)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).SortBounded(new ByFlag()).BuildFrozen(Reorder);
-		Assert.That(totalFrozen.Plan.Optimizations, Does.Contain("ReorderIndexNarrowers"));
+		var totalFrozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).SortBounded(new ByCode()).BuildFrozen();
+		var ties = _cache.Prepare<int, PqItem, (int group, int band)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).SortBounded(new ByFlag()).BuildFrozen();
 		Assert.That(totalFrozen.Explain(), Does.Contain("pipeline: seed = free for Execute"));
 		foreach (var (g, t) in new[] { (0, 0), (3, 3), (6, 39), (2, 17) })
-			AssertBounded(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).SortBounded(new ByCode()), total, totalFrozen, (g, t), $"reorder total {g}/{t}");
+			AssertBounded(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).SortBounded(new ByCode()), total, totalFrozen, (g, t), $"free seed total {g}/{t}");
 		for (var g = 0; g < 7; g++)
 			foreach (var b in new[] { 0, 5, 11 }) {
 				using var expected = _cache.Query().UseIndex(_byGroup, g).UseIndex(_byBand, b).SortBounded(new ByFlag()).ExecutePooled(0, N);
@@ -326,7 +324,8 @@ public class FrozenPipelineSortBoundedTests {
 			// Step 5: fused JoinOnes open the inner, classic-Sort, sort-after-join and unsorted joined shapes
 			// (FrozenPipelineJoinTests pins them); step 8 admits JoinMany (FrozenPipelineJoinManyTests); the seedless chain still replays.
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "an inner fused join probes the right per left (step 5)");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric join regroups its rows (opt in with FuseSymmetricInnerJoins)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "an inner left-symmetric join fuses by default");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_bySym, _customers).BuildFrozen(new FrozenOptions { PreserveEagerOrder = true }).Plan.Executor, Is.EqualTo("Replay"), "…and replays under the opt-out: its fan-out regroups the rows");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinMany(_lines, _lineByItem).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded → outer JoinMany: the fan-out fills the bounded page (step 8)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).JoinOne(_details).SortBounded(new ByLeftCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a sort after the fused join runs in the classic joined container (step 5)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort → fused join (step 5)");
@@ -334,7 +333,7 @@ public class FrozenPipelineSortBoundedTests {
 			Assert.That(_cache.Prepare().SortBounded(new ByCode()).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "joined, no seed source");
 		});
 		var simple = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Where(static v => v.Id > 0).SortBounded(new ByCode()).BuildFrozen();
-		Assert.That(simple.Explain(), Does.Contain("executor: Pipeline").And.Contain("pipeline: seed = fixed for Execute").And.Contain("sort: bounded").And.Contain("filters: 1 (direct)").And.Not.Contain("joins:"));
+		Assert.That(simple.Explain(), Does.Contain("executor: Pipeline").And.Contain("pipeline: seed = free for Execute").And.Contain("sort: bounded").And.Contain("filters: 1 (direct)").And.Not.Contain("joins:"));
 		var joined = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).JoinOne(_bySym, _customers).JoinOne(_details).BuildFrozen();
 		Assert.That(joined.Explain(), Does.Contain("executor: Pipeline").And.Contain("sort: bounded").And.Contain("joins: 2 (fused: 2, unfused: 0").And.Contain("resolvers: yes, sorted: yes"));
 		var classic = _cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen();

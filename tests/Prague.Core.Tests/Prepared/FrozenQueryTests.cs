@@ -389,8 +389,8 @@ public class FrozenQueryTests {
 	[Test]
 	public void Fallback_Or_FrozenEqualsPreparedEqualsEager() {
 		var prepared = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Build();
-		// OrSeed = false: the eager store-walk sequence; the default seeds the union (same set, branch order).
-		var frozen = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(new FrozenOptions { OrSeed = false });
+		// PreserveEagerOrder: the eager store-walk sequence; the default seeds the union (same set, branch order).
+		var frozen = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(new FrozenOptions { PreserveEagerOrder = true });
 		var union = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen();
 		var args = (g1: 1, g2: 4);
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));

@@ -575,7 +575,8 @@ public class FrozenPipelineJoinManyTests {
 			Assert.That(_docs.Prepare().UseIndex(_docByGroup, 1).JoinManyCollectionForward(_tags, _docTags).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "collection forward");
 			Assert.That(_tags.Prepare().UseIndex(_tagByGroup, 1).InnerJoinManyCollection(_docs, _docTags).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "inner collection reverse");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "fused one then many");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric JoinOne still replays (it regroups)");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "an inner left-symmetric JoinOne fuses by default");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).BuildFrozen(new FrozenOptions { PreserveEagerOrder = true }).Plan.Executor, Is.EqualTo("Replay"), "…and replays under the opt-out (it regroups)");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).Sort(new ByQtyThenId()).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic sort then many");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "bounded then many");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).JoinOne(_byCustomer, _customers).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "the step-6 shape with a many");

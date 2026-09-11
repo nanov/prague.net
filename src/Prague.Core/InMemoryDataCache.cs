@@ -717,13 +717,6 @@ public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, 
 		}
 	}
 
-	/// <summary>The slot <paramref name="key" /> occupies in the set (its enumeration position), under the lock <see cref="Contains" /> takes; false and -1 when absent.</summary>
-	internal bool TryGetSlot(TKey key, out int slot) {
-		lock (_lock) {
-			return _keys.TryGetSlot(key, out slot);
-		}
-	}
-
 	internal void  AddKeyTo(ref ValueSet<TKey, DefaultKeyComparer<TKey>> target) {
 		lock (_lock) {
 			foreach (var key in _keys) target.Add(key);  // ref-struct enumerator, no alloc

@@ -26,16 +26,15 @@ using Collections;
 ///   branch union; so by default the step builds the union once (each active branch's first leaf,
 ///   admitted once across branches through the seed's dedupe set — the eager <c>UnionWith</c> rule)
 ///   and copies the store walk out <i>filtered by that set</i>: the eager sequence byte for byte, at
-///   the cost of one hash probe per store row instead of one set insert. Under
-///   <see cref="FrozenOptions.OrSeed" />, for <c>Count</c>, for a classic <c>Sort</c> and whenever the
-///   Or is walked in another step's place (the small-probe seed, a free seed) the union itself is the
-///   seed, in branch order. Either way the Or stays a probe on the walk when a branch has more than
-///   one leaf (the union is that branch's first leaf, a superset) — <see cref="ProbeAfterSeed" />.
+///   the cost of one hash probe per store row instead of one set insert — what
+///   <see cref="FrozenOptions.PreserveEagerOrder" /> asks for. By default, and for <c>Count</c> and a
+///   classic <c>Sort</c> regardless, the union itself is the seed, in branch order. Either way the Or
+///   stays a probe on the walk when a branch has more than one leaf (the union is that branch's first
+///   leaf, a superset) — <see cref="ProbeAfterSeed" />.
 ///   </para>
-///   Not a seed source of its own for <c>TryGetSlot</c> (no single slot order), so an Or-first plan
-///   never small-probes. The step reads its leaves' bindings through a pointer to the frame's binding
-///   array written at bind (the frame is a ref struct on the executing thread's stack, alive for the
-///   execution — the <c>SeedAggregators</c> laundering pattern).
+///   The step reads its leaves' bindings through a pointer to the frame's binding array written at bind
+///   (the frame is a ref struct on the executing thread's stack, alive for the execution — the
+///   <c>SeedAggregators</c> laundering pattern).
 /// </summary>
 internal sealed unsafe class OrStep<TKey, TValue, TArgs> : IPipelineStep<TKey, TValue, TArgs>, IOrStepExplain
 	where TKey : notnull, IEquatable<TKey>
@@ -95,8 +94,6 @@ internal sealed unsafe class OrStep<TKey, TValue, TArgs> : IPipelineStep<TKey, T
 	// last-updated leaf anywhere makes the sum an estimate.
 	public bool ExactSignal => _exactSignal;
 
-	public bool SlotAddressable => false;
-
 	/// <summary>The core binds an Or through <c>BindOr</c>, never through this.</summary>
 	public StepActivation Bind(in TArgs args, ref StepBinding binding) => throw new UnreachableException();
 
@@ -133,7 +130,7 @@ internal sealed unsafe class OrStep<TKey, TValue, TArgs> : IPipelineStep<TKey, T
 		return activeMask == 0 ? StepActivation.Empty : StepActivation.Active;
 	}
 
-	/// <summary>Chosen after the seed decision: the union is the seed (free mode, <see cref="FrozenOptions.OrSeed" />) rather than the filtered store walk.</summary>
+	/// <summary>Chosen after the seed decision: the union is the seed (the default, and always for <c>Count</c> / a classic <c>Sort</c>) rather than the filtered store walk.</summary>
 	internal static void SetUnionSeed(ref StepBinding binding, bool union) {
 		if (union)
 			binding.Int1 |= FlagUnionSeed;
@@ -228,11 +225,6 @@ internal sealed unsafe class OrStep<TKey, TValue, TArgs> : IPipelineStep<TKey, T
 					keys[n++] = keys[i];
 			seed.Truncate(n);
 		}
-	}
-
-	public bool TryGetSlot(TKey key, in StepBinding binding, out int slot) {
-		slot = -1;
-		return false;
 	}
 
 	// ── Probe ────────────────────────────────────────────────────────────────────────────────────────

@@ -8,17 +8,18 @@ using EagerItems = CacheQueryBuilderCombined<Prague.Core.TypeSystem.ExecutableQu
 	CacheQueryBuilderCoreCombined<int, PreparedQueryDifferentialTests.PqItem>, int, PreparedQueryDifferentialTests.PqItem,
 	Resolvers<BaseResolver<int, PreparedQueryDifferentialTests.PqItem>>, PreparedQueryDifferentialTests.PqItem>;
 
-// BuildFrozen() stage 3, step 3: seed selection. Fixed mode keeps the eager sequence — and when the
-// first step is a PooledSet-backed step (list equality, key-set) and another equality step's signal is at
-// most half of it, walks that smaller step instead and sorts the survivors by their slot in the first
-// step's set (the small-probe seed, design §3.4). Free mode (Count; classic Sort; ReorderIndexNarrowers)
-// seeds from the smallest signal and keeps the set. Pinned here: (a) byte-identical parity on every
-// small-probe shape × every Execute variant × the five pages; (b) set + Count parity under the free
-// seed, classic Sort sequence parity with a total comparer and tie-group parity with ties; (c) the
-// decision in Explain(); (d) rented arrays balanced incl. throwing user code mid-walk on the pool
-// path; (f) 8 readers against a writer on the small-probe path. Model: 240 items, Code = 1000 + Id
-// (unique), Group = Id % 7 (~34 per bucket), Band = Id % 12 (20), Tier = Id % 40 (6), Tags = [Group,
-// Group + 100] (a collection index: overlapping buckets), Flag = Id % 3 == 0 (80 keys).
+// BuildFrozen() stage 3, step 3: seed selection. Free mode is the default — the step with the smallest
+// cardinality signal seeds and the rest are probed per candidate, so the rows come out in that step's
+// order, which the ordering contract leaves unspecified for an unsorted result and for the ties of a
+// sorted one. Fixed mode (FrozenOptions.PreserveEagerOrder; a single active step either way) walks the
+// first declared step and keeps the eager sequence. Count seeds free regardless. Pinned here: (a)
+// byte-identical parity under the opt-out on every narrowing shape × every Execute variant × the five
+// pages; (b) set + Count parity under the default free seed, classic Sort sequence parity with a total
+// comparer and tie-group parity with ties; (c) the decision in Explain(); (d) rented arrays balanced
+// incl. throwing user code mid-walk on the pool path; (f) 8 readers against a writer on the seed path.
+// Model: 240 items, Code = 1000 + Id (unique), Group = Id % 7 (~34 per bucket), Band = Id % 12 (20),
+// Tier = Id % 40 (6), Tags = [Group, Group + 100] (a collection index: overlapping buckets),
+// Flag = Id % 3 == 0 (80 keys).
 [TestFixture]
 public class FrozenPipelineSeedTests {
 	private const int N = 240;
@@ -27,7 +28,9 @@ public class FrozenPipelineSeedTests {
 
 	private static readonly Variant[] Variants = [Variant.Execute, Variant.ExecuteCloned, Variant.ExecutePooled, Variant.ExecutePooledCloned];
 	private static readonly (int skip, int take)[] Pages = [(0, int.MaxValue), (0, 1), (1, int.MaxValue), (0, 0), (5, 5)];
-	private static readonly FrozenOptions Reorder = new() { ReorderIndexNarrowers = true };
+
+	// (a) asserts the eager sequence, which only the opt-out promises; (b) onwards run the default.
+	private static readonly FrozenOptions EagerOrder = new() { PreserveEagerOrder = true };
 
 	private InMemoryDataCache<int, PqItem> _cache = null!;
 	private CacheUniqueIndex<int, PqItem, int> _byCode = null!;
@@ -182,96 +185,96 @@ public class FrozenPipelineSeedTests {
 		return at < 0 ? "" : explain[at..].TrimEnd();
 	}
 
-	// ── (a) Byte-identical parity on every small-probe shape ────────────────────────
+	// ── (a) PreserveEagerOrder: byte-identical parity on every narrowing shape ──────
 
 	[Test]
-	public void ListUnique_SmallProbe_EveryArgSet() {
+	public void ListUnique_EagerOrder_EveryArgSet() {
 		var prepared = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).Build();
-		var frozen = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen();
+		var frozen = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen(EagerOrder);
 		foreach (var (g, c) in new[] { (3, 1010), (3, 1011), (0, 1000), (-1, 1000), (3, -1), (6, 1237), (6, 1238) })
 			AssertSequence(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byCode, c), prepared, frozen, (g, c), $"list∩unique {g}/{c}");
-		Assert.That(Decision(Build(), (3, 1010)), Is.EqualTo("last seed: step 1 UniqueEq (signal 1), probe: slot-sorted into step 0 ListEq (signal 34)"));
-		Assert.That(Decision(Build(), (3, -1)), Is.EqualTo("last seed: step 1 UniqueEq (signal 0), probe: slot-sorted into step 0 ListEq (signal 34)"), "a missing unique key: the walk yields nothing");
-		Assert.That(Decision(Build(), (0, 1000)), Is.EqualTo("last seed: step 1 UniqueEq (signal 1), probe: slot-sorted into step 0 ListEq (signal 35)"));
-		FrozenQuery<(int group, int code), PqItem> Build() => _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen();
+		Assert.That(Decision(Build(), (3, 1010)), Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
+		Assert.That(Decision(Build(), (3, -1)), Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"), "a missing unique key: the walk yields nothing");
+		Assert.That(Decision(Build(), (0, 1000)), Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
+		FrozenQuery<(int group, int code), PqItem> Build() => _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen(EagerOrder);
 	}
 
 	[Test]
 	public void ListList_SmallSecond_AndReversed_EveryArgSet() {
 		var prepared = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Build();
-		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(EagerOrder);
 		var reversedPrepared = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).Build();
-		var reversed = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen();
+		var reversed = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(EagerOrder);
 		for (var g = -1; g < 8; g++)
 			for (var t = -1; t < 41; t += 3) {
 				AssertSequence(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t), prepared, frozen, (g, t), $"list∩list {g}/{t}");
 				AssertSequence(() => _cache.Query().UseIndex(_byTier, t).UseIndex(_byGroup, g), reversedPrepared, reversed, (g, t), $"reversed {g}/{t}");
 			}
 
-		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(), (3, 3)),
-			Is.EqualTo("last seed: step 1 ListEq (signal 6), probe: slot-sorted into step 0 ListEq (signal 34)"));
-		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(), (3, 3)),
-			Is.EqualTo("last seed: step 0 ListEq (signal 6), fixed: first active step"), "the small bucket is already first: the group's signal is not even read");
+		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(EagerOrder), (3, 3)),
+			Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
+		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(EagerOrder), (3, 3)),
+			Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"), "the opt-out walks the first declared step whatever the bucket sizes");
 	}
 
 	// Production shape A's narrowing: three list steps, the largest declared first, the smallest last.
 	[Test]
 	public void ListListList_SmallestLast_EveryArgSet() {
 		var prepared = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).Build();
-		var frozen = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).BuildFrozen();
-		var bandFirst = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byBand, static a => a.band).UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		var frozen = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).BuildFrozen(EagerOrder);
+		var bandFirst = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byBand, static a => a.band).UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(EagerOrder);
 		foreach (var (g, b, t) in new[] { (3, 3, 3), (3, 3, 23), (0, 0, 0), (6, 6, 6), (1, 5, 21), (-1, 3, 3), (3, -1, 3), (3, 3, -1), (2, 2, 2), (5, 5, 25) }) {
 			AssertSequence(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byBand, b).UseIndex(_byTier, t), prepared, frozen, (g, b, t), $"list∩list∩list {g}/{b}/{t}");
 			AssertSequence(() => _cache.Query().UseIndex(_byBand, b).UseIndex(_byGroup, g).UseIndex(_byTier, t),
 				_cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byBand, static a => a.band).UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Build(), bandFirst, (g, b, t), $"band first {g}/{b}/{t}");
 		}
 
-		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).BuildFrozen(), (3, 3, 3)),
-			Is.EqualTo("last seed: step 2 ListEq (signal 6), probe: slot-sorted into step 0 ListEq (signal 34)"));
+		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).BuildFrozen(EagerOrder), (3, 3, 3)),
+			Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
 	}
 
 	[Test]
-	public void KeySetFirst_ThenList_ThenUnique_SmallProbe() {
-		var list = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byGroup, static g => g).BuildFrozen();
-		var tier = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byTier, static t => t).Where(static v => v.Id > 10).BuildFrozen();
-		var unique = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byCode, static c => c).BuildFrozen();
+	public void KeySetFirst_ThenList_ThenUnique_EagerOrder() {
+		var list = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byGroup, static g => g).BuildFrozen(EagerOrder);
+		var tier = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byTier, static t => t).Where(static v => v.Id > 10).BuildFrozen(EagerOrder);
+		var unique = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byCode, static c => c).BuildFrozen(EagerOrder);
 		for (var g = -1; g < 7; g++) {
 			AssertSequence(() => _cache.Query().UseIndex(_flagged).UseIndex(_byGroup, g), _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byGroup, static x => x).Build(), list, g, "keyset∩list " + g);
 			AssertSequence(() => _cache.Query().UseIndex(_flagged).UseIndex(_byTier, g).Where(static v => v.Id > 10), _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byTier, static x => x).Where(static v => v.Id > 10).Build(), tier, g, "keyset∩tier " + g);
 			AssertSequence(() => _cache.Query().UseIndex(_flagged).UseIndex(_byCode, 1000 + g * 3), _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byCode, static x => x).Build(), unique, 1000 + g * 3, "keyset∩unique " + g);
 		}
 
-		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byGroup, static g => g).BuildFrozen(), 3), Is.EqualTo("last seed: step 1 ListEq (signal 34), probe: slot-sorted into step 0 KeySet (signal 80)"));
+		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byGroup, static g => g).BuildFrozen(EagerOrder), 3), Is.EqualTo("last seed: step 0 KeySet (signal 0), fixed: first active step"));
 	}
 
 	// A collection-backed index: a bucket is still one PooledSet (slot-addressable), an In over its
 	// buckets overlaps and must dedupe first-occurrence-first (fixed seed: ListIn is not slot-addressable).
 	[Test]
 	public void CollectionBackedFirst_OverlappingBuckets_EqAndIn() {
-		var eq = _cache.Prepare<int, PqItem, (int tag, int tier)>().UseIndex(_byTags, static a => a.tag).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		var eq = _cache.Prepare<int, PqItem, (int tag, int tier)>().UseIndex(_byTags, static a => a.tag).UseIndex(_byTier, static a => a.tier).BuildFrozen(EagerOrder);
 		var eqPrepared = _cache.Prepare<int, PqItem, (int tag, int tier)>().UseIndex(_byTags, static a => a.tag).UseIndex(_byTier, static a => a.tier).Build();
-		var inn = _cache.Prepare<int, PqItem, int>().UseIndex(_byTags, new[] { 3, 103, 5, 3 }).UseIndex(_byTier, static t => t).BuildFrozen();
+		var inn = _cache.Prepare<int, PqItem, int>().UseIndex(_byTags, new[] { 3, 103, 5, 3 }).UseIndex(_byTier, static t => t).BuildFrozen(EagerOrder);
 		var innPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byTags, new[] { 3, 103, 5, 3 }).UseIndex(_byTier, static t => t).Build();
-		var inUnique = _cache.Prepare<int, PqItem, int>().UseIndex(_byTags, new[] { 103, 5 }).UseIndex(_byCode, static c => c).BuildFrozen();
+		var inUnique = _cache.Prepare<int, PqItem, int>().UseIndex(_byTags, new[] { 103, 5 }).UseIndex(_byCode, static c => c).BuildFrozen(EagerOrder);
 		foreach (var (tag, t) in new[] { (3, 3), (103, 3), (103, 10), (5, 5), (-1, 3), (3, -1), (104, 24) }) {
 			AssertSequence(() => _cache.Query().UseIndex(_byTags, tag).UseIndex(_byTier, t), eqPrepared, eq, (tag, t), $"tags∩tier {tag}/{t}");
 			AssertSequence(() => _cache.Query().UseIndex(_byTags, new[] { 3, 103, 5, 3 }).UseIndex(_byTier, t), innPrepared, inn, t, "tags in∩tier " + t);
 			AssertSequence(() => _cache.Query().UseIndex(_byTags, new[] { 103, 5 }).UseIndex(_byCode, 1000 + t), _cache.Prepare<int, PqItem, int>().UseIndex(_byTags, new[] { 103, 5 }).UseIndex(_byCode, static c => c).Build(), inUnique, 1000 + t, "tags in∩unique " + t);
 		}
 
-		Assert.That(Decision(_cache.Prepare<int, PqItem, (int tag, int tier)>().UseIndex(_byTags, static a => a.tag).UseIndex(_byTier, static a => a.tier).BuildFrozen(), (103, 3)),
-			Is.EqualTo("last seed: step 1 ListEq (signal 6), probe: slot-sorted into step 0 ListEq (signal 34)"));
-		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_byTags, new[] { 3, 103, 5, 3 }).UseIndex(_byTier, static t => t).BuildFrozen(), 3),
-			Is.EqualTo("last seed: step 0 ListIn (signal 0), fixed: first active step"), "an In over buckets has no single slot order: fixed seed, no signal read");
+		Assert.That(Decision(_cache.Prepare<int, PqItem, (int tag, int tier)>().UseIndex(_byTags, static a => a.tag).UseIndex(_byTier, static a => a.tier).BuildFrozen(EagerOrder), (103, 3)),
+			Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
+		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_byTags, new[] { 3, 103, 5, 3 }).UseIndex(_byTier, static t => t).BuildFrozen(EagerOrder), 3),
+			Is.EqualTo("last seed: step 0 ListIn (signal 0), fixed: first active step"), "an In over buckets seeds the same way: the first declared step");
 	}
 
 	// The small side can be a multi-value step (dedupe), and a range / last-updated step never is (its
 	// signal is an estimate) — it stays a probe on the survivors.
 	[Test]
 	public void ListWithUniqueIn_ListIn_RangeAndUnique_Filters() {
-		var uniqueIn = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byCode, static a => a).BuildFrozen();
+		var uniqueIn = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byCode, static a => a).BuildFrozen(EagerOrder);
 		var uniqueInPrepared = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byCode, static a => a).Build();
-		var listIn = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byTier, static a => a).BuildFrozen();
+		var listIn = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byTier, static a => a).BuildFrozen(EagerOrder);
 		var listInPrepared = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byTier, static a => a).Build();
 		foreach (var span in new int[][] { [1003, 1010, 1017], [1003, 1010, 1017, 1024, 1031, 1038, 1045, 1052, 1059, 1066, 1073, 1080, 1087, 1094, 1101, 1108, 1115, 1122], [1000, 1003, 1003], [-1], [] }) {
 			ReadOnlyMemory<int> memory = span;
@@ -283,21 +286,21 @@ public class FrozenPipelineSeedTests {
 			AssertSequence(() => _cache.Query().UseIndex(_byGroup, 3).UseIndex(_byTier, span), listInPrepared, listIn, memory, "list∩list in " + span.Length);
 		}
 
-		Assert.That(Decision(BuildUniqueIn(), new[] { 1003, 1010, 1017 }), Is.EqualTo("last seed: step 1 UniqueIn (signal 3), probe: slot-sorted into step 0 ListEq (signal 34)"));
+		Assert.That(Decision(BuildUniqueIn(), new[] { 1003, 1010, 1017 }), Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
 		Assert.That(Decision(BuildUniqueIn(), new[] { 1003, 1010, 1017, 1024, 1031, 1038, 1045, 1052, 1059, 1066, 1073, 1080, 1087, 1094, 1101, 1108, 1115, 1122 }),
-			Is.EqualTo("last seed: step 0 ListEq (signal 34), fixed: first active step"), "18 × 2 > 34: the first step walks");
-		Assert.That(Decision(_cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byTier, static a => a).BuildFrozen(), new[] { 3, 9 }),
-			Is.EqualTo("last seed: step 1 ListIn (signal 12), probe: slot-sorted into step 0 ListEq (signal 34)"));
-		FrozenQuery<ReadOnlyMemory<int>, PqItem> BuildUniqueIn() => _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byCode, static a => a).BuildFrozen();
+			Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"), "a wider In does not move the fixed seed either");
+		Assert.That(Decision(_cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byTier, static a => a).BuildFrozen(EagerOrder), new[] { 3, 9 }),
+			Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
+		FrozenQuery<ReadOnlyMemory<int>, PqItem> BuildUniqueIn() => _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, 3).UseIndex(_byCode, static a => a).BuildFrozen(EagerOrder);
 
-		var rangeUnique = _cache.Prepare<int, PqItem, (int group, int lo, int hi, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).UseIndex(_byCode, static a => a.code).BuildFrozen();
+		var rangeUnique = _cache.Prepare<int, PqItem, (int group, int lo, int hi, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).UseIndex(_byCode, static a => a.code).BuildFrozen(EagerOrder);
 		var rangeUniquePrepared = _cache.Prepare<int, PqItem, (int group, int lo, int hi, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).UseIndex(_byCode, static a => a.code).Build();
 		foreach (var args in new[] { (3, 1000, 1100, 1010), (3, 1000, 1100, 1150), (3, 1100, 1000, 1010), (-1, 1000, 1100, 1010) })
 			AssertSequence(() => _cache.Query().UseIndex(_byGroup, args.Item1).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi), (lo: args.Item2, hi: args.Item3)).UseIndex(_byCode, args.Item4), rangeUniquePrepared, rangeUnique, args, "list∩range∩unique " + args);
-		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int lo, int hi, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).UseIndex(_byCode, static a => a.code).BuildFrozen(), (3, 1000, 1100, 1010)),
-			Is.EqualTo("last seed: step 2 UniqueEq (signal 1), probe: slot-sorted into step 0 ListEq (signal 34)"));
+		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int lo, int hi, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).UseIndex(_byCode, static a => a.code).BuildFrozen(EagerOrder), (3, 1000, 1100, 1010)),
+			Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
 
-		var filtered = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag).UseIndex(_byTier, static a => a.tier).Where(static (v, a) => v.Id >= a.min).UseIndex(_lastUpdated, 0L).BuildFrozen();
+		var filtered = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag).UseIndex(_byTier, static a => a.tier).Where(static (v, a) => v.Id >= a.min).UseIndex(_lastUpdated, 0L).BuildFrozen(EagerOrder);
 		var filteredPrepared = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag).UseIndex(_byTier, static a => a.tier).Where(static (v, a) => v.Id >= a.min).UseIndex(_lastUpdated, 0L).Build();
 		foreach (var (g, t, min) in new[] { (3, 3, 0), (3, 3, 100), (0, 0, 0), (6, 6, 300) })
 			AssertSequence(() => _cache.Query().UseIndex(_byGroup, g).Where(static v => v.Flag).UseIndex(_byTier, t).Where(v => v.Id >= min).UseIndex(_lastUpdated, 0L), filteredPrepared, filtered, (g, t, min), $"filters {g}/{t}/{min}");
@@ -305,58 +308,55 @@ public class FrozenPipelineSeedTests {
 
 	[Test]
 	public void NotApplicable_RangeFirst_LastUpdatedFirst_UniqueFirst_KeepTheFixedWalk() {
-		var rangeFirst = _cache.Prepare<int, PqItem, int>().UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1100)).UseIndex(_byTier, static t => t).BuildFrozen();
-		var updatedFirst = _cache.Prepare<int, PqItem, int>().UseIndex(_lastUpdated, 1_000_000L).UseIndex(_byTier, static t => t).BuildFrozen();
-		var uniqueFirst = _cache.Prepare<int, PqItem, int>().UseIndex(_byCode, 1003).UseIndex(_byTier, static t => t).BuildFrozen();
+		var rangeFirst = _cache.Prepare<int, PqItem, int>().UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1100)).UseIndex(_byTier, static t => t).BuildFrozen(EagerOrder);
+		var updatedFirst = _cache.Prepare<int, PqItem, int>().UseIndex(_lastUpdated, 1_000_000L).UseIndex(_byTier, static t => t).BuildFrozen(EagerOrder);
+		var uniqueFirst = _cache.Prepare<int, PqItem, int>().UseIndex(_byCode, 1003).UseIndex(_byTier, static t => t).BuildFrozen(EagerOrder);
 		for (var t = -1; t < 41; t += 5) {
 			AssertSequence(() => _cache.Query().UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1100)).UseIndex(_byTier, t), _cache.Prepare<int, PqItem, int>().UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1100)).UseIndex(_byTier, static x => x).Build(), rangeFirst, t, "range∩tier " + t);
 			AssertSequence(() => _cache.Query().UseIndex(_lastUpdated, 1_000_000L).UseIndex(_byTier, t), _cache.Prepare<int, PqItem, int>().UseIndex(_lastUpdated, 1_000_000L).UseIndex(_byTier, static x => x).Build(), updatedFirst, t, "updated∩tier " + t);
 			AssertSequence(() => _cache.Query().UseIndex(_byCode, 1003).UseIndex(_byTier, t), _cache.Prepare<int, PqItem, int>().UseIndex(_byCode, 1003).UseIndex(_byTier, static x => x).Build(), uniqueFirst, t, "unique∩tier " + t);
 		}
 
-		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1100)).UseIndex(_byTier, static t => t).BuildFrozen(), 3),
-			Is.EqualTo("last seed: step 0 Range (signal 0), fixed: first active step"), "no signal is read when the first step is not slot-addressable");
-		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_lastUpdated, 1_000_000L).UseIndex(_byTier, static t => t).BuildFrozen(), 3),
+		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1100)).UseIndex(_byTier, static t => t).BuildFrozen(EagerOrder), 3),
+			Is.EqualTo("last seed: step 0 Range (signal 0), fixed: first active step"), "no signal is read: the fixed seed has nothing to choose between");
+		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_lastUpdated, 1_000_000L).UseIndex(_byTier, static t => t).BuildFrozen(EagerOrder), 3),
 			Is.EqualTo("last seed: step 0 LastUpdatedAfter (signal 0), fixed: first active step"));
-		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_byCode, 1003).UseIndex(_byTier, static t => t).BuildFrozen(), 3),
+		Assert.That(Decision(_cache.Prepare<int, PqItem, int>().UseIndex(_byCode, 1003).UseIndex(_byTier, static t => t).BuildFrozen(EagerOrder), 3),
 			Is.EqualTo("last seed: step 0 UniqueEq (signal 0), fixed: first active step"));
 	}
 
-	// The small-probe rule reads live counts: after the bucket sizes change, the decision follows.
+	// The free seed reads live counts: after the bucket sizes change, the decision follows — and the rows
+	// stay eager's set throughout, in whatever order the winning step yields them.
 	[Test]
-	public void SmallProbe_FollowsLiveSignals_AndStaysExactAcrossMutations() {
+	public void FreeSeed_FollowsLiveSignals_AndStaysExactAcrossMutations() {
 		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
-		Func<QueryResults<PqItem>> eager = () => _cache.Query().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Execute();
-		AssertSame(eager(), frozen.Execute((3, 3)));
-		Assert.That(Last(frozen.Explain()), Does.Contain("probe: slot-sorted"));
-		// Grow tier 3 past half of group 3: every other row of group 3 moves into tier 3 → 20 ≥ 34 / 2.
-		for (var i = 3; i < N; i += 14)
-			_cache.AddOrUpdate(i, new PqItem { Id = i, Code = 1000 + i, Group = 3, Flag = i % 3 == 0 });
+		AssertSameRows(_cache.Query().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Execute(), frozen.Execute((3, 3)));
+		Assert.That(Last(frozen.Explain()), Is.EqualTo("last seed: step 1 ListEq (signal 6), free: smallest signal"), "tier 3 (6 rows) beats group 3 (34)");
 		var moved = new InMemoryDataCache<int, PqItem>();
 		var byGroup = moved.CacheKeyValueListIndex<int>(static (_, v) => v.Group);
 		var byTier = moved.CacheKeyValueListIndex<int>(static (_, v) => v.Code % 40);
 		for (var i = 0; i < N; i++)
 			moved.AddOrUpdate(i, new PqItem { Id = i, Code = 1000 + (i % 2 == 0 ? 3 : i), Group = i % 7, Flag = false });
 		var q = moved.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier).BuildFrozen();
-		AssertSame(moved.Query().UseIndex(byGroup, 3).UseIndex(byTier, 3).Execute(), q.Execute((3, 3)));
-		Assert.That(Last(q.Explain()), Is.EqualTo("last seed: step 0 ListEq (signal 34), fixed: first active step"), "tier 3 holds 121 rows: 2 × 121 > 34");
-		// Shrink it again and the probe comes back; results stay eager's throughout.
+		AssertSameRows(moved.Query().UseIndex(byGroup, 3).UseIndex(byTier, 3).Execute(), q.Execute((3, 3)));
+		Assert.That(Last(q.Explain()), Is.EqualTo("last seed: step 0 ListEq (signal 34), free: smallest signal"), "tier 3 now holds 121 rows: the group bucket is the smaller one");
+		// Shrink it again and the seed moves back; the rows stay eager's set throughout.
 		for (var i = 0; i < N; i += 2)
 			moved.AddOrUpdate(i, new PqItem { Id = i, Code = 1000 + i, Group = i % 7, Flag = false });
-		AssertSame(moved.Query().UseIndex(byGroup, 3).UseIndex(byTier, 3).Execute(), q.Execute((3, 3)));
-		Assert.That(Last(q.Explain()), Does.Contain("probe: slot-sorted"));
+		AssertSameRows(moved.Query().UseIndex(byGroup, 3).UseIndex(byTier, 3).Execute(), q.Execute((3, 3)));
+		Assert.That(Last(q.Explain()), Does.Contain("free: smallest signal").And.Contain("step 1"));
 		moved.Remove(3);
 		moved.Remove(10);
-		AssertSame(moved.Query().UseIndex(byGroup, 3).UseIndex(byTier, 3).Execute(), q.Execute((3, 3)));
+		AssertSameRows(moved.Query().UseIndex(byGroup, 3).UseIndex(byTier, 3).Execute(), q.Execute((3, 3)));
 		moved.AddOrUpdate(3, new PqItem { Id = 3, Code = 1003, Group = 3, Flag = false });
-		AssertSame(moved.Query().UseIndex(byGroup, 3).UseIndex(byTier, 3).Execute(), q.Execute((3, 3)));
+		AssertSameRows(moved.Query().UseIndex(byGroup, 3).UseIndex(byTier, 3).Execute(), q.Execute((3, 3)));
 	}
 
-	// Survivors past the 256-slot stack scratch: the slot buffer is rented and the sort still exact.
+	// A seed past the 128-long stack buffer: the key buffer is rented and the walk still exact.
 	[Test]
-	public void SmallProbe_ManySurvivors_PoolPath_LikeEager() {
+	public void FreeSeed_LargeSeed_PoolPath_LikeEager() {
 		var big = new InMemoryDataCache<int, PqItem>();
-		// group: 1500 rows, tier: 600 (2 × 600 ≤ 1500), survivors 300 > the 256-slot stack scratch.
+		// group: 1500 rows, tier: 600 — the 600-key seed spills well past the stack buffer.
 		var byGroup = big.CacheKeyValueListIndex<int>(static (_, v) => v.Group);
 		var byTier = big.CacheKeyValueListIndex<int>(static (_, v) => v.Id % 5);
 		for (var i = 0; i < 3000; i++)
@@ -364,12 +364,12 @@ public class FrozenPipelineSeedTests {
 		var frozen = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier).BuildFrozen();
 		for (var g = 0; g < 2; g++)
 			for (var t = 0; t < 5; t++) {
-				AssertSame(big.Query().UseIndex(byGroup, g).UseIndex(byTier, t).Execute(), frozen.Execute((g, t)));
-				AssertSame(big.Query().UseIndex(byGroup, g).UseIndex(byTier, t).ExecutePooled(7, 50), frozen.ExecutePooled((g, t), 7, 50));
+				AssertSameRows(big.Query().UseIndex(byGroup, g).UseIndex(byTier, t).Execute(), frozen.Execute((g, t)));
+				Assert.That(frozen.Count((g, t)), Is.EqualTo(big.Query().UseIndex(byGroup, g).UseIndex(byTier, t).Count()), $"count {g}/{t}");
 			}
 
 		Assert.That(Decision(big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier).BuildFrozen(), (0, 1)),
-			Is.EqualTo("last seed: step 1 ListEq (signal 600), probe: slot-sorted into step 0 ListEq (signal 1500)"));
+			Is.EqualTo("last seed: step 1 ListEq (signal 600), free: smallest signal"));
 		LeakAssert.Balanced(() => {
 			frozen.ExecutePooled((0, 1)).Dispose();
 			frozen.ExecutePooledCloned((1, 3), 3, 9).Dispose();
@@ -377,31 +377,30 @@ public class FrozenPipelineSeedTests {
 		});
 	}
 
-	// ── (b) Free seed: Count, ReorderIndexNarrowers, classic Sort ───────────────────
+	// ── (b) The default free seed: Execute, Count, classic Sort ────────────────────
 
 	[Test]
-	public void Reorder_SameSetAndCount_OnEveryShape_RowOrderFollowsTheSeed() {
-		var listList = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(Reorder);
-		var listUnique = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen(Reorder);
-		var listKeySet = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).BuildFrozen(Reorder);
-		var keySetTier = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byTier, static t => t).BuildFrozen(Reorder);
-		var listRange = _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).Where(static v => v.Id > 2).BuildFrozen(Reorder);
-		var rangeList = _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).UseIndex(_byGroup, static a => a.group).BuildFrozen(Reorder);
-		var three = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).BuildFrozen(Reorder);
-		var updated = _cache.Prepare<int, PqItem, (int group, long after)>().UseIndex(_byGroup, static a => a.group).UseIndex(_lastUpdated, static a => a.after).BuildFrozen(Reorder);
-		Assert.That(listList.Plan.Optimizations, Does.Contain("ReorderIndexNarrowers"));
+	public void FreeSeed_SameSetAndCount_OnEveryShape_RowOrderFollowsTheSeed() {
+		var listList = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		var listUnique = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen();
+		var listKeySet = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).BuildFrozen();
+		var keySetTier = _cache.Prepare<int, PqItem, int>().UseIndex(_flagged).UseIndex(_byTier, static t => t).BuildFrozen();
+		var listRange = _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).Where(static v => v.Id > 2).BuildFrozen();
+		var rangeList = _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).UseIndex(_byGroup, static a => a.group).BuildFrozen();
+		var three = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		var updated = _cache.Prepare<int, PqItem, (int group, long after)>().UseIndex(_byGroup, static a => a.group).UseIndex(_lastUpdated, static a => a.after).BuildFrozen();
 		for (var g = -1; g < 7; g++) {
 			for (var t = -1; t < 41; t += 4)
-				AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t), listList, (g, t), $"reorder list∩list {g}/{t}");
-			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byCode, 1000 + g * 7), listUnique, (g, 1000 + g * 7), "reorder list∩unique " + g);
-			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byCode, -1), listUnique, (g, -1), "reorder list∩missing unique " + g);
-			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_flagged), listKeySet, g, "reorder list∩keyset " + g);
-			AssertSet(() => _cache.Query().UseIndex(_flagged).UseIndex(_byTier, g), keySetTier, g, "reorder keyset∩tier " + g);
-			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_codeRange, static rb => rb.Gte(1020).Lt(1030)).Where(static v => v.Id > 2), listRange, (g, 1020, 1030), "reorder list∩narrow range " + g);
-			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1200)).Where(static v => v.Id > 2), listRange, (g, 1000, 1200), "reorder list∩wide range " + g);
-			AssertSet(() => _cache.Query().UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1200)).UseIndex(_byGroup, g), rangeList, (g, 1000, 1200), "reorder range∩list " + g);
-			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byBand, g + 2).UseIndex(_byTier, g + 5), three, (g, g + 2, g + 5), "reorder three " + g);
-			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_lastUpdated, 1_000_000L + 200 * 1000L), updated, (g, 1_000_000L + 200 * 1000L), "reorder list∩updated " + g);
+				AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t), listList, (g, t), $"free seed list∩list {g}/{t}");
+			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byCode, 1000 + g * 7), listUnique, (g, 1000 + g * 7), "free seed list∩unique " + g);
+			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byCode, -1), listUnique, (g, -1), "free seed list∩missing unique " + g);
+			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_flagged), listKeySet, g, "free seed list∩keyset " + g);
+			AssertSet(() => _cache.Query().UseIndex(_flagged).UseIndex(_byTier, g), keySetTier, g, "free seed keyset∩tier " + g);
+			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_codeRange, static rb => rb.Gte(1020).Lt(1030)).Where(static v => v.Id > 2), listRange, (g, 1020, 1030), "free seed list∩narrow range " + g);
+			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1200)).Where(static v => v.Id > 2), listRange, (g, 1000, 1200), "free seed list∩wide range " + g);
+			AssertSet(() => _cache.Query().UseIndex(_codeRange, static rb => rb.Gte(1000).Lt(1200)).UseIndex(_byGroup, g), rangeList, (g, 1000, 1200), "free seed range∩list " + g);
+			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_byBand, g + 2).UseIndex(_byTier, g + 5), three, (g, g + 2, g + 5), "free seed three " + g);
+			AssertSet(() => _cache.Query().UseIndex(_byGroup, g).UseIndex(_lastUpdated, 1_000_000L + 200 * 1000L), updated, (g, 1_000_000L + 200 * 1000L), "free seed list∩updated " + g);
 		}
 
 		// The order follows the seeding source: the tier bucket, i.e. the reversed spelling's eager order.
@@ -411,9 +410,9 @@ public class FrozenPipelineSeedTests {
 		Assert.That(Decision(BuildListRange(), (3, 1020, 1030)), Does.StartWith("last seed: step 1 Range (signal ").And.EndWith("), free: smallest signal"), "a narrow window's estimate beats the bucket twice over");
 		Assert.That(Decision(BuildListRange(), (3, 1000, 1200)), Is.EqualTo("last seed: step 0 ListEq (signal 34), free: smallest signal"), "a wide window's estimate does not");
 		Assert.That(Decision(BuildListUnique(), (3, -1)), Is.EqualTo("last seed: step 1 UniqueEq (signal 0), free: smallest signal"), "an exact zero: no walk at all");
-		FrozenQuery<(int group, int tier), PqItem> BuildListList() => _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(Reorder);
-		FrozenQuery<(int group, int code), PqItem> BuildListUnique() => _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen(Reorder);
-		FrozenQuery<(int group, int lo, int hi), PqItem> BuildListRange() => _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).Where(static v => v.Id > 2).BuildFrozen(Reorder);
+		FrozenQuery<(int group, int tier), PqItem> BuildListList() => _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		FrozenQuery<(int group, int code), PqItem> BuildListUnique() => _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen();
+		FrozenQuery<(int group, int lo, int hi), PqItem> BuildListRange() => _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).Where(static v => v.Id > 2).BuildFrozen();
 	}
 
 	[Test]
@@ -432,7 +431,7 @@ public class FrozenPipelineSeedTests {
 
 		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(), (3, 3), count: true),
 			Is.EqualTo("last seed: step 1 ListEq (signal 6), free: smallest signal"));
-		Assert.That(listList.Explain(), Does.Contain("pipeline: seed = fixed for Execute, free for Count"));
+		Assert.That(listList.Explain(), Does.Contain("pipeline: seed = free for Execute, free for Count"));
 	}
 
 	private readonly struct ByCode : IComparer<PqItem> {
@@ -540,11 +539,11 @@ public class FrozenPipelineSeedTests {
 			big.AddOrUpdate(i, new PqItem { Id = i, Code = 1000 + i, Group = i % 2, Flag = i % 3 == 0 });
 		// The second step's selector throws at bind, before any seed; the small step's own walk is fine.
 		var selector = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier < 0 ? throw new InvalidOperationException("boom") : a.tier).BuildFrozen();
-		// A predicate that throws mid-walk after a pool-path small-probe seed (300 survivors > 256 slots).
+		// A predicate that throws mid-walk after a pool-path seed (600 keys, well past the stack buffer).
 		var predicate = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier)
 			.Where(static (v, a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).BuildFrozen();
 		var predicateFree = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier)
-			.Where(static (v, a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).BuildFrozen(Reorder);
+			.Where(static (v, a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).BuildFrozen();
 		var comparer = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier).Sort(new Bomb()).BuildFrozen();
 		var uniqueBomb = big.Prepare<int, PqItem, (int group, int code)>().UseIndex(byGroup, static a => a.group).UseIndex(byCode, static a => a.code < 0 ? throw new InvalidOperationException("boom") : a.code).BuildFrozen();
 		Assert.That(comparer.Plan.Executor, Is.EqualTo("Pipeline"));
@@ -594,10 +593,10 @@ public class FrozenPipelineSeedTests {
 		public int Compare(PqBomb? x, PqBomb? y) => (x?.Id ?? 0).CompareTo(y?.Id ?? 0);
 	}
 
-	// ── (f) Concurrency on the small-probe path ───────────────────────────────────
+	// ── (f) Concurrency on the seed path ──────────────────────────────────────────
 
 	[Test]
-	public void SmallProbe_EightReaders_AgainstAWriter_NeverThrow_NoDuplicates_ValueJudgedSmallStep() {
+	public void FreeSeed_EightReaders_AgainstAWriter_NeverThrow_NoDuplicates_ValueJudgedSeedStep() {
 		var listList = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
 		var listUnique = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen();
 		var sorted = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Sort(new ByCode()).BuildFrozen();
@@ -624,7 +623,7 @@ public class FrozenPipelineSeedTests {
 					using (var rows = listList.ExecutePooled((group, tier))) {
 						seen.Clear();
 						for (var r = 0; r < rows.Count; r++) {
-							Assert.That(rows[r].Id % 40, Is.EqualTo(tier), "the small step is value-judged");
+							Assert.That(rows[r].Id % 40, Is.EqualTo(tier), "the seeding step is value-judged");
 							Assert.That(seen.Add(rows[r].Id), Is.True, "no duplicate keys");
 						}
 					}

@@ -132,7 +132,7 @@ public interface IJoinResolver {
 	/// reproduce? True for the left-symmetric join alone: its pair set is keyed by the lookup key, so the
 	/// fan-out creates the rows grouped by right — several lefts of one bucket together — while the fused
 	/// pass keeps the seed's order. The two agree as sets, never as sequences, so the planner leaves such a
-	/// chain to the replay unless <see cref="FrozenOptions.FuseSymmetricInnerJoins" /> is set. An
+	/// chain to the replay under <see cref="FrozenOptions.PreserveEagerOrder" /> and fuses it otherwise. An
 	/// <i>outer</i> left-symmetric join is unaffected: its rows already exist, the fan-out only fills them.
 	/// JIT-folded per instantiation.
 	/// </summary>

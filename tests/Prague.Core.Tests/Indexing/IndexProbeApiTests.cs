@@ -96,7 +96,7 @@ public class IndexProbeApiTests {
 	}
 
 	// A writer moving rows across buckets (buckets emptied and disposed, new ones created) while
-	// readers TryGetBucket + Contains / TryGetSlot: no exception, no torn read.
+	// readers TryGetBucket + Contains: no exception, no torn read.
 	[Test]
 	[NonParallelizable]
 	public void ListIndex_TryGetBucket_UnderConcurrentWriter_NeverThrows() {
@@ -131,10 +131,7 @@ public class IndexProbeApiTests {
 							if (!byGroup.TryGetBucket(g, out var bucket))
 								continue;
 							for (var k = 0; k < 512; k += 5) {
-								var found = bucket.Contains(k);
-								if (bucket.TryGetSlot(k, out var slot) && slot < 0)
-									throw new InvalidOperationException("negative slot on a hit");
-								if (found) probes++;
+								if (bucket.Contains(k)) probes++;
 							}
 						}
 					}

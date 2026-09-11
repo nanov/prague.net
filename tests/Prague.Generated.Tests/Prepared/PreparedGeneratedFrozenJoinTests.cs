@@ -12,7 +12,7 @@ using static PreparedParity;
 // reverse one-to-many join (a JoinMany, outer or inner) and the collection FK joins (JoinManyCollection
 // both ways) take the pipeline too since step 8: the narrowing is the pass, the fan-out runs after it.
 // The INNER forward many-to-one still replays: a left-symmetric JoinOne fan-out regroups its rows, so it
-// fuses only under FrozenOptions.FuseSymmetricInnerJoins. Every shape is eager == frozen as a set with
+// replays only under FrozenOptions.PreserveEagerOrder. Every shape is eager == frozen as a set with
 // the same Count; the sorted shapes row for row.
 [TestFixture]
 public class PreparedGeneratedFrozenJoinTests {
@@ -85,9 +85,10 @@ public class PreparedGeneratedFrozenJoinTests {
 	[Test]
 	public void ForwardManyToOne_AfterWithAuthorId_Outer_Inner_FrozenFuses_LikeEager() {
 		var outer = _m2oBooks.Prepare<int>().WithAuthorId(static a => a).JoinWithM2OAuthor().BuildFrozen();
-		// Inner: a left-symmetric fan-out regroups its rows, so it replays (byte-identical) unless opted in.
-		var inner = _m2oBooks.Prepare<int>().WithAuthorId(static a => a).InnerJoinWithM2OAuthor().BuildFrozen();
-		var innerFused = _m2oBooks.Prepare<int>().WithAuthorId(static a => a).InnerJoinWithM2OAuthor().BuildFrozen(new FrozenOptions { FuseSymmetricInnerJoins = true });
+		// Inner: a left-symmetric fan-out regroups its rows, so it fuses by default and replays
+		// (byte-identical) only under PreserveEagerOrder.
+		var inner = _m2oBooks.Prepare<int>().WithAuthorId(static a => a).InnerJoinWithM2OAuthor().BuildFrozen(new FrozenOptions { PreserveEagerOrder = true });
+		var innerFused = _m2oBooks.Prepare<int>().WithAuthorId(static a => a).InnerJoinWithM2OAuthor().BuildFrozen();
 		Assert.That(outer.Explain(), Does.Contain("executor: Pipeline").And.Contain("joins: 1 (fused: 1, unfused: 0"));
 		Assert.That(inner.Explain(), Does.Contain("executor: Replay"));
 		Assert.That(innerFused.Explain(), Does.Contain("executor: Pipeline"));

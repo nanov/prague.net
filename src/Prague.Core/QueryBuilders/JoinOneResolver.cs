@@ -612,7 +612,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 	static bool IJoinResolver.SupportsFusedLookup => true;
 
 	// The inner fan-out creates the rows grouped by right key, which the per-left fill cannot reproduce:
-	// an inner join of this family fuses only under FrozenOptions.FuseSymmetricInnerJoins.
+	// an inner join of this family replays under FrozenOptions.PreserveEagerOrder and fuses otherwise.
 	static bool IJoinResolver.FusedInnerRegroups => true;
 
 	bool IJoinResolver.CanFuse => TFilter.IsNoOp;

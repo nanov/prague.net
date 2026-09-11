@@ -18,6 +18,10 @@ using EagerItems = CacheQueryBuilderCombined<Prague.Core.TypeSystem.ExecutableQu
 // per bucket), Tier = Id % 40 (6 per bucket), Flag = Id % 3 == 0, last-updated = 1_000_000 + Id * 1000.
 [TestFixture]
 public class FrozenPipelineTests {
+	// A seed the free default would move: PreserveEagerOrder pins it to the first declared step, which is
+	// what a test about probe sides (not about seed choice) needs.
+	private static readonly FrozenOptions PinnedSeed = new() { PreserveEagerOrder = true };
+
 	private const int N = 240;
 	private const long BaseMs = 1_000_000L;
 
@@ -316,7 +320,7 @@ public class FrozenPipelineTests {
 		var alonePrepared = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, static a => a).Build();
 		var afterTier = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byTier, 3).UseIndex(_byGroup, static a => a).BuildFrozen();
 		var afterTierPrepared = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byTier, 3).UseIndex(_byGroup, static a => a).Build();
-		var beforeTier = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, static a => a).UseIndex(_byTier, 3).BuildFrozen();
+		var beforeTier = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, static a => a).UseIndex(_byTier, 3).BuildFrozen(PinnedSeed);
 		var beforeTierPrepared = _cache.Prepare<int, PqItem, ReadOnlyMemory<int>>().UseIndex(_byGroup, static a => a).UseIndex(_byTier, 3).Build();
 		Assert.That(afterTier.Explain(), Does.Contain("1 ListIn probe: value-side"));
 		foreach (var groups in new int[][] { [], [3], [1, 4, 6], [4, 1, 4, 9], [-1, 99] }) {
@@ -451,8 +455,8 @@ public class FrozenPipelineTests {
 	public void Staleness_RangeProbe_BothDirections_ValueSideJudgesByTheReturnedValue_KeySideReproducesEager() {
 		var (cache, pause, byGroup, codeRange, _) = PausableCache();
 		// Row 24 (group 3, code 1024) inside the window [1020, 1030).
-		var valueSide = cache.Prepare().UseIndex(byGroup, 3).UseIndex(codeRange, static rb => rb.Gte(1020).Lt(1030)).BuildFrozen();
-		var keySide = cache.Prepare().UseIndex(byGroup, 3).UseIndex(codeRange, static rb => rb.Gte(1020).Lt(1030)).BuildFrozen(new FrozenOptions { IndexSideProbes = true });
+		var valueSide = cache.Prepare().UseIndex(byGroup, 3).UseIndex(codeRange, static rb => rb.Gte(1020).Lt(1030)).BuildFrozen(PinnedSeed);
+		var keySide = cache.Prepare().UseIndex(byGroup, 3).UseIndex(codeRange, static rb => rb.Gte(1020).Lt(1030)).BuildFrozen(new FrozenOptions { IndexSideProbes = true, PreserveEagerOrder = true });
 		Assert.That(valueSide.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(valueSide.Explain(), Does.Contain("1 Range probe: value-side"));
 		Assert.That(keySide.Plan.Executor, Is.EqualTo("Replay"), "the key-side range twin is a window walk: replay");
@@ -492,8 +496,8 @@ public class FrozenPipelineTests {
 	public void Staleness_ListProbe_BothDirections() {
 		var (cache, pause, byGroup, codeRange, _) = PausableCache();
 		// Range seeds, the list probes. Row 24 is in group 3.
-		var valueSide = cache.Prepare().UseIndex(codeRange, static rb => rb.Gte(1020).Lt(1030)).UseIndex(byGroup, 3).BuildFrozen();
-		var keySide = cache.Prepare().UseIndex(codeRange, static rb => rb.Gte(1020).Lt(1030)).UseIndex(byGroup, 3).BuildFrozen(new FrozenOptions { IndexSideProbes = true });
+		var valueSide = cache.Prepare().UseIndex(codeRange, static rb => rb.Gte(1020).Lt(1030)).UseIndex(byGroup, 3).BuildFrozen(PinnedSeed);
+		var keySide = cache.Prepare().UseIndex(codeRange, static rb => rb.Gte(1020).Lt(1030)).UseIndex(byGroup, 3).BuildFrozen(new FrozenOptions { IndexSideProbes = true, PreserveEagerOrder = true });
 		Assert.That(keySide.Plan.Executor, Is.EqualTo("Replay"), "a range step under IndexSideProbes replays");
 		var keySideNoRange = cache.Prepare().UseIndex(byGroup, 3).UseIndex(byGroup, 3).BuildFrozen(new FrozenOptions { IndexSideProbes = true });
 		Assert.That(keySideNoRange.Plan.Executor, Is.EqualTo("Pipeline"));
@@ -725,7 +729,7 @@ public class FrozenPipelineTests {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort (step 3: free seed into the sorting container)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "sort-bounded (step 6: fixed seed into the top-k container)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(new FrozenOptions { Pipeline = false }).Plan.Executor, Is.EqualTo("Replay"), "pipeline off");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true }).Plan.Executor, Is.EqualTo("Pipeline"), "reorder is the pipeline's free seed");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "reorder is the pipeline's free seed");
 			Assert.That(_cache.Prepare<int, PqItem, (long a, long b, long c)>().UseIndex(_byGroup, 3).UseIndex(bigKeys, static (rb, a) => rb.Gte(a)).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an unmanaged key over 16 bytes replays");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(refKeys, static rb => rb.Gte(("1000", 0))).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a struct key with references replays");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_codeText, static rb => rb.Gte("001000")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a reference key runs");
@@ -741,7 +745,7 @@ public class FrozenPipelineTests {
 		var text = frozen.Explain();
 		Assert.Multiple(() => {
 			Assert.That(text, Does.Contain("executor: Pipeline"));
-			Assert.That(text, Does.Contain("pipeline: seed = fixed for Execute, free for Count"));
+			Assert.That(text, Does.Contain("pipeline: seed = free for Execute, free for Count"));
 			Assert.That(text, Does.Contain("0 ListEq probe: value-side, 1 Range probe: value-side, 2 KeySet probe: value-side, 3 LastUpdatedAfter probe: key-side"));
 			Assert.That(text, Does.Contain("filters: 2 (fused, order below)"));
 			Assert.That(text, Does.Contain("fused filters: 2"));

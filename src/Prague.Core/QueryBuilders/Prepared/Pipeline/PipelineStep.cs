@@ -15,9 +15,6 @@ internal static class PipelineLimits {
 	/// <summary>Stack longs the seed key buffer starts with (1 KB); larger seeds spill to the array pool.</summary>
 	internal const int SeedStackLongs = 128;
 
-	/// <summary>Stack ints the small-probe seed's slot scratch starts with (1 KB); larger survivor sets spill to the array pool.</summary>
-	internal const int SlotStackInts = 256;
-
 	/// <summary>The most branches one <c>Or</c> step may have after flattening nested Ors: one first-leaf byte per branch in the step's binding, one bit per branch in its mask.</summary>
 	internal const int MaxOrBranches = 8;
 }
@@ -29,13 +26,6 @@ internal enum SeedMode : byte {
 
 	/// <summary>The first active index step, walked in its own order — the eager <c>_first</c> rule.</summary>
 	Fixed,
-
-	/// <summary>
-	///   The first active step still decides the order, but a smaller equality step is walked instead and
-	///   its survivors are sorted by the slot they occupy in the first step's set — the eager sequence at
-	///   the small step's cost.
-	/// </summary>
-	SmallProbe,
 
 	/// <summary>The step with the smallest cardinality signal; encounter order follows it.</summary>
 	Free,
@@ -191,7 +181,7 @@ internal ref struct SeedKeys<TKey> : IKeySink<TKey> {
 
 	internal ReadOnlySpan<TKey> Keys => _buffer[.._count];
 
-	/// <summary>The copied keys, writable: the small-probe seed compacts and reorders them in place.</summary>
+	/// <summary>The copied keys, writable: a seed that filters its keys (the Or store walk) compacts them in place.</summary>
 	internal Span<TKey> MutableKeys => _buffer[.._count];
 
 	/// <summary>Drops every key past <paramref name="count" /> (after an in-place compaction).</summary>
@@ -256,7 +246,6 @@ internal ref struct PipelineFrame<TKey> {
 	internal int ValueProbeCount;
 	internal int ActiveFilterCount;
 	internal int SeedStep;
-	internal int SmallStep;
 	internal SeedMode Mode;
 	internal SeedKeys<TKey> Seed;
 
@@ -297,23 +286,17 @@ internal interface IPipelineStep<TKey, TValue, TArgs>
 	StepActivation Bind(in TArgs args, ref StepBinding binding);
 
 	/// <summary>
-	///   True when <see cref="Signal" /> is an exact live count (unique, list, key-set — the equality steps,
-	///   which may also walk as the small side of a small-probe seed); false for the B+tree estimates
-	///   (range, last-updated), which only ever pick a seed and never decide emptiness.
+	///   True when <see cref="Signal" /> is an exact live count (unique, list, key-set — the equality steps);
+	///   false for the B+tree estimates (range, last-updated), which only ever pick a seed and never decide
+	///   emptiness.
 	/// </summary>
 	bool ExactSignal { get; }
-
-	/// <summary>True when the step is backed by one <see cref="PooledSet{T,TKeyComparer}" /> whose slot order is the step's seed order, so <see cref="TryGetSlot" /> can reproduce it.</summary>
-	bool SlotAddressable { get; }
 
 	/// <summary>The rows this binding would seed — a live count or a B+tree estimate (design §3.1); read only when a seed has to be chosen.</summary>
 	int Signal(in StepBinding binding);
 
 	/// <summary>Copies the keys the step's index holds for the binding into <paramref name="seed" />; <paramref name="dedupe" /> is created on demand by multi-bucket seeds.</summary>
 	void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe);
-
-	/// <summary>For a <see cref="SlotAddressable" /> step: the slot <paramref name="key" /> occupies in the bound set — its position in the step's seed order — or false when absent.</summary>
-	bool TryGetSlot(TKey key, in StepBinding binding, out int slot);
 
 	bool ProbeKey(TKey key, in StepBinding binding);
 
@@ -346,18 +329,11 @@ internal abstract class PipelineStepBase<TKey, TValue, TArgs> : IPipelineStep<TK
 
 	public virtual bool ExactSignal => true;
 
-	public virtual bool SlotAddressable => false;
-
 	public abstract StepActivation Bind(in TArgs args, ref StepBinding binding);
 
 	public abstract int Signal(in StepBinding binding);
 
 	public abstract void Seed(in StepBinding binding, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe);
-
-	public virtual bool TryGetSlot(TKey key, in StepBinding binding, out int slot) {
-		slot = -1;
-		return false;
-	}
 
 	public virtual bool ProbeKey(TKey key, in StepBinding binding) => true;
 
@@ -505,7 +481,6 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	private readonly int[] _lastOrMasks;
 	private int _lastDecision = -1;
 	private int _lastSeedSignal;
-	private int _lastOtherSignal;
 
 	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed, PipelineSort sort, int joins, int fusedJoins = 0,
 		PipelineTree<TArgs>? tree = null, int branchFilters = 0, bool orSeed = false, int manyJoins = 0) {
@@ -526,13 +501,13 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 		Array.Fill(_lastOrMasks, -1);
 	}
 
-	/// <summary>True when <c>Execute*</c> seeds from the smallest signal (a classic <c>Sort</c>, or <see cref="FrozenOptions.ReorderIndexNarrowers" />); <c>Count</c> always does.</summary>
+	/// <summary>True when <c>Execute*</c> seeds from the smallest signal — the default, off only under <see cref="FrozenOptions.PreserveEagerOrder" /> (a classic <c>Sort</c> keeps it either way); <c>Count</c> always does.</summary>
 	internal bool FreeSeed => _freeSeed;
 
 	/// <summary>The composite shape, or <c>null</c> for a flat plan.</summary>
 	internal PipelineTree<TArgs>? Tree => _tree;
 
-	/// <summary><see cref="FrozenOptions.OrSeed" /> as bound.</summary>
+	/// <summary>True when an <c>Or</c> that seeds walks the union of its branches rather than the store — the default, off under <see cref="FrozenOptions.PreserveEagerOrder" />.</summary>
 	internal bool OrSeed => _orSeed;
 
 	/// <summary>The arm one select node took (-1: none); written only when it changes.</summary>
@@ -550,19 +525,18 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 			_lastOrMasks[step] = packed;
 	}
 
-	// Written only when the (mode, seed, small) decision changes, so the signals printed are those of the
-	// execution that last changed it — a plan executed with one set of arguments never writes here again.
-	internal void Record(SeedMode mode, int seed, int small, int seedSignal, int otherSignal, bool orUnion = false) {
-		var packed = (int)mode | (seed + 1) << 8 | (small + 1) << 16 | (orUnion ? 1 << 24 : 0);
+	// Written only when the (mode, seed) decision changes, so the signal printed is that of the execution
+	// that last changed it — a plan executed with one set of arguments never writes here again.
+	internal void Record(SeedMode mode, int seed, int seedSignal, bool orUnion = false) {
+		var packed = (int)mode | (seed + 1) << 8 | (orUnion ? 1 << 24 : 0);
 		if (packed == _lastDecision)
 			return;
 		_lastSeedSignal = seedSignal;
-		_lastOtherSignal = otherSignal;
 		_lastDecision = packed;
 	}
 
 	public void Explain(StringBuilder sb) {
-		sb.Append("pipeline: seed = ").Append(_freeSeed ? "free" : "fixed").Append(" for Execute, free for Count (fixed: the first active index step, walking a smaller equality step instead when 2 × its signal ≤ the first's and sorting the survivors by slot; free: the smallest signal, unique first, an estimate only when estimate × 2 < the best exact count), steps: [");
+		sb.Append("pipeline: seed = ").Append(_freeSeed ? "free" : "fixed").Append(" for Execute, free for Count (free: the smallest signal, unique first, an estimate only when estimate × 2 < the best exact count; fixed: the first active index step, the eager encounter order), steps: [");
 		for (var i = 0; i < _steps.Length; i++) {
 			if (i > 0)
 				sb.Append(", ");
@@ -576,7 +550,7 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 			sb.Append(", shape: ");
 			PipelineNode<TArgs>.Explain(sb, _tree.Top);
 			sb.Append(" (an if / match arm is chosen once at bind and its steps spliced in place; an Or probes as the OR of its branches' ANDs, seeds ")
-				.Append(_orSeed ? "from the union of its branches in branch order (OrSeed, the default)" : "the store walk in store order kept to the union of its branches (OrSeed = false: the eager sequence; the union itself for Count / Sort)")
+				.Append(_orSeed ? "from the union of its branches in branch order (the default)" : "the store walk in store order kept to the union of its branches (PreserveEagerOrder: the eager sequence; the union itself for Count / Sort)")
 				.Append(')');
 		}
 
@@ -599,16 +573,11 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 			return;
 		var mode = (SeedMode)(decision & 0xFF);
 		var seed = ((decision >> 8) & 0xFF) - 1;
-		var small = ((decision >> 16) & 0xFF) - 1;
 		var orUnion = (decision & 1 << 24) != 0;
 		sb.Append("  last seed: ");
 		switch (mode) {
 			case SeedMode.AllRows:
 				sb.AppendLine("all rows (no active index step)");
-				break;
-			case SeedMode.SmallProbe:
-				sb.Append("step ").Append(small).Append(' ').Append(_steps[small].Kind).Append(" (signal ").Append(_lastOtherSignal)
-					.Append("), probe: slot-sorted into step ").Append(seed).Append(' ').Append(_steps[seed].Kind).Append(" (signal ").Append(_lastSeedSignal).AppendLine(")");
 				break;
 			default:
 				sb.Append("step ").Append(seed).Append(' ').Append(_steps[seed].Kind).Append(" (signal ").Append(_lastSeedSignal).Append("), ")

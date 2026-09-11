@@ -4,10 +4,14 @@ using Prague.Core;
 using static PreparedQueryDifferentialTests;
 using static PreparedQueryJoinDifferentialTests;
 
-// The two production hot shapes, pinned eager == prepared == frozen row for row so the pipeline steps
-// that will take them over (small-probe seed §3.4, SortBounded feed §8, JoinOne fusion §7) have their
-// parity check ready. Both sort before joining, so only the page rows are joined; SortBounded breaks
-// ties by encounter order, hence the pages-concatenate-to-the-whole check.
+// The two production hot shapes, pinned eager == prepared == frozen. Both sort before joining, so only
+// the page rows are joined; SortBounded breaks ties by encounter order, hence the
+// pages-concatenate-to-the-whole check.
+//   Row for row, the frozen query is built with PreserveEagerOrder: the default seeds from the smallest
+// step, and both comparers here tie heavily (ByIdMod5 has five distinct keys, ByScoreTies eight), so the
+// sequence the ties come out in is the seed's and the contract leaves it unspecified. The default path
+// has its own tests below: the same rows with the same multiplicity, the same counts, the same sorted
+// key sequence (only ties may move), and pages that partition the whole.
 //   A. three list-index narrowers (largest bucket declared first) → SortBounded(page) → JoinOne 1:1 by PK.
 //   B. "newer than T" (last-updated index; range-on-timestamp twin) → two list indexes →
 //      SortBounded(page) → two chained JoinOnes 1:1 by FK.
@@ -118,6 +122,9 @@ public class PreparedQueryProductionShapeDifferentialTests {
 
 	private static readonly (int skip, int take)[] Pages = [(0, 5), (5, 5), (20, 20), (0, int.MaxValue), (3, int.MaxValue), (29, 5), (100, 5)];
 
+	// Byte-identity is asserted through the opt-out; the default path is asserted as the contract defines it.
+	private static readonly FrozenOptions EagerOrder = new() { PreserveEagerOrder = true };
+
 	// ── A ─────────────────────────────────────────────────────────────────────────
 
 	[Test]
@@ -127,7 +134,7 @@ public class PreparedQueryProductionShapeDifferentialTests {
 			.SortBounded(new ByIdMod5()).JoinOne(_details).Build();
 		var frozen = _items.Prepare<int, PqItem, (int group, int band, int lane)>()
 			.UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane)
-			.SortBounded(new ByIdMod5()).JoinOne(_details).BuildFrozen();
+			.SortBounded(new ByIdMod5()).JoinOne(_details).BuildFrozen(EagerOrder);
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded before an outer JoinOne: the joined pipeline (step 6)");
 		Assert.That(frozen.Plan.IsSorted, Is.True);
 		// (group, band inside it, lane inside the band) → 33 rows; a lane outside the band → 0; a missing group → 0.
@@ -154,7 +161,7 @@ public class PreparedQueryProductionShapeDifferentialTests {
 		for (var i = 0; i < whole.Count; i++) expected[i] = Detail(whole[i]);
 		foreach (var q in new[] {
 			_items.Prepare<int, PqItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane).SortBounded(new ByIdMod5()).JoinOne(_details).Build(),
-			_items.Prepare<int, PqItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane).SortBounded(new ByIdMod5()).JoinOne(_details).BuildFrozen(),
+			_items.Prepare<int, PqItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane).SortBounded(new ByIdMod5()).JoinOne(_details).BuildFrozen(EagerOrder),
 		}) {
 			var paged = new List<string>();
 			for (var skip = 0; skip < whole.Count; skip += 7) {
@@ -177,7 +184,7 @@ public class PreparedQueryProductionShapeDifferentialTests {
 			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).Build();
 		var frozen = _records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>()
 			.UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
-			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen();
+			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen(EagerOrder);
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(frozen.Plan.Narrowers[0].Kind, Is.EqualTo(NarrowerKind.LastUpdatedAfter));
 		foreach (var args in ArgSets) {
@@ -204,7 +211,7 @@ public class PreparedQueryProductionShapeDifferentialTests {
 			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).Build();
 		var frozen = _records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>()
 			.UseIndex(_tsRange, static (rb, a) => rb.Gt(a.t)).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
-			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen();
+			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen(EagerOrder);
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		foreach (var args in ArgSets) {
 			var (t, a, b) = args;
@@ -231,8 +238,8 @@ public class PreparedQueryProductionShapeDifferentialTests {
 		var expected = new string[whole.Count];
 		for (var i = 0; i < whole.Count; i++) expected[i] = Two(whole[i]);
 		foreach (var q in new[] {
-			_records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>().UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB).SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen(),
-			_records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>().UseIndex(_tsRange, static (rb, a) => rb.Gt(a.t)).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB).SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen(),
+			_records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>().UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB).SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen(EagerOrder),
+			_records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>().UseIndex(_tsRange, static (rb, a) => rb.Gt(a.t)).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB).SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen(EagerOrder),
 		}) {
 			var paged = new List<string>();
 			for (var skip = 0; skip < whole.Count; skip += 20) {
@@ -242,5 +249,92 @@ public class PreparedQueryProductionShapeDifferentialTests {
 
 			Assert.That(paged, Is.EqualTo(expected).AsCollection);
 		}
+	}
+	// ── The default path: the contract, not the sequence ──────────────────────────
+
+	// What the default (free) seed still owes the caller on both production shapes: the same
+	// Count / TotalCount / Truncated on every page; the same rows with the same multiplicity in the whole
+	// result; the same *sorted* key sequence, so only comparer-equal rows may have moved; and pages that
+	// partition the frozen query's own whole result. Nothing here pins a row sequence — that is what
+	// PreserveEagerOrder is for, and a page's rows are not comparable to eager's once a tie has crossed a
+	// page boundary.
+
+	[Test]
+	public void A_DefaultSeed_SameRowsAndCounts_SortedKeysUnchanged_PagesPartitionTheWhole() {
+		var frozen = _items.Prepare<int, PqItem, (int group, int band, int lane)>()
+			.UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane)
+			.SortBounded(new ByIdMod5()).JoinOne(_details).BuildFrozen();
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
+		foreach (var args in new[] { (3, 3 + 8 * 1, 3 + 8 * 4), (0, 0, 0), (5, 5 + 8 * 2, 5 + 8 * 5), (5, 5 + 8 * 2, 5 + 8 * 6), (9, 1, 1) }) {
+			var (g, b, l) = args;
+			foreach (var (skip, take) in Pages)
+				AssertSameJoinedCounts(_items.Query().UseIndex(_byGroup, g).UseIndex(_byBand, b).UseIndex(_byLane, l).SortBounded(new ByIdMod5()).JoinOne(_details).ExecutePooled(skip, take),
+					frozen.ExecutePooled(args, skip, take));
+
+			// The sort itself is eager's: the same comparer keys in the same order, ties aside.
+			using var eagerWhole = _items.Query().UseIndex(_byGroup, g).UseIndex(_byBand, b).UseIndex(_byLane, l).SortBounded(new ByIdMod5()).JoinOne(_details).ExecutePooled(0, Items);
+			using var frozenWhole = frozen.ExecutePooled(args, 0, Items);
+			var eagerKeys = new int[eagerWhole.Count];
+			var frozenKeys = new int[frozenWhole.Count];
+			var eagerRows = new string[eagerWhole.Count];
+			var frozenRows = new string[frozenWhole.Count];
+			for (var i = 0; i < eagerWhole.Count; i++) (eagerKeys[i], eagerRows[i]) = (eagerWhole[i].Left.Id % 5, Detail(eagerWhole[i]));
+			for (var i = 0; i < frozenWhole.Count; i++) (frozenKeys[i], frozenRows[i]) = (frozenWhole[i].Left.Id % 5, Detail(frozenWhole[i]));
+			Assert.That(frozenRows, Is.EquivalentTo(eagerRows), "row multiset " + args);
+			Assert.That(frozenKeys, Is.EqualTo(eagerKeys).AsCollection, "sorted key sequence " + args);
+
+			// Pages slice that same whole.
+			var expected = new string[frozenWhole.Count];
+			for (var i = 0; i < frozenWhole.Count; i++) expected[i] = Detail(frozenWhole[i]);
+			var paged = new List<string>();
+			for (var skip = 0; skip < frozenWhole.Count; skip += 7) {
+				using var page = frozen.ExecutePooled(args, skip, 7);
+				for (var i = 0; i < page.Count; i++) paged.Add(Detail(page[i]));
+			}
+
+			Assert.That(paged, Is.EqualTo(expected).AsCollection, "pages partition the whole " + args);
+		}
+	}
+
+	[Test]
+	public void B_DefaultSeed_SameRowsAndCounts_SortedKeysUnchanged_PagesPartitionTheWhole_BothTimeIndexKinds() {
+		var byTime = _records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>()
+			.UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
+			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen();
+		var byRange = _records.Prepare<int, PqRecord, (long t, int keyA, int keyB)>()
+			.UseIndex(_tsRange, static (rb, a) => rb.Gt(a.t)).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB)
+			.SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).BuildFrozen();
+		Assert.Multiple(() => {
+			Assert.That(byTime.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(byRange.Plan.Executor, Is.EqualTo("Pipeline"));
+		});
+		foreach (var frozen in new[] { byTime, byRange })
+			foreach (var args in ArgSets) {
+				var (t, a, b) = args;
+				foreach (var (skip, take) in Pages)
+					AssertSameJoinedCounts(_records.Query().UseIndex(_recordsUpdated, t).UseIndex(_byKeyA, a).UseIndex(_byKeyB, b).SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).ExecutePooled(skip, take),
+						frozen.ExecutePooled(args, skip, take));
+
+				using var eagerWhole = _records.Query().UseIndex(_recordsUpdated, t).UseIndex(_byKeyA, a).UseIndex(_byKeyB, b).SortBounded(new ByScoreTies()).JoinOne(_recByCustomer, _customers).JoinOne(_recByProduct, _products).ExecutePooled(0, Records);
+				using var frozenWhole = frozen.ExecutePooled(args, 0, Records);
+				var eagerKeys = new int[eagerWhole.Count];
+				var frozenKeys = new int[frozenWhole.Count];
+				var eagerRows = new string[eagerWhole.Count];
+				var frozenRows = new string[frozenWhole.Count];
+				for (var i = 0; i < eagerWhole.Count; i++) (eagerKeys[i], eagerRows[i]) = (eagerWhole[i].Left.Score & 7, Two(eagerWhole[i]));
+				for (var i = 0; i < frozenWhole.Count; i++) (frozenKeys[i], frozenRows[i]) = (frozenWhole[i].Left.Score & 7, Two(frozenWhole[i]));
+				Assert.That(frozenRows, Is.EquivalentTo(eagerRows), "row multiset " + args);
+				Assert.That(frozenKeys, Is.EqualTo(eagerKeys).AsCollection, "sorted key sequence " + args);
+
+				var expected = new string[frozenWhole.Count];
+				for (var i = 0; i < frozenWhole.Count; i++) expected[i] = Two(frozenWhole[i]);
+				var paged = new List<string>();
+				for (var skip = 0; skip < frozenWhole.Count; skip += 20) {
+					using var page = frozen.ExecutePooled(args, skip, 20);
+					for (var i = 0; i < page.Count; i++) paged.Add(Two(page[i]));
+				}
+
+				Assert.That(paged, Is.EqualTo(expected).AsCollection, "pages partition the whole " + args);
+			}
 	}
 }

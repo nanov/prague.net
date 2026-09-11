@@ -40,6 +40,28 @@ public class PreparedQueryDifferentialTests {
 
 	private static PqItem Make(int i) => new() { Id = i, Code = 1000 + i, Group = i % 7, Flag = i % 3 == 0 };
 
+	/// <summary>
+	///   The default-path twin of <see cref="AssertSame" /> for a result whose row order the frozen contract
+	///   leaves free: the same rows with the same multiplicity, the same counts, any sequence.
+	/// </summary>
+	internal static void AssertSameRows(QueryResults<PqItem> eager, QueryResults<PqItem> frozen) {
+		try {
+			Assert.Multiple(() => {
+				Assert.That(frozen.Count, Is.EqualTo(eager.Count), "Count");
+				Assert.That(frozen.TotalCount, Is.EqualTo(eager.TotalCount), "TotalCount");
+				Assert.That(frozen.Truncated, Is.EqualTo(eager.Truncated), "Truncated");
+			});
+			var eagerIds = new int[eager.Count];
+			var frozenIds = new int[frozen.Count];
+			for (var i = 0; i < eager.Count; i++) eagerIds[i] = eager[i].Id;
+			for (var i = 0; i < frozen.Count; i++) frozenIds[i] = frozen[i].Id;
+			Assert.That(frozenIds, Is.EquivalentTo(eagerIds), "row multiset");
+		} finally {
+			eager.Dispose();
+			frozen.Dispose();
+		}
+	}
+
 	internal static void AssertSame(QueryResults<PqItem> eager, QueryResults<PqItem> prepared) {
 		try {
 			Assert.Multiple(() => {

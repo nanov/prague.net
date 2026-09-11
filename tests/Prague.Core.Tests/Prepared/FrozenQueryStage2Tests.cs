@@ -5,10 +5,10 @@ using Prague.Core.Tests.Infrastructure;
 using static PreparedQueryDifferentialTests;
 
 // BuildFrozen() stage 2: fused filters with adaptive ordering, capacity hints and smallest-bucket
-// seeding (ReorderIndexNarrowers). Optimizations 1–2 must return the eager rows in the eager order on
+// seeding (now the default free seed). Optimizations 1–2 must return the eager rows in the eager order on
 // every shape; the reorder is opt-in and pinned on set equality + Count. The stage-2 adaptive
 // intersection (IndexStepsExecutor) was retired in stage 3 step 3: its plans take the pipeline, whose
-// small-probe and free seeds cover both roles (FrozenPipelineSeedTests). The fixtures reuse the
+// free seed covers both roles (FrozenPipelineSeedTests). The fixtures reuse the
 // stage-1 model: 240 items, Code = 1000 + Id, Group = Id % 7 (buckets of ~34), Flag = Id % 3 == 0,
 // plus Tier = Id % 40 (buckets of 6) for the two-list shapes.
 [TestFixture]
@@ -46,7 +46,6 @@ public class FrozenQueryStage2Tests {
 	// exercised here with the pipeline switched off, exactly as they ran when this file was written.
 	private static readonly FrozenOptions Stage2 = new() { Pipeline = false };
 	private static readonly FrozenOptions NoHints = new() { CapacityHints = false, Pipeline = false };
-	private static readonly FrozenOptions Reorder = new() { ReorderIndexNarrowers = true };
 
 	private static void AssertSameSet(QueryResults<PqItem> eager, QueryResults<PqItem> frozen) {
 		try {
@@ -132,8 +131,8 @@ public class FrozenQueryStage2Tests {
 
 	[Test]
 	public void Fused_WhereBeforeOr_And_OrBeforeWhere_LikeEager() {
-		// OrSeed = false keeps the eager store-walk sequence this fixture compares against (the default seeds the union).
-		var eagerOrder = new FrozenOptions { OrSeed = false };
+		// PreserveEagerOrder keeps the eager store-walk sequence this fixture compares against (the default seeds the union).
+		var eagerOrder = new FrozenOptions { PreserveEagerOrder = true };
 		var frozenBefore = _cache.Prepare().Where(static v => v.Flag).Where(static v => v.Id < 200).Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).BuildFrozen(eagerOrder);
 		var frozenAfter = _cache.Prepare().Or(b => b.UseIndex(_byGroup, 1), b => b.UseIndex(_byGroup, 4)).Where(static v => v.Flag).Where(static v => v.Id < 200).BuildFrozen(eagerOrder);
 		Assert.That(frozenBefore.Plan.Optimizations, Does.Contain("FusedFilters"));
@@ -333,32 +332,32 @@ public class FrozenQueryStage2Tests {
 	// ── Optimization 3 / 4: index steps ───────────────────────────────────────────
 
 	[Test]
-	public void Reorder_IsThePipelinesFreeSeed_AndPipelineOffReplays() {
+	public void FreeSeed_IsThePipelinesDefault_AndPipelineOffReplays() {
 		Assert.Multiple(() => {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "default options: the stage-3 pipeline");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("Replay"), "pipeline off: the replay with hints");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Stage2).Plan.Optimizations, Does.Contain("CapacityHints"));
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "reorder");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(Reorder).Plan.Optimizations, Does.Contain("ReorderIndexNarrowers"));
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "one step: the free seed is that step");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_codeRange, static rb => rb.Gte(1100)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "a range step signals an estimate");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byCode, new[] { 1042 }).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "multi-value");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Or(b => b.UseIndex(_byTier, 3), b => b.UseIndex(_byTier, 4)).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "composite (step 4)");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_flagged).BuildFrozen(Reorder).Plan.Optimizations, Does.Contain("ReorderIndexNarrowers"), "key-set reorders");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).BuildFrozen(Reorder).Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded: pipeline; the opt-in reorder makes its seed free (step 6)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen().Plan.Optimizations, Does.Not.Contain("PreserveEagerOrder"), "the free seed is the default: nothing to name");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).BuildFrozen(new FrozenOptions { PreserveEagerOrder = true }).Plan.Optimizations, Does.Contain("PreserveEagerOrder"));
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "one step: the free seed is that step");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_codeRange, static rb => rb.Gte(1100)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a range step signals an estimate");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byCode, new[] { 1042 }).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "multi-value");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Or(b => b.UseIndex(_byTier, 3), b => b.UseIndex(_byTier, 4)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "composite (step 4)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_flagged).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "key-set");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded: pipeline, free seed (step 6) — its ties are unspecified");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Sort(new ByCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort: pipeline, free seed");
-			var explain = _cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Where(static v => v.Flag).Where(static v => v.Id > 0).BuildFrozen(Reorder).Explain();
-			Assert.That(explain, Does.Contain("executor: Pipeline").And.Contain("FusedFilters").And.Contain("ReorderIndexNarrowers").And.Contain("pipeline: seed = free for Execute"));
+			var explain = _cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Where(static v => v.Flag).Where(static v => v.Id > 0).BuildFrozen().Explain();
+			Assert.That(explain, Does.Contain("executor: Pipeline").And.Contain("FusedFilters").And.Contain("pipeline: seed = free for Execute"));
 		});
 	}
 
 	[Test]
-	public void Reorder_SeedsFromTheSmallestBucket_SameSetAndCount_AsEager() {
-		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(Reorder);
-		var withUnique = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen(Reorder);
-		var withKeySet = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).BuildFrozen(Reorder);
+	public void FreeSeed_SeedsFromTheSmallestBucket_SameSetAndCount_AsEager() {
+		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
+		var withUnique = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen();
+		var withKeySet = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).BuildFrozen();
 		var withFilters = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
-			.Where(static v => v.Flag).Where(static (v, a) => v.Id >= a.min).BuildFrozen(Reorder);
+			.Where(static v => v.Flag).Where(static (v, a) => v.Id >= a.min).BuildFrozen();
 		for (var g = -1; g < 8; g++) {
 			for (var t = -1; t < 41; t++) {
 				AssertSameSet(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Execute(), frozen.Execute((g, t)));
@@ -376,17 +375,17 @@ public class FrozenQueryStage2Tests {
 	// The seeding bucket decides encounter order: with the small Tier bucket seeding, rows come out in
 	// Tier-bucket order, which is the eager order of the reversed spelling.
 	[Test]
-	public void Reorder_RowOrder_FollowsTheSeedingBucket() {
-		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(Reorder);
+	public void FreeSeed_RowOrder_FollowsTheSeedingBucket() {
+		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
 		AssertSame(_cache.Query().UseIndex(_byTier, 3).UseIndex(_byGroup, 3).Execute(), frozen.Execute((3, 3)));
 	}
 
 	[Test]
-	public void Reorder_ThrowingSelector_Propagates_LeavesNoRentedArrays() {
+	public void FreeSeed_ThrowingSelector_Propagates_LeavesNoRentedArrays() {
 		var frozen = _cache.Prepare<int, PqItem, (int group, int tier)>()
 			.UseIndex(_byGroup, static a => a.group)
 			.UseIndex(_byTier, static a => a.tier < 0 ? throw new InvalidOperationException("boom") : a.tier)
-			.BuildFrozen(Reorder);
+			.BuildFrozen();
 		LeakAssert.Balanced(() => Assert.Throws<InvalidOperationException>(() => frozen.ExecutePooled((3, -1)).Dispose()));
 		AssertSameSet(_cache.Query().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).Execute(), frozen.Execute((3, 3)));
 	}
@@ -394,8 +393,8 @@ public class FrozenQueryStage2Tests {
 	// ── Defaults ──────────────────────────────────────────────────────────────────
 
 	[Test]
-	public void DefaultOptions_KeepEncounterOrder_OnEveryStage2Shape() {
-		Assert.That(FrozenOptions.Default.ReorderIndexNarrowers, Is.False);
+	public void DefaultOptions_KeepTheRows_AndTheOptOutKeepsTheSequence_OnEveryStage2Shape() {
+		Assert.That(FrozenOptions.Default.PreserveEagerOrder, Is.False);
 		var listList = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
 		var listRange = _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen();
 		Assert.That(listList.Plan.Executor, Is.EqualTo("Pipeline"));
@@ -403,14 +402,20 @@ public class FrozenQueryStage2Tests {
 		Assert.That(listRange.Plan.Optimizations, Is.Empty, "no filters to fuse; the pipeline needs no hint");
 		Assert.That(_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("Replay"));
 		Assert.That(_cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen(Stage2).Plan.Executor, Is.EqualTo("Replay"));
+		var eagerOrder = new FrozenOptions { PreserveEagerOrder = true };
+		var listListPinned = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(eagerOrder);
+		var reversedPinned = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(eagerOrder);
+		var listRangePinned = _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen(eagerOrder);
 		for (var g = -1; g < 8; g++)
 			for (var t = -1; t < 41; t++) {
-				AssertSame(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Execute(), listList.Execute((g, t)));
-				AssertSame(_cache.Query().UseIndex(_byTier, t).UseIndex(_byGroup, g).Execute(),
-					_cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen().Execute((g, t)));
+				AssertSameSet(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Execute(), listList.Execute((g, t)));
+				AssertSame(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Execute(), listListPinned.Execute((g, t)));
+				AssertSame(_cache.Query().UseIndex(_byTier, t).UseIndex(_byGroup, g).Execute(), reversedPinned.Execute((g, t)));
 			}
 
-		for (var round = 0; round < 3; round++)
-			AssertSame(_cache.Query().UseIndex(_byGroup, 3).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi), (lo: 1050, hi: 1200)).Execute(), listRange.Execute((3, 1050, 1200)));
+		for (var round = 0; round < 3; round++) {
+			AssertSameSet(_cache.Query().UseIndex(_byGroup, 3).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi), (lo: 1050, hi: 1200)).Execute(), listRange.Execute((3, 1050, 1200)));
+			AssertSame(_cache.Query().UseIndex(_byGroup, 3).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi), (lo: 1050, hi: 1200)).Execute(), listRangePinned.Execute((3, 1050, 1200)));
+		}
 	}
 }

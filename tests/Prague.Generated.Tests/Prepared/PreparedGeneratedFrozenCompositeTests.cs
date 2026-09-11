@@ -18,9 +18,9 @@ using EagerListings = Prague.Core.CacheQueryBuilderCombined<Prague.Core.TypeSyst
 public class PreparedGeneratedFrozenCompositeTests {
 	public enum Pick { Department, Brand, Featured, None }
 
-	// The Or-first sequence assertions opt out of OrSeed (on by default: the union's order) to compare
+	// The Or-first sequence assertions opt out of the free seed (the default: the union's order) to compare
 	// against the eager store-walk sequence; the default is pinned on set and Count.
-	private static readonly FrozenOptions EagerOrder = new() { OrSeed = false };
+	private static readonly FrozenOptions EagerOrder = new() { PreserveEagerOrder = true };
 
 	private ProductListingCache _cache = null!;
 
@@ -44,7 +44,7 @@ public class PreparedGeneratedFrozenCompositeTests {
 		}
 
 		Assert.That(first.Count(), Is.EqualTo(_cache.Query().Or(b => b.WithDepartmentId(1), b => b.WithDepartmentId(4)).Count()));
-		// The default (OrSeed on): the union in branch order — same rows, same Count.
+		// The default: the union in branch order — same rows, same Count.
 		var union = _cache.Prepare().Or(b => b.WithDepartmentId(1), b => b.WithDepartmentId(4)).BuildFrozen();
 		using (var eager = _cache.Query().Or(b => b.WithDepartmentId(1), b => b.WithDepartmentId(4)).Execute())
 		using (var rows = union.Execute())
@@ -59,7 +59,7 @@ public class PreparedGeneratedFrozenCompositeTests {
 		var mixed = _cache.Prepare<(long A, long B, int Min)>()
 			.WithIsPublished(true)
 			.Or(b => b.WithDepartmentId(static a => a.A), b => b.WithFeaturedOrder(static (rb, a) => rb.Gte(a.Min)).WithCategoryId(static a => a.B))
-			.BuildFrozen();
+			.BuildFrozen(EagerOrder);
 		var multi = _cache.Prepare().Or(b => b.WithFeaturedOrder(static rb => rb.Gte(40)), b => b.WithBrandId(brands).WithIsPublished(true)).BuildFrozen(EagerOrder);
 		var nested = _cache.Prepare().Or(b => b.WithDepartmentId(2), b => b.Or(c => c.WithBrandId(1), c => c.WithListingStatus(ListingStatus.Archived))).BuildFrozen(EagerOrder);
 		Assert.Multiple(() => {

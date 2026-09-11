@@ -33,7 +33,7 @@ public class FrozenPipelineAllocationTests {
 		_cache = new InMemoryDataCache<int, PqItem>();
 		_byCode = _cache.AddKeyValueIndex<int>(static (_, v) => v.Code);
 		_byGroup = _cache.CacheKeyValueListIndex<int>(static (_, v) => v.Group);
-		// Band 13 ⊂ group 13 (291 = 3 × 97): ~17 rows against the group's 52, so the three-list plan small-probes.
+		// Band 13 ⊂ group 13 (291 = 3 × 97): ~17 rows against the group's 52, so the three-list plan seeds the band.
 		_byBand = _cache.CacheKeyValueListIndex<int>(static (_, v) => v.Id % 291);
 		_byTier = _cache.CacheKeyValueListIndex<int>(static (_, v) => v.Id % 10);
 		_codeRange = _cache.CacheRangeIndex<int>(static (_, v) => v.Code);
@@ -96,23 +96,23 @@ public class FrozenPipelineAllocationTests {
 		Pin("list∩list", Measure(() => prepared.ExecutePooled(args).Dispose()), Measure(() => frozen.ExecutePooled(args).Dispose()), Measure(() => frozen.Count(args)));
 	}
 
-	// Step 3: the small-probe seed (list ∩ list declared large-then-small, list ∩ list ∩ list smallest last),
-	// the free seed (Count, ReorderIndexNarrowers) and the classic Sort feed with a struct comparer.
+	// Step 3: the free seed (list ∩ list declared large-then-small, list ∩ list ∩ list smallest last,
+	// Count) and the classic Sort feed with a struct comparer.
 	[Test]
-	public void ListList_Reversed_ListListList_Reorder() {
+	public void ListList_Reversed_ListListList_FreeSeed() {
 		var reversedPrepared = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).Build();
 		var reversed = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen();
 		var threePrepared = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).Build();
 		var three = _cache.Prepare<int, PqItem, (int group, int band, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byTier, static a => a.tier).BuildFrozen();
-		var reorder = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true });
+		var declaredLargeFirst = _cache.Prepare<int, PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
 		Assert.That(three.Plan.Executor, Is.EqualTo("Pipeline"));
 		var args = (group: 13, tier: 3);
 		var threeArgs = (group: 13, band: 13, tier: 3);
 		Pin("list(small)∩list", Measure(() => reversedPrepared.ExecutePooled(args).Dispose()), Measure(() => reversed.ExecutePooled(args).Dispose()), Measure(() => reversed.Count(args)));
 		Pin("list∩list∩list", Measure(() => threePrepared.ExecutePooled(threeArgs).Dispose()), Measure(() => three.ExecutePooled(threeArgs).Dispose()), Measure(() => three.Count(threeArgs)));
-		Pin("list∩list reorder", Measure(() => reversedPrepared.ExecutePooled(args).Dispose()), Measure(() => reorder.ExecutePooled(args).Dispose()), Measure(() => reorder.Count(args)));
+		Pin("list∩list large-first (the free seed takes the small bucket)", Measure(() => reversedPrepared.ExecutePooled(args).Dispose()), Measure(() => declaredLargeFirst.ExecutePooled(args).Dispose()), Measure(() => declaredLargeFirst.Count(args)));
 		three.ExecutePooled(threeArgs).Dispose();
-		Assert.That(three.Explain(), Does.Contain("probe: slot-sorted into step 0 ListEq"));
+		Assert.That(three.Explain(), Does.Contain("free: smallest signal"));
 	}
 
 	private readonly struct ByCode : IComparer<PqItem> {
@@ -313,15 +313,15 @@ public class FrozenPipelineAllocationTests {
 		Pin("shape A with a join-many", Measure(() => shapeAPrepared.ExecutePooled(shapeAArgs, 2, 5).Dispose()), Measure(() => shapeA.ExecutePooled(shapeAArgs, 2, 5).Dispose()), Measure(() => shapeA.Count(shapeAArgs)));
 	}
 
-	// Step 4: composites. Or-first by default (OrSeed: the union itself), Or-first under OrSeed = false (the
+	// Step 4: composites. Or-first by default (the union itself), Or-first under PreserveEagerOrder (the
 	// store walk kept to the union: the dedupe set over 47 keys is pooled), an Or of uniques after a list (the
-	// small-probe seed), If taken (list then unique: small probe) and skipped (the plain list walk),
+	// free seed), If taken (list then unique: the unique seeds) and skipped (the plain list walk),
 	// Match with a branch filter, and a Match-of-Or under a SortBounded page with a fused join.
 	[Test]
-	public void Composites_Or_OrSeed_OrAfterList_IfTaken_IfSkipped_Match_MatchOrSortBoundedJoin() {
+	public void Composites_Or_EagerOrder_OrAfterList_IfTaken_IfSkipped_Match_MatchOrSortBoundedJoin() {
 		var orPrepared = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Build();
 		var or = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen();
-		var orEagerOrder = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(new FrozenOptions { OrSeed = false });
+		var orEagerOrder = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(new FrozenOptions { PreserveEagerOrder = true });
 		var orAfterPrepared = _cache.Prepare<int, PqItem, (int g, int c1, int c2)>().UseIndex(_byGroup, static a => a.g).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).Build();
 		var orAfter = _cache.Prepare<int, PqItem, (int g, int c1, int c2)>().UseIndex(_byGroup, static a => a.g).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).BuildFrozen();
 		var ifPrepared = _cache.Prepare<int, PqItem, (bool cond, int g, int code)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code)).Build();
@@ -340,8 +340,8 @@ public class FrozenPipelineAllocationTests {
 		});
 		var groups = (13, 42);
 		var codes = (13, 1000 + 13, 1000 + 13 + 97 * 20);
-		Pin("or first (OrSeed default: the union)", Measure(() => orPrepared.ExecutePooled(groups).Dispose()), Measure(() => or.ExecutePooled(groups).Dispose()), Measure(() => or.Count(groups)));
-		Pin("or first (OrSeed = false: store walk kept to the union)", Measure(() => orPrepared.ExecutePooled(groups).Dispose()), Measure(() => orEagerOrder.ExecutePooled(groups).Dispose()), Measure(() => orEagerOrder.Count(groups)));
+		Pin("or first (default: the union)", Measure(() => orPrepared.ExecutePooled(groups).Dispose()), Measure(() => or.ExecutePooled(groups).Dispose()), Measure(() => or.Count(groups)));
+		Pin("or first (PreserveEagerOrder: store walk kept to the union)", Measure(() => orPrepared.ExecutePooled(groups).Dispose()), Measure(() => orEagerOrder.ExecutePooled(groups).Dispose()), Measure(() => orEagerOrder.Count(groups)));
 		Pin("list then or of uniques (small probe)", Measure(() => orAfterPrepared.ExecutePooled(codes).Dispose()), Measure(() => orAfter.ExecutePooled(codes).Dispose()), Measure(() => orAfter.Count(codes)));
 		Pin("if taken", Measure(() => ifPrepared.ExecutePooled((true, 13, 1013)).Dispose()), Measure(() => @if.ExecutePooled((true, 13, 1013)).Dispose()), Measure(() => @if.Count((true, 13, 1013))));
 		Pin("if skipped", Measure(() => ifPrepared.ExecutePooled((false, 13, 1013)).Dispose()), Measure(() => @if.ExecutePooled((false, 13, 1013)).Dispose()), Measure(() => @if.Count((false, 13, 1013))));

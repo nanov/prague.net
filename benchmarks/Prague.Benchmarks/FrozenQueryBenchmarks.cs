@@ -136,10 +136,10 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<int, PqbItem> _listWhereFrozenNoHints = null!;
 	private PreparedQuery<(int group, int tier), PqbItem> _listListPrepared = null!;
 	private FrozenQuery<(int group, int tier), PqbItem> _listListFrozen = null!;
-	private FrozenQuery<(int group, int tier), PqbItem> _listListFrozenReorder = null!;
+	private FrozenQuery<(int group, int tier), PqbItem> _listListFrozenEagerOrder = null!;
 	private PreparedQuery<(int group, int tier), PqbItem> _listListReversedPrepared = null!;
 	private FrozenQuery<(int group, int tier), PqbItem> _listListReversedFrozen = null!;
-	private FrozenQuery<(int group, int tier), PqbItem> _listListReversedFrozenReorder = null!;
+	private FrozenQuery<(int group, int tier), PqbItem> _listListReversedFrozenEagerOrder = null!;
 	private PreparedQuery<(int group, int lo, int hi), PqbItem> _listRangePrepared = null!;
 	private FrozenQuery<(int group, int lo, int hi), PqbItem> _listRangeFrozen = null!;
 
@@ -318,7 +318,8 @@ public class FrozenQueryBenchmarks {
 
 		_orPrepared = _items.Prepare<int, PqbItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Build();
 		_orFrozen = _items.Prepare<int, PqbItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen();
-		_orFrozenEagerOrder = _items.Prepare<int, PqbItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(new FrozenOptions { OrSeed = false });
+		var eagerOrder = new FrozenOptions { PreserveEagerOrder = true };
+		_orFrozenEagerOrder = _items.Prepare<int, PqbItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).BuildFrozen(eagerOrder);
 		_orAfterListPrepared = _items.Prepare<int, PqbItem, (int group, int c1, int c2)>().UseIndex(_byGroup, static a => a.group).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).Build();
 		_orAfterListFrozen = _items.Prepare<int, PqbItem, (int group, int c1, int c2)>().UseIndex(_byGroup, static a => a.group).Or(b => b.UseIndex(_byCode, static a => a.c1), b => b.UseIndex(_byCode, static a => a.c2)).BuildFrozen();
 		_ifPrepared = _items.Prepare<int, PqbItem, (bool cond, int group, int code)>().UseIndex(_byGroup, static a => a.group).If(static a => a.cond, b => b.UseIndex(_byCode, static a => a.code)).Build();
@@ -326,7 +327,6 @@ public class FrozenQueryBenchmarks {
 
 		var fixedOrder = new FrozenOptions { AdaptiveFilterOrdering = false };
 		var noHints = new FrozenOptions { CapacityHints = false };
-		var reorder = new FrozenOptions { ReorderIndexNarrowers = true };
 		_listTwoWheresPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Where(static v => v.Score % 10 == 0).Build();
 		_listTwoWheresFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Where(static v => v.Score % 10 == 0).BuildFrozen();
 		_listTwoWheresFrozenFixedOrder = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Where(static v => v.Score % 10 == 0).BuildFrozen(fixedOrder);
@@ -343,10 +343,10 @@ public class FrozenQueryBenchmarks {
 		_listWhereFrozenNoHints = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).BuildFrozen(noHints);
 		_listListPrepared = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Build();
 		_listListFrozen = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
-		_listListFrozenReorder = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(reorder);
+		_listListFrozenEagerOrder = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen(eagerOrder);
 		_listListReversedPrepared = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).Build();
 		_listListReversedFrozen = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen();
-		_listListReversedFrozenReorder = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(reorder);
+		_listListReversedFrozenEagerOrder = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byTier, static a => a.tier).UseIndex(_byGroup, static a => a.group).BuildFrozen(eagerOrder);
 		_listRangePrepared = _items.Prepare<int, PqbItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).Build();
 		_listRangeFrozen = _items.Prepare<int, PqbItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).BuildFrozen();
 
@@ -875,8 +875,8 @@ public class FrozenQueryBenchmarks {
 	[BenchmarkCategory("Count_Match"), Benchmark]
 	public int Count_Match_Frozen() => _matchFrozen.Count(_matchArgs);
 
-	// ── 8b. Or as the first narrowing: two 1k buckets — step 4. By default (OrSeed) the union itself, in
-	// branch order; under OrSeed = false the eager sequence (the store walk kept to the union). Count seeds
+	// ── 8b. Or as the first narrowing: two 1k buckets — step 4. By default the union itself, in branch
+	// order; under PreserveEagerOrder the eager sequence (the store walk kept to the union). Count seeds
 	// the union either way. ───────────────────────────────────────────────────────────────────────────
 
 	[BenchmarkCategory("Or"), Benchmark(Baseline = true)]
@@ -1082,9 +1082,9 @@ public class FrozenQueryBenchmarks {
 
 	// Two list steps. Group buckets hold 1k rows, Tier buckets 100; group 13 ∩ tier 13 is the 100
 	// tier-13 rows. Declared large-then-small (13) and small-then-large (14). `_Frozen` is the pipeline's
-	// fixed seed — for (13) the small-probe seed: the tier bucket walked, survivors slot-sorted into the
-	// group bucket's order, the eager sequence — and `_FrozenReorder` its free seed (ReorderIndexNarrowers:
-	// the smaller bucket seeds whatever the declared order, rows in that bucket's order).
+	// free seed — the default: the smaller bucket seeds whatever the declared order, rows in that bucket's
+	// order — and `_FrozenEagerOrder` the PreserveEagerOrder opt-out, which pins the seed back to the first
+	// declared step and so walks the 1k group bucket for (13).
 
 	// 13. list(1k) ∩ list(100)
 	[BenchmarkCategory("ListList"), Benchmark(Baseline = true)]
@@ -1106,8 +1106,8 @@ public class FrozenQueryBenchmarks {
 	}
 
 	[BenchmarkCategory("ListList"), Benchmark]
-	public int ListList_FrozenReorder() {
-		using var r = _listListFrozenReorder.ExecutePooled(_listListArgs);
+	public int ListList_FrozenEagerOrder() {
+		using var r = _listListFrozenEagerOrder.ExecutePooled(_listListArgs);
 		return r.Count;
 	}
 
@@ -1131,14 +1131,13 @@ public class FrozenQueryBenchmarks {
 	}
 
 	[BenchmarkCategory("ListListReversed"), Benchmark]
-	public int ListListReversed_FrozenReorder() {
-		using var r = _listListReversedFrozenReorder.ExecutePooled(_listListArgs);
+	public int ListListReversed_FrozenEagerOrder() {
+		using var r = _listListReversedFrozenEagerOrder.ExecutePooled(_listListArgs);
 		return r.Count;
 	}
 
-	// 14b. list(1k) ∩ list(333) ∩ list(111), largest first — production shape A's narrowing. Fixed seed:
-	// the lane bucket (smallest, declared last) is walked, its survivors slot-sorted into the group bucket's
-	// order, the band probed on the value.
+	// 14b. list(1k) ∩ list(333) ∩ list(111), largest first — production shape A's narrowing. The free seed
+	// walks the lane bucket (smallest, declared last) and probes the group and the band on the value.
 	[BenchmarkCategory("ListListList"), Benchmark(Baseline = true)]
 	public int ListListList_Eager() {
 		using var r = _items.Query().UseIndex(_byGroup, _threeListArgs.group).UseIndex(_byBand, _threeListArgs.band).UseIndex(_byLane, _threeListArgs.lane).ExecutePooled();

@@ -424,15 +424,14 @@ internal static class FrozenPlanner {
 		    && PipelinePlanner<TKey, TValue, TArgs>.TryPlan(cache, narrowers, options, out var pipelineSteps, out var tree, out var branchFilters)) {
 			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
 			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
-			if (options.ReorderIndexNarrowers)
-				names.Add("ReorderIndexNarrowers");
-			if (!options.OrSeed && tree is not null)
-				names.Add("OrEagerOrder");
-			// Free seed: Count always; Execute when the rows are fully sorted afterwards (classic Sort —
-			// design §8) or the caller opted out of the eager encounter order. Never on its own for
-			// SortBounded: the bounded container breaks ties by encounter ordinal, which must be eager's.
-			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || classicSort, sort, 0,
-				tree: tree, branchFilters: branchFilters.Length, orSeed: options.OrSeed);
+			if (options.PreserveEagerOrder)
+				names.Add("PreserveEagerOrder");
+			// Free seed: the default everywhere — Count, an unsorted Execute (no row-order guarantee), a
+			// classic Sort (the rows are fully sorted afterwards) and a SortBounded alike (its ties break by
+			// encounter ordinal, and ties are unspecified). PreserveEagerOrder pins Execute* back to the
+			// first declared step; Count seeds free regardless, as its rows carry no order.
+			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, !options.PreserveEagerOrder || classicSort, sort, 0,
+				tree: tree, branchFilters: branchFilters.Length, orSeed: !options.PreserveEagerOrder);
 			live.Insert(0, plan);
 			return new FrozenQuery<TArgs, TValue, PipelineExecutor<TKey, TValue, TArgs, TResolver>>(
 				new(cache, pipelineSteps, in resolvers, filters, pipelineFused, plan, branchFilters), narrowers, hasResolvers, isSorted, new(names, live));
@@ -467,22 +466,20 @@ internal static class FrozenPlanner {
 		// without a right there); a SortBounded innermost feeds the bounded container unless an inner
 		// JoinMany is in the chain (eager's AllInnerNarrowable gate: the classic flow instead). The step-6
 		// shape (SortBounded → outer joins) also admits JoinOnes that cannot fuse (a filter callback): they
-		// keep their paired read. An unfusable JoinOne elsewhere, an inner left-symmetric JoinOne (its
-		// fan-out regroups the rows — opt in with FrozenOptions.FuseSymmetricInnerJoins) or a nested
+		// keep their paired read. An unfusable JoinOne elsewhere, an inner left-symmetric JoinOne under
+		// FrozenOptions.PreserveEagerOrder (its fan-out regroups the rows) or a nested
 		// JoinMany replays.
-		if (options.Pipeline && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in resolvers, options.FuseSymmetricInnerJoins, out var shape)
+		if (options.Pipeline && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in resolvers, !options.PreserveEagerOrder, out var shape)
 		    && PipelinePlanner<TKey, TValue, TArgs>.TryPlan(cache, narrowers, options, out var pipelineSteps, out var tree, out var branchFilters)) {
 			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
 			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
-			if (options.ReorderIndexNarrowers)
-				names.Add("ReorderIndexNarrowers");
-			if (!options.OrSeed && tree is not null)
-				names.Add("OrEagerOrder");
-			// Free seed: Count always; Execute under a classic Sort (the rows are fully sorted afterwards —
-			// design §8) or the caller's opt-in. Never on its own for a SortBounded (its tie-breaking
-			// ordinals must be eager's) or an unsorted chain (the encounter order is eager's).
-			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || shape.ClassicSort, shape.Sort, shape.Joins, shape.FusedJoins,
-				tree, branchFilters.Length, options.OrSeed, shape.ManyJoins);
+			if (options.PreserveEagerOrder)
+				names.Add("PreserveEagerOrder");
+			// Free seed: the default everywhere (design §8 and the ordering contract) — Count, an unsorted
+			// chain, a classic Sort and a SortBounded alike. PreserveEagerOrder pins Execute* back to the
+			// first declared step; Count seeds free regardless.
+			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, !options.PreserveEagerOrder || shape.ClassicSort, shape.Sort, shape.Joins, shape.FusedJoins,
+				tree, branchFilters.Length, !options.PreserveEagerOrder, shape.ManyJoins);
 			live.Insert(0, plan);
 			return new FrozenQuery<TArgs, TResult, PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>>(
 				new(cache, pipelineSteps, in resolvers, manyCount, filters, pipelineFused, plan, in shape, branchFilters), narrowers, true, isSorted, new(names, live));

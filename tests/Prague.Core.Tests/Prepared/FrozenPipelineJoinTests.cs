@@ -22,7 +22,7 @@ using static PreparedQueryJoinDifferentialTests;
 // eager twins included; (g) 8 readers against a writer churning the rights. An INNER left-symmetric join is
 // the one shape that does not fuse by default: its eager fan-out creates the rows grouped by right key,
 // which a per-left lookup cannot reproduce, so such a chain replays and stays byte-identical unless the
-// caller opts into FrozenOptions.FuseSymmetricInnerJoins — both halves are pinned below.
+// caller sets FrozenOptions.PreserveEagerOrder, which replays it instead — both halves are pinned below.
 // Model: 120 orders, CustomerId = Id % 10 (customers 0..7 exist), ProductId = Id % 6 (products 0..4),
 // Qty = Id % 13; invoices keyed by order id for two orders in three; shipments keyed 5000 + id for four
 // orders in five; customer codes keyed 100 + customer for customers 0..7 except 2.
@@ -51,7 +51,8 @@ public class FrozenPipelineJoinTests {
 	// A small page, a page inside a ~20-row product, skip beyond the end, unbounded (the classic container), unbounded with a skip, an empty page, one row, everything but two.
 	private static readonly (int skip, int take)[] Pages = [(0, 5), (3, 10), (300, 5), (0, int.MaxValue), (3, int.MaxValue), (0, 0), (0, 1), (2, 100)];
 	private static readonly FrozenOptions NoPipeline = new() { Pipeline = false };
-	private static readonly FrozenOptions FuseSym = new() { FuseSymmetricInnerJoins = true };
+	// An inner left-symmetric JoinOne fuses by default; only the opt-out keeps the eager fan-out's grouping.
+	private static readonly FrozenOptions EagerOrder = new() { PreserveEagerOrder = true };
 
 	private InMemoryDataCache<int, PqOrder> _orders = null!;
 	private CacheSymmetricKeyValueListIndex<int, PqOrder, int> _byCustomer = null!;
@@ -226,7 +227,7 @@ public class FrozenPipelineJoinTests {
 
 	/// <summary>
 	///   A page of the opt-in shape whose eager order is not the seed's (an inner left-symmetric join under
-	///   <see cref="FrozenOptions.FuseSymmetricInnerJoins" />): the page's Count / TotalCount / Truncated are
+	///   <see cref="FrozenOptions.PreserveEagerOrder" /> off): the page's Count / TotalCount / Truncated are
 	///   eager's, the page is the frozen whole's slice, and the whole is eager's whole as a set.
 	/// </summary>
 	private static void AssertSamePageOfSet<TResult>(QueryResults<TResult> eager, QueryResults<TResult> frozen, QueryResults<TResult> whole, int skip, int take, Func<TResult, string> row, string tag) {
@@ -361,31 +362,31 @@ public class FrozenPipelineJoinTests {
 		}
 	}
 
-	// ── (a, b) Inner left-symmetric: byte-identical by default (replay), fused and reordered on request ──
+	// ── (a, b) Inner left-symmetric: fused by default, byte-identical under the opt-out ──
 
 	// The eager fan-out creates an inner left-symmetric join's rows grouped by right key, which a per-left
-	// lookup cannot reproduce. By default such a chain replays, so every variant × page is byte-identical to
-	// eager — the rule the rest of stage 3 keeps. FuseSymmetricInnerJoins opts into the fused form: the same
-	// rows and the same Count in the seed's order, and its pages still partition its own whole.
+	// lookup cannot reproduce — and under the ordering contract need not. By default such a chain fuses into
+	// the pass: the same rows and the same Count in the seed's order, its pages partitioning its own whole.
+	// PreserveEagerOrder replays it instead, so every variant × page is byte-identical to eager.
 	[Test]
-	public void InnerLeftSym_ReplaysByDefault_ByteIdentical_AndFusesOnlyOnRequest() {
+	public void InnerLeftSym_FusesByDefault_AndReplaysByteIdenticalUnderTheOptOut() {
 		var plain = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_byCustomer, _customers);
 		var sel = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_byCustomer, static c => 100 + c, _customerCodes);
 		var viaIndex = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_byCustomer, _customerCodes, _codeByCustomer);
-		var (plainP, plainF) = (plain.Build(), plain.BuildFrozen());
-		var (selP, selF) = (sel.Build(), sel.BuildFrozen());
-		var (viaIndexP, viaIndexF) = (viaIndex.Build(), viaIndex.BuildFrozen());
-		var fused = plain.BuildFrozen(FuseSym);
+		var (plainP, plainF) = (plain.Build(), plain.BuildFrozen(EagerOrder));
+		var (selP, selF) = (sel.Build(), sel.BuildFrozen(EagerOrder));
+		var (viaIndexP, viaIndexF) = (viaIndex.Build(), viaIndex.BuildFrozen(EagerOrder));
+		var fused = plain.BuildFrozen();
 		Assert.Multiple(() => {
-			Assert.That(plainF.Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric join regroups: byte-identical by default");
+			Assert.That(plainF.Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric join regroups: the opt-out replays it byte-identically");
 			Assert.That(selF.Plan.Executor, Is.EqualTo("Replay"));
 			Assert.That(viaIndexF.Plan.Executor, Is.EqualTo("Replay"));
-			Assert.That(fused.Plan.Executor, Is.EqualTo("Pipeline"), "opted in");
+			Assert.That(fused.Plan.Executor, Is.EqualTo("Pipeline"), "the default fuses");
 			Assert.That(fused.Explain(), Does.Contain("joins: 1 (fused: 1, unfused: 0"));
 		});
 
 		foreach (var p in new[] { 0, 3, 5, 7 }) {
-			// Default: the sequence, not just the set, across every variant and page.
+			// The opt-out: the sequence, not just the set, across every variant and page.
 			foreach (var v in Variants)
 				foreach (var (skip, take) in Pages) {
 					AssertSameJoined(Eager(_orders.Query().UseIndex(_byProduct, p).InnerJoinOne(_byCustomer, _customers), v, skip, take), Run(plainF, in p, v, skip, take), Customer);
@@ -395,11 +396,11 @@ public class FrozenPipelineJoinTests {
 				}
 
 			var expected = _orders.Query().UseIndex(_byProduct, p).InnerJoinOne(_byCustomer, _customers).Count();
-			Assert.That(plainF.Count(p), Is.EqualTo(expected), "default Count " + p);
+			Assert.That(plainF.Count(p), Is.EqualTo(expected), "opt-out Count " + p);
 			Assert.That(selF.Count(p), Is.EqualTo(_orders.Query().UseIndex(_byProduct, p).InnerJoinOne(_byCustomer, static c => 100 + c, _customerCodes).Count()));
 			Assert.That(viaIndexF.Count(p), Is.EqualTo(_orders.Query().UseIndex(_byProduct, p).InnerJoinOne(_byCustomer, _customerCodes, _codeByCustomer).Count()));
 
-			// Opted in: the same rows and Count, its own order; every row carries its right; pages partition its whole.
+			// The default: the same rows and Count, its own order; every row carries its right; pages partition its whole.
 			Assert.That(fused.Count(p), Is.EqualTo(expected), "fused Count " + p);
 			using var whole = fused.Execute(p);
 			foreach (var v in Variants)
@@ -413,9 +414,10 @@ public class FrozenPipelineJoinTests {
 	[Test]
 	public void MissingRights_Outer_NullSlot_Inner_Dropped_AndCounts() {
 		var outer = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).BuildFrozen();
-		// The inner left-symmetric join fuses only on request; the missing-right behaviour is pinned on both paths.
-		var inner = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinOne(_byCustomer, _customers).BuildFrozen(FuseSym);
-		var innerReplay = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinOne(_byCustomer, _customers).BuildFrozen();
+		// The inner left-symmetric join fuses by default and replays under the opt-out; the missing-right
+		// behaviour is pinned on both paths.
+		var inner = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinOne(_byCustomer, _customers).BuildFrozen();
+		var innerReplay = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinOne(_byCustomer, _customers).BuildFrozen(EagerOrder);
 		var innerPk = _orders.Prepare<int, PqOrder, int>().UseIndex(_byQty, static q => q).InnerJoinOne(_invoices).BuildFrozen();
 		Assert.That(outer.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(inner.Plan.Executor, Is.EqualTo("Pipeline"));
@@ -471,13 +473,13 @@ public class FrozenPipelineJoinTests {
 		var outerInner = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices);
 		var three = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).JoinOne(_shipments, _shipmentByOrder);
 		var threeInner = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_orderShipKey, _shipments).InnerJoinOne(_invoices).InnerJoinOne(_shipments, _shipmentByOrder);
-		// The same triple with an inner left-symmetric head: replays by default, fuses on request.
+		// The same triple with an inner left-symmetric head: fuses by default, replays under the opt-out.
 		var threeSym = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).InnerJoinOne(_shipments, _shipmentByOrder);
-		var threeSymF = threeSym.BuildFrozen();
-		var threeSymFused = threeSym.BuildFrozen(FuseSym);
+		var threeSymF = threeSym.BuildFrozen(EagerOrder);
+		var threeSymFused = threeSym.BuildFrozen();
 		Assert.Multiple(() => {
-			Assert.That(threeSymF.Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric join anywhere in the chain replays by default");
-			Assert.That(threeSymFused.Plan.Executor, Is.EqualTo("Pipeline"), "opted in");
+			Assert.That(threeSymF.Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric join anywhere in the chain replays under the opt-out");
+			Assert.That(threeSymFused.Plan.Executor, Is.EqualTo("Pipeline"), "the default fuses");
 		});
 		var (outerOuterP, outerOuterF) = (outerOuter.Build(), outerOuter.BuildFrozen());
 		var (innerOuterP, innerOuterF) = (innerOuter.Build(), innerOuter.BuildFrozen());
@@ -678,9 +680,9 @@ public class FrozenPipelineJoinTests {
 		Assert.Multiple(() => {
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unsorted fused");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).InnerJoinOne(_invoices).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unsorted inner fused");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).InnerJoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric join regroups its rows");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).InnerJoinOne(_byCustomer, _customers).BuildFrozen(FuseSym).Plan.Executor, Is.EqualTo("Pipeline"), "…unless the caller opts in");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "the same under a SortBounded");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).InnerJoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "an inner left-symmetric join fuses by default");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).InnerJoinOne(_byCustomer, _customers).BuildFrozen(EagerOrder).Plan.Executor, Is.EqualTo("Replay"), "…and replays under the opt-out, which wants its fan-out's grouping");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).BuildFrozen(EagerOrder).Plan.Executor, Is.EqualTo("Replay"), "the same under a SortBounded");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "an OUTER left-symmetric join fuses: the fan-out only fills existing rows");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).BuildFrozen(NoPipeline).Plan.Executor, Is.EqualTo("Replay"), "pipeline off");
 			Assert.That(_orders.Prepare().JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "no seed source");
@@ -693,7 +695,7 @@ public class FrozenPipelineJoinTests {
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an unfusable inner join replays");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "JoinMany: admitted, its fan-out after the pass (step 8; FrozenPipelineJoinManyTests)");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a JoinMany anywhere in the chain");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric JoinOne still replays, JoinMany or not");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).JoinMany(_lines, _lineByOrder).BuildFrozen(EagerOrder).Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric JoinOne still replays under the opt-out, JoinMany or not");
 			Assert.That(_orders.Prepare().Or(b => b.UseIndex(_byProduct, 1), b => b.UseIndex(_byProduct, 2)).JoinOne(_invoices).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a composite narrowing (step 4)");
 		});
 
@@ -709,7 +711,7 @@ public class FrozenPipelineJoinTests {
 				mixedPrepared, mixed, p, InvoiceCustomer, "mixed step-6 " + p);
 
 		var unsorted = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_invoices).JoinOne(_byCustomer, _customers).BuildFrozen();
-		Assert.That(unsorted.Explain(), Does.Contain("executor: Pipeline").And.Contain("pipeline: seed = fixed for Execute").And.Contain("joins: 2 (fused: 2, unfused: 0").And.Contain("resolvers: yes, sorted: no").And.Not.Contain("sort:"));
+		Assert.That(unsorted.Explain(), Does.Contain("executor: Pipeline").And.Contain("pipeline: seed = free for Execute").And.Contain("joins: 2 (fused: 2, unfused: 0").And.Contain("resolvers: yes, sorted: no").And.Not.Contain("sort:"));
 	}
 
 	// ── (f) Leaks ─────────────────────────────────────────────────────────────────
@@ -789,7 +791,7 @@ public class FrozenPipelineJoinTests {
 	[Test]
 	public void EightReaders_AgainstAWriterChurningTheRights_NeverThrow_NoDuplicates_InnerRowsCarryTheirRight() {
 		var outer = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers).JoinOne(_invoices).BuildFrozen();
-		var inner = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).BuildFrozen(FuseSym);
+		var inner = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).BuildFrozen();
 		var bounded = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenId()).InnerJoinOne(_orderShipKey, _shipments).JoinOne(_shipments, _shipmentByOrder).BuildFrozen();
 		var sorted = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers).Sort(new ByRegionThenIdDesc()).BuildFrozen();
 		using var stop = new CancellationTokenSource();

@@ -411,7 +411,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 ///   is something else. Walked once at build.
 /// </summary>
 internal struct JoinChainShape<TLeftValue> : IResolverExecutor {
-	/// <summary><see cref="FrozenOptions.FuseSymmetricInnerJoins" />: fuse an inner join whose family regroups its rows, accepting the encounter-order change.</summary>
+	/// <summary>Fuse an inner join whose family regroups its rows, accepting the encounter-order change: true unless <see cref="FrozenOptions.PreserveEagerOrder" /> is set.</summary>
 	internal bool AllowRegroupingInner;
 
 	internal int Sorters;

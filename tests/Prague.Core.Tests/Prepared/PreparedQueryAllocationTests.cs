@@ -369,14 +369,14 @@ public class PreparedQueryAllocationTests {
 #endif
 	}
 
-	// The pipeline's fixed seed (small-probe: the tier bucket walked, survivors slot-sorted into the group
+	// The pipeline's free seed (the tier bucket walked, the group
 	// bucket's order) and its free seed rent from the same pools the eager core rents from; neither may
 	// add a per-execution allocation.
 	[Test]
 	public void Frozen_ListList_FixedAndFreeSeed_Pooled_AllocateNoMoreThanEager() {
 		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();
 		var reorder = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
-			.BuildFrozen(new FrozenOptions { ReorderIndexNarrowers = true });
+			.BuildFrozen();
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(reorder.Plan.Executor, Is.EqualTo("Pipeline"));
 		var args = (group: 13, tier: 3);
