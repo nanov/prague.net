@@ -738,7 +738,7 @@ public class FrozenPipelineJoinTests {
 		var selector = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(static id => id == 7 ? throw new InvalidOperationException("selector boom") : 5000 + id, _shipments).BuildFrozen();
 		var innerSelector = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinOne(static id => id == 7 ? throw new InvalidOperationException("selector boom") : 5000 + id, _shipments).BuildFrozen();
 		var boundedSelector = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).SortBounded(new ByQtyThenId()).InnerJoinOne(static id => id == 7 ? throw new InvalidOperationException("selector boom") : 5000 + id, _shipments).BuildFrozen();
-		var predicate = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).Where(static (o, c) => o.Id == 17 && c == 7 ? throw new InvalidOperationException("predicate boom") : true).JoinOne(_byCustomer, _customers).BuildFrozen();
+		var predicate = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).Where(static (o, in c) => o.Id == 17 && c == 7 ? throw new InvalidOperationException("predicate boom") : true).JoinOne(_byCustomer, _customers).BuildFrozen();
 		var comparer = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).Sort(new BombJoined()).BuildFrozen();
 		var cloned = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(static id => 5000 + id, bombs).BuildFrozen();
 		var clonedBounded = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).SortBounded(new ByQtyThenId()).JoinOne(static id => 5000 + id, bombs).BuildFrozen();

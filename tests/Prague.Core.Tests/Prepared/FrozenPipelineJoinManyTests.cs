@@ -608,7 +608,7 @@ public class FrozenPipelineJoinManyTests {
 		// The bounded page 0..3 of customer 7 is orders 117, 27, 67 (Qty 0, 1, 2): order 117's line trips this one.
 		var boundedFilter = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).SortBounded(new ByQtyThenId()).JoinMany(_lines, _lineByOrder, static q => q.Where(static l => l.OrderId == 117 ? throw new InvalidOperationException("filter boom") : true)).BuildFrozen();
 		var selector = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinMany(static id => id == 7 ? throw new InvalidOperationException("selector boom") : id, _lines, _lineByOrder).BuildFrozen();
-		var predicate = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).Where(static (o, c) => o.Id == 17 && c == 7 ? throw new InvalidOperationException("predicate boom") : true).InnerJoinMany(_lines, _lineByOrder).BuildFrozen();
+		var predicate = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).Where(static (o, in c) => o.Id == 17 && c == 7 ? throw new InvalidOperationException("predicate boom") : true).InnerJoinMany(_lines, _lineByOrder).BuildFrozen();
 		var comparer = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinMany(_lines, _lineByOrder).Sort(new BombJoinedMany()).BuildFrozen();
 		var cloned = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinMany(bombs, bombByOrder).BuildFrozen();
 		var clonedInner = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinMany(bombs, bombByOrder).BuildFrozen();

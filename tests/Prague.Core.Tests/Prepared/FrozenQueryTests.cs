@@ -142,9 +142,9 @@ public class FrozenQueryTests {
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).BuildFrozen().Plan.Executor, Is.EqualTo("PointLookup"), "bound");
 			Assert.That(_cache.Prepare<int, PqItem, int>().UseIndex(_byCode, static c => c).BuildFrozen().Plan.Executor, Is.EqualTo("PointLookup"), "arg");
 			Assert.That(_cache.Prepare().UseIndex(_byCode, 1042).Where(static v => v.Flag).BuildFrozen().Plan.Executor, Is.EqualTo("PointLookup"), "bound + Where");
-			Assert.That(_cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, a) => v.Id >= a.min).BuildFrozen().Plan.Executor,
+			Assert.That(_cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, in a) => v.Id >= a.min).BuildFrozen().Plan.Executor,
 				Is.EqualTo("PointLookup"), "arg + arg Where");
-			Assert.That(_cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static v => v.Flag).Where(static (v, a) => v.Id >= a.min).Where(static v => v.Id > 0).BuildFrozen().Plan.Executor,
+			Assert.That(_cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static v => v.Flag).Where(static (v, in a) => v.Id >= a.min).Where(static v => v.Id > 0).BuildFrozen().Plan.Executor,
 				Is.EqualTo("PointLookup"), "arg + three filters");
 		});
 	}
@@ -187,7 +187,7 @@ public class FrozenQueryTests {
 
 	[Test]
 	public void Explain_NamesTheExecutorAndTheOps() {
-		var frozen = _cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, a) => v.Id >= a.min).BuildFrozen();
+		var frozen = _cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, in a) => v.Id >= a.min).BuildFrozen();
 		var text = frozen.Explain();
 		Assert.Multiple(() => {
 			Assert.That(text, Does.Contain("executor: PointLookup"));
@@ -222,7 +222,7 @@ public class FrozenQueryTests {
 			.UseIndex(_lastUpdated, 0L)
 			.UseIndex(_lastUpdated, static a => (long)a.min, static a => (long)a.min + 5)
 			.Where(static v => v.Flag)
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.Or(b => b.UseIndex(_byGroup, 1), b => b.If(static a => a.min > 0, c => c.UseIndex(_byGroup, 2)))
 			.If(static a => a.min > 0, b => b.UseIndex(_byCode, 1042).Where(static v => v.Flag))
 			.IfElse(static a => a.min > 0, b => b.UseIndex(_byGroup, 1), b => b)
@@ -254,7 +254,7 @@ public class FrozenQueryTests {
 			Assert.That(ops[9].Value, Is.EqualTo(0L));
 			Assert.That(ops[10].IsParameterized, Is.True);
 			Assert.That(ops[11].Filter, Is.InstanceOf<Predicate<PqItem>>());
-			Assert.That(ops[12].Filter, Is.InstanceOf<Func<PqItem, (int code, int min), bool>>());
+			Assert.That(ops[12].Filter, Is.InstanceOf<ArgFilter<PqItem, (int code, int min)>>());
 			Assert.That(ops[12].IsParameterized, Is.True);
 
 			var or = ops[13];
@@ -315,8 +315,8 @@ public class FrozenQueryTests {
 	[TestCase(1042, 43, TestName = "UniqueArgWhere_FoundFails")]
 	[TestCase(-1, 0, TestName = "UniqueArgWhere_NotFound")]
 	public void UniqueArg_ArgWhere_EveryVariantAndPage_LikeEagerAndPrepared(int code, int min) {
-		var prepared = _cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, a) => v.Id >= a.min).Build();
-		var frozen = _cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, a) => v.Id >= a.min).BuildFrozen();
+		var prepared = _cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, in a) => v.Id >= a.min).Build();
+		var frozen = _cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, in a) => v.Id >= a.min).BuildFrozen();
 		var args = (code, min);
 		AssertAllVariantsAndPages(() => _cache.Query().UseIndex(_byCode, code).Where(v => v.Id >= min), prepared, frozen, args, $"unique arg + arg Where {code}/{min}");
 	}
@@ -327,9 +327,9 @@ public class FrozenQueryTests {
 	[TestCase(-1, 0, TestName = "UniqueMixedFilters_NotFound")]
 	public void UniqueArg_ConstantAndArgWheres_EveryVariantAndPage_LikeEagerAndPrepared(int code, int min) {
 		var prepared = _cache.Prepare<int, PqItem, (int code, int min)>()
-			.UseIndex(_byCode, static a => a.code).Where(static v => v.Flag).Where(static (v, a) => v.Id >= a.min).Where(static v => v.Id >= 0).Build();
+			.UseIndex(_byCode, static a => a.code).Where(static v => v.Flag).Where(static (v, in a) => v.Id >= a.min).Where(static v => v.Id >= 0).Build();
 		var frozen = _cache.Prepare<int, PqItem, (int code, int min)>()
-			.UseIndex(_byCode, static a => a.code).Where(static v => v.Flag).Where(static (v, a) => v.Id >= a.min).Where(static v => v.Id >= 0).BuildFrozen();
+			.UseIndex(_byCode, static a => a.code).Where(static v => v.Flag).Where(static (v, in a) => v.Id >= a.min).Where(static v => v.Id >= 0).BuildFrozen();
 		var args = (code, min);
 		AssertAllVariantsAndPages(
 			() => _cache.Query().UseIndex(_byCode, code).Where(static v => v.Flag).Where(v => v.Id >= min).Where(static v => v.Id >= 0),
@@ -344,7 +344,7 @@ public class FrozenQueryTests {
 		var frozen = _cache.Prepare<int, PqItem, int>()
 			.UseIndex(_byCode, static c => c)
 			.Where(static v => !v.Flag)
-			.Where((v, _) => { calls++; return v.Id > 0; })
+			.Where((v, in _) => { calls++; return v.Id > 0; })
 			.BuildFrozen();
 
 		using (var rejected = frozen.Execute(1042)) Assert.That(rejected.Count, Is.EqualTo(0)); // Flag → first filter rejects
@@ -489,7 +489,7 @@ public class FrozenQueryTests {
 
 	[Test]
 	public void ConcurrentExecutions_OfOneFrozenPointLookup_AgainstAWriter_AreEachConsistent() {
-		var frozen = _cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, a) => v.Id >= a.min).BuildFrozen();
+		var frozen = _cache.Prepare<int, PqItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, in a) => v.Id >= a.min).BuildFrozen();
 		using var stop = new CancellationTokenSource();
 		var writer = Task.Run(() => {
 			var i = 0;
@@ -542,7 +542,7 @@ public class FrozenQueryTests {
 	public void ThrowingArgFilter_Propagates_LeavesNoRentedArrays_AndCommandStaysUsable() {
 		var frozen = _cache.Prepare<int, PqItem, (int code, int min)>()
 			.UseIndex(_byCode, static a => a.code)
-			.Where(static (v, a) => a.min < 0 ? throw new InvalidOperationException("boom") : v.Id >= a.min)
+			.Where(static (v, in a) => a.min < 0 ? throw new InvalidOperationException("boom") : v.Id >= a.min)
 			.BuildFrozen();
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("PointLookup"));
 

@@ -126,7 +126,7 @@ public class PreparedGeneratedDifferentialTests {
 
 	[Test]
 	public void Where_Parameterized_LikeEager() {
-		var prepared = _cache.Prepare<int>().WithDepartmentId(2).Where(static (v, min) => v.FeaturedOrder > min).Build();
+		var prepared = _cache.Prepare<int>().WithDepartmentId(2).Where(static (v, in min) => v.FeaturedOrder > min).Build();
 		foreach (var min in new[] { 0, 25, 49 })
 			AssertSame(_cache.Query().WithDepartmentId(2).Where(v => v.FeaturedOrder > min).Execute(), prepared.Execute(min));
 	}

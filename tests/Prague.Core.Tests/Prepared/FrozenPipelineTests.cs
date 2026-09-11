@@ -134,11 +134,11 @@ public class FrozenPipelineTests {
 		AssertPipeline(() => _cache.Query().UseIndex(_byGroup, 3), _cache.Prepare().UseIndex(_byGroup, 3).Build(), _cache.Prepare().UseIndex(_byGroup, 3).BuildFrozen(), default(NoArgs), "list bound");
 		AssertPipeline(() => _cache.Query().UseIndex(_byGroup, 3).Where(static v => v.Id > 100), _cache.Prepare().UseIndex(_byGroup, 3).Where(static v => v.Id > 100).Build(),
 			_cache.Prepare().UseIndex(_byGroup, 3).Where(static v => v.Id > 100).BuildFrozen(), default(NoArgs), "list bound + Where");
-		var three = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, 3).Where(static v => v.Id >= 0).Where(static (v, min) => v.Id >= min).Where(static v => !v.Flag).BuildFrozen();
+		var three = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, 3).Where(static v => v.Id >= 0).Where(static (v, in min) => v.Id >= min).Where(static v => !v.Flag).BuildFrozen();
 		Assert.That(three.Plan.Optimizations, Does.Contain("FusedFilters"));
 		Assert.That(three.Explain(), Does.Contain("filters: 3 (fused"));
 		AssertPipeline(() => _cache.Query().UseIndex(_byGroup, 3).Where(static v => v.Id >= 0).Where(static v => v.Id >= 50).Where(static v => !v.Flag),
-			_cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, 3).Where(static v => v.Id >= 0).Where(static (v, min) => v.Id >= min).Where(static v => !v.Flag).Build(), three, 50, "three filters");
+			_cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, 3).Where(static v => v.Id >= 0).Where(static (v, in min) => v.Id >= min).Where(static v => !v.Flag).Build(), three, 50, "three filters");
 		AssertPipeline(() => _cache.Query().Where(static v => v.Flag).UseIndex(_byGroup, 3), _cache.Prepare().Where(static v => v.Flag).UseIndex(_byGroup, 3).Build(),
 			_cache.Prepare().Where(static v => v.Flag).UseIndex(_byGroup, 3).BuildFrozen(), default(NoArgs), "Where before list");
 	}
@@ -657,7 +657,7 @@ public class FrozenPipelineTests {
 		var selector = _cache.Prepare<int, PqItem, (int group, int lo)>().UseIndex(_byGroup, static a => a.group)
 			.UseIndex(_codeRange, static (rb, a) => a.lo < 0 ? throw new InvalidOperationException("boom") : rb.Gte(a.lo)).BuildFrozen();
 		var predicate = _cache.Prepare<int, PqItem, (int group, int lo)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo))
-			.Where(static (v, a) => v.Id > 20 && a.lo == -7 ? throw new InvalidOperationException("boom") : v.Flag).BuildFrozen();
+			.Where(static (v, in a) => v.Id > 20 && a.lo == -7 ? throw new InvalidOperationException("boom") : v.Flag).BuildFrozen();
 		ReadOnlyMemory<PqItem> one = new[] { new PqItem { Group = 4 } };
 		var projected = _cache.Prepare().UseIndex(_flagged).UseIndex(_byGroup, one, static o => o.Group < 0 ? 0 : throw new InvalidOperationException("boom")).BuildFrozen();
 		Assert.That(selector.Plan.Executor, Is.EqualTo("Pipeline"));
@@ -741,7 +741,7 @@ public class FrozenPipelineTests {
 	[Test]
 	public void Explain_NamesTheExecutor_TheSeedRule_EachProbeSide_AndTheFusedOrder() {
 		var frozen = _cache.Prepare<int, PqItem, (int group, int lo, int hi)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi))
-			.UseIndex(_flagged).UseIndex(_lastUpdated, 0L).Where(static v => v.Id > 0).Where(static (v, a) => v.Id >= a.group).BuildFrozen();
+			.UseIndex(_flagged).UseIndex(_lastUpdated, 0L).Where(static v => v.Id > 0).Where(static (v, in a) => v.Id >= a.group).BuildFrozen();
 		var text = frozen.Explain();
 		Assert.Multiple(() => {
 			Assert.That(text, Does.Contain("executor: Pipeline"));

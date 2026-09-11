@@ -507,7 +507,7 @@ public class FrozenPipelineSortBoundedTests {
 		var comparer = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier).SortBounded(new Bomb()).BuildFrozen();
 		var selector = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier < 0 ? throw new InvalidOperationException("boom") : a.tier).SortBounded(new ByCode()).BuildFrozen();
 		var predicate = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier)
-			.Where(static (v, a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).SortBounded(new ByCode()).BuildFrozen();
+			.Where(static (v, in a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).SortBounded(new ByCode()).BuildFrozen();
 		var joined = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier).SortBounded(new Bomb()).JoinOne(details).BuildFrozen();
 		var joinedSelector = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier < 0 ? throw new InvalidOperationException("boom") : a.tier).SortBounded(new ByCode()).JoinOne(details).BuildFrozen();
 		Assert.That(comparer.Plan.Executor, Is.EqualTo("Pipeline"));

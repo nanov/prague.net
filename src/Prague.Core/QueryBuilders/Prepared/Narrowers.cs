@@ -278,9 +278,9 @@ public readonly struct FilterNarrower<TKey, TValue, TArgs> : INarrower<TKey, TVa
 public readonly struct FilterArgNarrower<TKey, TValue, TArgs> : INarrower<TKey, TValue, TArgs>
 	where TKey : notnull, IEquatable<TKey>
 	where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue> {
-	private readonly Func<TValue, TArgs, bool> _predicate;
+	private readonly ArgFilter<TValue, TArgs> _predicate;
 
-	public FilterArgNarrower(Func<TValue, TArgs, bool> predicate) => _predicate = predicate;
+	public FilterArgNarrower(ArgFilter<TValue, TArgs> predicate) => _predicate = predicate;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Apply<TCore>(ref TCore core, in TArgs args) where TCore : struct, ICandidatesExecutor<TKey, TValue>, ICandidatesFilterer<TKey, TValue>, IOrCapable<TKey, TValue, TCore>

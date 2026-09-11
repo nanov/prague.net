@@ -234,8 +234,8 @@ public class FrozenPipelineAllocationTests {
 
 	[Test]
 	public void Fused_ThreeFilters_AndArgFilter() {
-		var prepared = _cache.Prepare<int, PqItem, (int group, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Id >= 0).Where(static (v, a) => v.Id >= a.min).Where(static v => v.Flag).Build();
-		var frozen = _cache.Prepare<int, PqItem, (int group, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Id >= 0).Where(static (v, a) => v.Id >= a.min).Where(static v => v.Flag).BuildFrozen();
+		var prepared = _cache.Prepare<int, PqItem, (int group, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Id >= 0).Where(static (v, in a) => v.Id >= a.min).Where(static v => v.Flag).Build();
+		var frozen = _cache.Prepare<int, PqItem, (int group, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Id >= 0).Where(static (v, in a) => v.Id >= a.min).Where(static v => v.Flag).BuildFrozen();
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(frozen.Plan.Optimizations, Does.Contain("FusedFilters"));
 		var args = (group: 13, min: 500);

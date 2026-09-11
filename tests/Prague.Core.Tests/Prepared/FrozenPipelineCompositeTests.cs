@@ -263,8 +263,8 @@ public class FrozenPipelineCompositeTests {
 		var whereBeforeP = _cache.Prepare<int, PqItem, (int g1, int g2)>().Where(static v => v.Flag).Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Build();
 		AssertPipeline(() => _cache.Query().Where(static v => v.Flag).Or(b => b.UseIndex(_byGroup, g1), b => b.UseIndex(_byGroup, g2)), whereBeforeP, whereBefore, (g1, g2), "where before");
 
-		var whereAfter = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Where(static v => v.Flag).Where(static (v, a) => v.Id > a.g1).BuildFrozen(EagerOrder);
-		var whereAfterP = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Where(static v => v.Flag).Where(static (v, a) => v.Id > a.g1).Build();
+		var whereAfter = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Where(static v => v.Flag).Where(static (v, in a) => v.Id > a.g1).BuildFrozen(EagerOrder);
+		var whereAfterP = _cache.Prepare<int, PqItem, (int g1, int g2)>().Or(b => b.UseIndex(_byGroup, static a => a.g1), b => b.UseIndex(_byGroup, static a => a.g2)).Where(static v => v.Flag).Where(static (v, in a) => v.Id > a.g1).Build();
 		AssertPipeline(() => _cache.Query().Or(b => b.UseIndex(_byGroup, g1), b => b.UseIndex(_byGroup, g2)).Where(static v => v.Flag).Where(v => v.Id > g1), whereAfterP, whereAfter, (g1, g2), "where after");
 		frozen.Execute((g1, g2)).Dispose();
 		Assert.That(frozen.Explain(), Does.Contain("last seed: step 0 Or").And.Contain("fixed: first active step — the store walk kept to the branch union"));
@@ -492,13 +492,13 @@ public class FrozenPipelineCompositeTests {
 		Assert.That(afterList.Explain(), cond ? Does.Contain("last seed: step 1 UniqueEq (signal 1), free: smallest signal") : Does.Contain("last seed: step 0 ListEq (signal").And.Contain("fixed: first active step"),
 			"a taken unique arm is the smallest signal; a skipped one leaves the list the only active step");
 
-		var where = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.Where(static v => v.Flag).Where(static (v, a) => v.Id > a.t)).Where(static v => v.Id < 200).BuildFrozen();
-		var whereP = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.Where(static v => v.Flag).Where(static (v, a) => v.Id > a.t)).Where(static v => v.Id < 200).Build();
+		var where = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.Where(static v => v.Flag).Where(static (v, in a) => v.Id > a.t)).Where(static v => v.Id < 200).BuildFrozen();
+		var whereP = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().UseIndex(_byGroup, static a => a.g).If(static a => a.cond, b => b.Where(static v => v.Flag).Where(static (v, in a) => v.Id > a.t)).Where(static v => v.Id < 200).Build();
 		AssertPipeline(() => { var q = _cache.Query().UseIndex(_byGroup, 3); if (cond) q = q.Where(static v => v.Flag).Where(v => v.Id > 40); return q.Where(static v => v.Id < 200); }, whereP, where, (cond, 3, 40), "if with where branch");
 		Assert.That(where.Explain(), Does.Contain("branch filters: 2"));
 
-		var twoOp = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().UseIndex(_flagged).If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g).Where(static (v, a) => v.Id % 40 != a.t)).BuildFrozen();
-		var twoOpP = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().UseIndex(_flagged).If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g).Where(static (v, a) => v.Id % 40 != a.t)).Build();
+		var twoOp = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().UseIndex(_flagged).If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g).Where(static (v, in a) => v.Id % 40 != a.t)).BuildFrozen();
+		var twoOpP = _cache.Prepare<int, PqItem, (bool cond, int g, int t)>().UseIndex(_flagged).If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g).Where(static (v, in a) => v.Id % 40 != a.t)).Build();
 		AssertPipeline(() => { var q = _cache.Query().UseIndex(_flagged); if (cond) q = q.UseIndex(_byGroup, 3).Where(static v => v.Id % 40 != 3); return q; }, twoOpP, twoOp, (cond, 3, 3), "two-op branch");
 	}
 
@@ -531,12 +531,12 @@ public class FrozenPipelineCompositeTests {
 	public void Match_EveryArm_WithDefault_AndEmptyDefault_First_AndAfterList(Mode mode) {
 		var withDefault = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().Match(static a => a.mode, m => m
 			.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))
-			.Case(Mode.ByTier, b => b.UseIndex(_byTier, static a => a.t).Where(static (v, a) => v.Id >= a.g))
+			.Case(Mode.ByTier, b => b.UseIndex(_byTier, static a => a.t).Where(static (v, in a) => v.Id >= a.g))
 			.Case(Mode.ByCode, b => b.UseIndex(_byCode, static a => a.code))
 			.Default(b => b.Where(static v => v.Flag))).UseIndex(_flagged).BuildFrozen();
 		var withDefaultP = _cache.Prepare<int, PqItem, (Mode mode, int g, int t, int code)>().Match(static a => a.mode, m => m
 			.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))
-			.Case(Mode.ByTier, b => b.UseIndex(_byTier, static a => a.t).Where(static (v, a) => v.Id >= a.g))
+			.Case(Mode.ByTier, b => b.UseIndex(_byTier, static a => a.t).Where(static (v, in a) => v.Id >= a.g))
 			.Case(Mode.ByCode, b => b.UseIndex(_byCode, static a => a.code))
 			.Default(b => b.Where(static v => v.Flag))).UseIndex(_flagged).Build();
 		var args = (mode, g: 3, t: 2, code: 1042);
@@ -748,8 +748,8 @@ public class FrozenPipelineCompositeTests {
 		// A branch selector throws inside an Or branch, after the first branch bound.
 		var orSelector = big.Prepare<int, PqItem, (int g, int t)>().UseIndex(byGroup, static a => a.g).Or(b => b.UseIndex(byTier, 1), b => b.UseIndex(byTier, static a => a.t < 0 ? throw new InvalidOperationException("boom") : a.t)).BuildFrozen();
 		// The Or-first union over 47 keys (the dedupe set's pool path) and the filtered store walk of 3000 rows, then a branch predicate that throws mid-walk.
-		var orFirstPredicate = big.Prepare<int, PqItem, (int g, int t)>().Or(b => b.UseIndex(byGroup, static a => a.g), b => b.UseIndex(byTier, static a => a.t)).If(static a => true, b => b.Where(static (v, a) => v.Id > 2500 && a.g == 0 ? throw new InvalidOperationException("boom") : true)).BuildFrozen();
-		var orSeedPredicate = big.Prepare<int, PqItem, (int g, int t)>().Or(b => b.UseIndex(byGroup, static a => a.g), b => b.UseIndex(byTier, static a => a.t)).If(static a => true, b => b.Where(static (v, a) => v.Id > 2500 && a.g == 0 ? throw new InvalidOperationException("boom") : true)).BuildFrozen();
+		var orFirstPredicate = big.Prepare<int, PqItem, (int g, int t)>().Or(b => b.UseIndex(byGroup, static a => a.g), b => b.UseIndex(byTier, static a => a.t)).If(static a => true, b => b.Where(static (v, in a) => v.Id > 2500 && a.g == 0 ? throw new InvalidOperationException("boom") : true)).BuildFrozen();
+		var orSeedPredicate = big.Prepare<int, PqItem, (int g, int t)>().Or(b => b.UseIndex(byGroup, static a => a.g), b => b.UseIndex(byTier, static a => a.t)).If(static a => true, b => b.Where(static (v, in a) => v.Id > 2500 && a.g == 0 ? throw new InvalidOperationException("boom") : true)).BuildFrozen();
 		var comparer = big.Prepare<int, PqItem, (int g, int t)>().Or(b => b.UseIndex(byGroup, static a => a.g), b => b.UseIndex(byTier, static a => a.t)).Sort(new Bomb()).BuildFrozen();
 		var bounded = big.Prepare<int, PqItem, (int g, int t)>().Or(b => b.UseIndex(byGroup, static a => a.g), b => b.UseIndex(byTier, static a => a.t)).SortBounded(new Bomb()).BuildFrozen();
 		var uniqueOr = big.Prepare<int, PqItem, (int g, int t)>().UseIndex(byGroup, static a => a.g).Or(b => b.UseIndex(byCode, static a => a.t < 0 ? throw new InvalidOperationException("boom") : a.t), b => b.UseIndex(byCode, 1001)).BuildFrozen();

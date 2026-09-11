@@ -125,7 +125,7 @@ public class PreparedQueryAllocationTests {
 	public void ListScan_PooledParameterizedArgWhere_AllocatesLessThanEager_AndNothingAboveTheFilterFloor() {
 		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min)>()
 			.UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.Build();
 		var floorPrepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, int>()
 			.UseIndex(_byGroup, static g => g)
@@ -155,8 +155,8 @@ public class PreparedQueryAllocationTests {
 	public void ListScan_PooledTwoParameterizedArgWheres_AllocatesNoMoreThanEager() {
 		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min, int max)>()
 			.UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min)
-			.Where(static (v, a) => v.Id <= a.max)
+			.Where(static (v, in a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id <= a.max)
 			.Build();
 		var args = (group: 13, min: 1_000, max: 4_000);
 
@@ -296,11 +296,11 @@ public class PreparedQueryAllocationTests {
 	public void Frozen_UniqueLookup_PooledParameterizedArgWhere_AllocatesNothing_AndNoMoreThanPrepared() {
 		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int code, int min)>()
 			.UseIndex(_byCode, static a => a.code)
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.Build();
 		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int code, int min)>()
 			.UseIndex(_byCode, static a => a.code)
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.BuildFrozen();
 		var args = (code: 1042, min: 0);
 
@@ -348,9 +348,9 @@ public class PreparedQueryAllocationTests {
 	[Test]
 	public void Frozen_ListTwoArgWheres_Pooled_AllocatesNothing_AndLessThanEager() {
 		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min, int max)>()
-			.UseIndex(_byGroup, static a => a.group).Where(static (v, a) => v.Id >= a.min).Where(static (v, a) => v.Id <= a.max).Build();
+			.UseIndex(_byGroup, static a => a.group).Where(static (v, in a) => v.Id >= a.min).Where(static (v, in a) => v.Id <= a.max).Build();
 		var frozen = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (int group, int min, int max)>()
-			.UseIndex(_byGroup, static a => a.group).Where(static (v, a) => v.Id >= a.min).Where(static (v, a) => v.Id <= a.max).BuildFrozen();
+			.UseIndex(_byGroup, static a => a.group).Where(static (v, in a) => v.Id >= a.min).Where(static (v, in a) => v.Id <= a.max).BuildFrozen();
 		Assert.That(frozen.Plan.Optimizations, Does.Contain("FusedFilters"));
 		var args = (group: 13, min: 1_000, max: 4_000);
 
@@ -534,7 +534,7 @@ public class PreparedQueryAllocationTests {
 	public void If_PooledParameterizedWhereInsideTheBranch_TakenAndSkipped_AllocatesNoMoreThanEager() {
 		var prepared = _cache.Prepare<int, PreparedQueryDifferentialTests.PqItem, (bool cond, int group, int min)>()
 			.UseIndex(_byGroup, static a => a.group)
-			.If(static a => a.cond, b => b.Where(static (v, a) => v.Id >= a.min))
+			.If(static a => a.cond, b => b.Where(static (v, in a) => v.Id >= a.min))
 			.Build();
 
 		QueryResults<PreparedQueryDifferentialTests.PqItem> Eager((bool cond, int group, int min) a) {

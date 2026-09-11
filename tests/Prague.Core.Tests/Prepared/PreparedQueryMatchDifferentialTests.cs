@@ -72,7 +72,7 @@ public class PreparedQueryMatchDifferentialTests {
 		=> _cache.Prepare<int, PqItem, (Mode mode, int g, int bucket, int code, int min)>()
 			.Match(static a => a.mode, m => m
 				.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))
-				.Case(Mode.ByBucket, b => b.UseIndex(_byBucket, static a => a.bucket).Where(static (v, a) => v.Id >= a.min))
+				.Case(Mode.ByBucket, b => b.UseIndex(_byBucket, static a => a.bucket).Where(static (v, in a) => v.Id >= a.min))
 				.Case(Mode.ByCode, b => b.UseIndex(_byCode, static a => a.code))
 				.Default(b => b.Where(static v => v.Flag)))
 			.Build();
@@ -418,8 +418,8 @@ public class PreparedQueryMatchDifferentialTests {
 			.Match(static a => a.mode, m => m
 				.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g).Or(x => x.UseIndex(_byBucket, 2), x => x.Match(static a => a.g, n => n.Case(4, i => i.UseIndex(_byBucket, 4)).Default())))
 				.Case(Mode.ByBucket, b => b.If(static a => a.g > 3, i => i.UseIndex(_byGroup, 1)))
-				.Default(b => b.Where(static (v, a) => v.Id >= a.g)))
-			.Where(static (v, a) => v.Id >= a.g)
+				.Default(b => b.Where(static (v, in a) => v.Id >= a.g)))
+			.Where(static (v, in a) => v.Id >= a.g)
 			.Build();
 
 		LeakAssert.Balanced(() => {
@@ -510,7 +510,7 @@ public class PreparedQueryMatchDifferentialTests {
 		var frozen = _cache.Prepare<int, PqItem, (Mode mode, int g, int bucket, int code, int min)>()
 			.Match(static a => a.mode, m => m
 				.Case(Mode.ByGroup, b => b.UseIndex(_byGroup, static a => a.g))
-				.Case(Mode.ByBucket, b => b.UseIndex(_byBucket, static a => a.bucket).Where(static (v, a) => v.Id >= a.min))
+				.Case(Mode.ByBucket, b => b.UseIndex(_byBucket, static a => a.bucket).Where(static (v, in a) => v.Id >= a.min))
 				.Case(Mode.ByCode, b => b.UseIndex(_byCode, static a => a.code))
 				.Default(b => b.Where(static v => v.Flag)))
 			.BuildFrozen();

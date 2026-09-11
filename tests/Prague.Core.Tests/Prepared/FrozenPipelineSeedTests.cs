@@ -300,8 +300,8 @@ public class FrozenPipelineSeedTests {
 		Assert.That(Decision(_cache.Prepare<int, PqItem, (int group, int lo, int hi, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).UseIndex(_byCode, static a => a.code).BuildFrozen(EagerOrder), (3, 1000, 1100, 1010)),
 			Is.EqualTo("last seed: step 0 ListEq (signal 0), fixed: first active step"));
 
-		var filtered = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag).UseIndex(_byTier, static a => a.tier).Where(static (v, a) => v.Id >= a.min).UseIndex(_lastUpdated, 0L).BuildFrozen(EagerOrder);
-		var filteredPrepared = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag).UseIndex(_byTier, static a => a.tier).Where(static (v, a) => v.Id >= a.min).UseIndex(_lastUpdated, 0L).Build();
+		var filtered = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag).UseIndex(_byTier, static a => a.tier).Where(static (v, in a) => v.Id >= a.min).UseIndex(_lastUpdated, 0L).BuildFrozen(EagerOrder);
+		var filteredPrepared = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).Where(static v => v.Flag).UseIndex(_byTier, static a => a.tier).Where(static (v, in a) => v.Id >= a.min).UseIndex(_lastUpdated, 0L).Build();
 		foreach (var (g, t, min) in new[] { (3, 3, 0), (3, 3, 100), (0, 0, 0), (6, 6, 300) })
 			AssertSequence(() => _cache.Query().UseIndex(_byGroup, g).Where(static v => v.Flag).UseIndex(_byTier, t).Where(v => v.Id >= min).UseIndex(_lastUpdated, 0L), filteredPrepared, filtered, (g, t, min), $"filters {g}/{t}/{min}");
 	}
@@ -541,9 +541,9 @@ public class FrozenPipelineSeedTests {
 		var selector = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier < 0 ? throw new InvalidOperationException("boom") : a.tier).BuildFrozen();
 		// A predicate that throws mid-walk after a pool-path seed (600 keys, well past the stack buffer).
 		var predicate = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier)
-			.Where(static (v, a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).BuildFrozen();
+			.Where(static (v, in a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).BuildFrozen();
 		var predicateFree = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier)
-			.Where(static (v, a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).BuildFrozen();
+			.Where(static (v, in a) => v.Id > 2000 && a.group == 0 ? throw new InvalidOperationException("boom") : true).BuildFrozen();
 		var comparer = big.Prepare<int, PqItem, (int group, int tier)>().UseIndex(byGroup, static a => a.group).UseIndex(byTier, static a => a.tier).Sort(new Bomb()).BuildFrozen();
 		var uniqueBomb = big.Prepare<int, PqItem, (int group, int code)>().UseIndex(byGroup, static a => a.group).UseIndex(byCode, static a => a.code < 0 ? throw new InvalidOperationException("boom") : a.code).BuildFrozen();
 		Assert.That(comparer.Plan.Executor, Is.EqualTo("Pipeline"));

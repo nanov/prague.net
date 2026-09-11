@@ -175,7 +175,7 @@ public static class PreparedQueryBuilderExtensions {
 		Where<TDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult>(
 			this in CacheQueryBuilderCombined<TDiscriminator,
 				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
-			Func<TValue, TArgs, bool> predicate)
+			ArgFilter<TValue, TArgs> predicate)
 		where TDiscriminator : struct, IBaseFilterable
 		where TKey : notnull, IEquatable<TKey>
 		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>

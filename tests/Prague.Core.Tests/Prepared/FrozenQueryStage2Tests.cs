@@ -72,7 +72,7 @@ public class FrozenQueryStage2Tests {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Where(static v => v.Flag).BuildFrozen().Plan.Optimizations, Does.Not.Contain("FusedFilters"), "one filter");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Where(static v => v.Flag).Where(static v => v.Id > 0).BuildFrozen().Plan.Optimizations,
 				Does.Contain("FusedFilters").And.Contain("AdaptiveFilterOrder"), "two constants");
-			Assert.That(_cache.Prepare<int, PqItem, int>().Where(static (v, a) => v.Id >= a).Where(static v => v.Flag).BuildFrozen().Plan.Optimizations,
+			Assert.That(_cache.Prepare<int, PqItem, int>().Where(static (v, in a) => v.Id >= a).Where(static v => v.Flag).BuildFrozen().Plan.Optimizations,
 				Does.Contain("FusedFilters"), "filter-only, mixed");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Where(static v => v.Flag).Where(static v => v.Id > 0).BuildFrozen(FixedOrder).Plan.Optimizations,
 				Does.Contain("FusedFilters").And.Not.Contain("AdaptiveFilterOrder"), "fixed order");
@@ -103,9 +103,9 @@ public class FrozenQueryStage2Tests {
 	[Test]
 	public void Fused_ListWithTwoArgWheres_LikeEagerAndPrepared() {
 		var prepared = _cache.Prepare<int, PqItem, (int group, int min, int max)>().UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min).Where(static (v, a) => v.Id <= a.max).Build();
+			.Where(static (v, in a) => v.Id >= a.min).Where(static (v, in a) => v.Id <= a.max).Build();
 		var frozen = _cache.Prepare<int, PqItem, (int group, int min, int max)>().UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min).Where(static (v, a) => v.Id <= a.max).BuildFrozen();
+			.Where(static (v, in a) => v.Id >= a.min).Where(static (v, in a) => v.Id <= a.max).BuildFrozen();
 		Assert.That(frozen.Plan.Optimizations, Does.Contain("FusedFilters"));
 		foreach (var (g, min, max) in new[] { (3, 0, N), (3, 50, 150), (5, 100, 50), (0, -1, 5) })
 			for (var round = 0; round < 3; round++) {
@@ -117,8 +117,8 @@ public class FrozenQueryStage2Tests {
 
 	[Test]
 	public void Fused_MixedConstantAndArgWheres_FilterOnly_LikeEagerAndPrepared() {
-		var prepared = _cache.Prepare<int, PqItem, int>().Where(static v => v.Flag).Where(static (v, a) => v.Id >= a).Where(static v => v.Group != 2).Build();
-		var frozen = _cache.Prepare<int, PqItem, int>().Where(static v => v.Flag).Where(static (v, a) => v.Id >= a).Where(static v => v.Group != 2).BuildFrozen();
+		var prepared = _cache.Prepare<int, PqItem, int>().Where(static v => v.Flag).Where(static (v, in a) => v.Id >= a).Where(static v => v.Group != 2).Build();
+		var frozen = _cache.Prepare<int, PqItem, int>().Where(static v => v.Flag).Where(static (v, in a) => v.Id >= a).Where(static v => v.Group != 2).BuildFrozen();
 		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
 		Assert.That(frozen.Plan.Optimizations, Does.Contain("FusedFilters").And.Not.Contain("CapacityHints"));
 		for (var round = 0; round < 40; round++) {
@@ -214,8 +214,8 @@ public class FrozenQueryStage2Tests {
 	[Test]
 	public void Adaptive_ArgFilters_ReorderAndStayCorrect_AcrossArguments() {
 		var frozen = _cache.Prepare<int, PqItem, (int min, int mod)>()
-			.Where(static (v, a) => v.Id >= a.min)
-			.Where(static (v, a) => v.Id % a.mod == 0)
+			.Where(static (v, in a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id % a.mod == 0)
 			.BuildFrozen();
 		for (var round = 0; round < 3 * FusedFilter<PqItem, (int min, int mod)>.SampleEvery; round++) {
 			var args = (min: round % 7, mod: 2 + round % 5);
@@ -228,7 +228,7 @@ public class FrozenQueryStage2Tests {
 	[Test]
 	public void Adaptive_ConcurrentExecutions_AgainstAWriter_AreEachConsistent() {
 		var frozen = _cache.Prepare<int, PqItem, (int group, int min)>().UseIndex(_byGroup, static a => a.group)
-			.Where(static v => v.Flag).Where(static (v, a) => v.Id >= a.min).Where(static v => v.Id % 2 == 0).BuildFrozen();
+			.Where(static v => v.Flag).Where(static (v, in a) => v.Id >= a.min).Where(static v => v.Id % 2 == 0).BuildFrozen();
 		using var stop = new CancellationTokenSource();
 		var writer = Task.Run(() => {
 			var i = 0;
@@ -265,7 +265,7 @@ public class FrozenQueryStage2Tests {
 	public void Fused_ThrowingArgFilter_Propagates_LeavesNoRentedArrays_AndCommandStaysUsable() {
 		var frozen = _cache.Prepare<int, PqItem, (int group, int min)>().UseIndex(_byGroup, static a => a.group)
 			.Where(static v => v.Flag)
-			.Where(static (v, a) => a.min < 0 ? throw new InvalidOperationException("boom") : v.Id >= a.min)
+			.Where(static (v, in a) => a.min < 0 ? throw new InvalidOperationException("boom") : v.Id >= a.min)
 			.BuildFrozen();
 		Assert.That(frozen.Plan.Optimizations, Does.Contain("FusedFilters"));
 		LeakAssert.Balanced(() => {
@@ -357,7 +357,7 @@ public class FrozenQueryStage2Tests {
 		var withUnique = _cache.Prepare<int, PqItem, (int group, int code)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byCode, static a => a.code).BuildFrozen();
 		var withKeySet = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).UseIndex(_flagged).BuildFrozen();
 		var withFilters = _cache.Prepare<int, PqItem, (int group, int tier, int min)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier)
-			.Where(static v => v.Flag).Where(static (v, a) => v.Id >= a.min).BuildFrozen();
+			.Where(static v => v.Flag).Where(static (v, in a) => v.Id >= a.min).BuildFrozen();
 		for (var g = -1; g < 8; g++) {
 			for (var t = -1; t < 41; t++) {
 				AssertSameSet(_cache.Query().UseIndex(_byGroup, g).UseIndex(_byTier, t).Execute(), frozen.Execute((g, t)));

@@ -66,7 +66,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 
 	[Test]
 	public void ArgWhere_Alone_LikeEager() {
-		var prepared = _cache.Prepare<int, PqItem, int>().Where(static (v, min) => v.Id >= min).Build();
+		var prepared = _cache.Prepare<int, PqItem, int>().Where(static (v, in min) => v.Id >= min).Build();
 		foreach (var min in Mins) {
 			AssertSame(_cache.Query().Where(v => v.Id >= min).Execute(), prepared.Execute(min));
 			Assert.That(prepared.Count(min), Is.EqualTo(_cache.Query().Where(v => v.Id >= min).Count()));
@@ -77,7 +77,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void ArgWhere_AfterListIndex_LikeEager() {
 		var prepared = _cache.Prepare<int, PqItem, (int group, int min)>()
 			.UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.Build();
 		foreach (var min in Mins) {
 			var args = (group: 3, min);
@@ -91,7 +91,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void ArgWhere_AfterRange_LikeEager() {
 		var prepared = _cache.Prepare<int, PqItem, int>()
 			.UseIndex(_codeRange, static rb => rb.Gte(1050).Lt(1200))
-			.Where(static (v, min) => v.Id >= min)
+			.Where(static (v, in min) => v.Id >= min)
 			.Build();
 		foreach (var min in Mins) {
 			AssertSame(_cache.Query().UseIndex(_codeRange, static rb => rb.Gte(1050).Lt(1200)).Where(v => v.Id >= min).Execute(), prepared.Execute(min));
@@ -103,7 +103,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void ArgWhere_BetweenConstantWheres_LikeEager() {
 		var prepared = _cache.Prepare<int, PqItem, int>()
 			.Where(static v => v.Flag)
-			.Where(static (v, min) => v.Id >= min)
+			.Where(static (v, in min) => v.Id >= min)
 			.Where(static v => v.Group != 2)
 			.Build();
 		foreach (var min in Mins) {
@@ -116,8 +116,8 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void TwoArgWheres_LikeEager() {
 		var prepared = _cache.Prepare<int, PqItem, (int min, int max)>()
 			.UseIndex(_byGroup, 4)
-			.Where(static (v, a) => v.Id >= a.min)
-			.Where(static (v, a) => v.Id <= a.max)
+			.Where(static (v, in a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id <= a.max)
 			.Build();
 		foreach (var (min, max) in new[] { (0, 239), (50, 100), (150, 149), (77, 77) }) {
 			var args = (min, max);
@@ -130,8 +130,8 @@ public class PreparedQueryArgWhereDifferentialTests {
 	[Test]
 	public void Overloads_ArityDecides_AndNoArgsAdmitsTwoArgLambda() {
 		var bound = _cache.Prepare().Where(static v => v.Flag).Build();
-		var twoArg = _cache.Prepare().Where(static (v, _) => v.Flag).Build();
-		var parameterized = _cache.Prepare<int, PqItem, int>().Where(static v => v.Flag).Where(static (v, min) => v.Id >= min).Build();
+		var twoArg = _cache.Prepare().Where(static (v, in _) => v.Flag).Build();
+		var parameterized = _cache.Prepare<int, PqItem, int>().Where(static v => v.Flag).Where(static (v, in min) => v.Id >= min).Build();
 		AssertSame(_cache.Query().Where(static v => v.Flag).Execute(), bound.Execute());
 		AssertSame(_cache.Query().Where(static v => v.Flag).Execute(), twoArg.Execute());
 		AssertSame(_cache.Query().Where(static v => v.Flag && v.Id >= 100).Execute(), parameterized.Execute(100));
@@ -143,7 +143,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void ArgWhere_BeforeOuterJoinOne_LikeEager() {
 		var prepared = _orders.Prepare<int, PqOrder, (int product, int minQty)>()
 			.UseIndex(_byProduct, static a => a.product)
-			.Where(static (o, a) => o.Qty >= a.minQty)
+			.Where(static (o, in a) => o.Qty >= a.minQty)
 			.JoinOne(_byCustomer, _customers)
 			.Build();
 		foreach (var minQty in new[] { 0, 5, 12, 13 }) {
@@ -160,7 +160,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void ArgWhere_BeforeInnerJoinOne_PkToPk_LikeEager() {
 		var prepared = _orders.Prepare<int, PqOrder, (int customer, int minQty)>()
 			.UseIndex(_byCustomer, static a => a.customer)
-			.Where(static (o, a) => o.Qty >= a.minQty)
+			.Where(static (o, in a) => o.Qty >= a.minQty)
 			.InnerJoinOne(_invoices)
 			.Build();
 		for (var customer = 0; customer < Customers; customer++)
@@ -175,7 +175,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	[Test]
 	public void ArgWhere_NoIndex_BeforeInnerJoinOne_LeftSym_LikeEager() {
 		var prepared = _orders.Prepare<int, PqOrder, int>()
-			.Where(static (o, minQty) => o.Qty >= minQty)
+			.Where(static (o, in minQty) => o.Qty >= minQty)
 			.InnerJoinOne(_byCustomer, _customers)
 			.Build();
 		foreach (var minQty in new[] { 0, 7, 12 }) {
@@ -190,7 +190,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void ArgWhere_ThenSortBounded_EveryPage_LikeEager() {
 		var prepared = _cache.Prepare<int, PqItem, (int group, int min)>()
 			.UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.SortBounded(new ByCode())
 			.Build();
 		foreach (var min in Mins)
@@ -210,7 +210,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void ConcurrentExecutions_WithDifferentArgs_EachSeeOwnPredicate() {
 		var prepared = _cache.Prepare<int, PqItem, (int group, int min)>()
 			.UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.Build();
 
 		var readers = new Task[8];
@@ -243,10 +243,10 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void Reentrant_InnerCommandWithDifferentArgs_LikeEager_AndDepthReturnsToZero() {
 		var inner = _cache.Prepare<int, PqItem, int>()
 			.UseIndex(_byGroup, static g => g)
-			.Where(static (v, g) => v.Id >= g * 10)
+			.Where(static (v, in g) => v.Id >= g * 10)
 			.Build();
 		var outer = _cache.Prepare<int, PqItem, (PreparedQuery<int, PqItem> inner, int threshold)>()
-			.Where(static (v, a) => v.Flag && a.inner.Count(v.Group) > a.threshold)
+			.Where(static (v, in a) => v.Flag && a.inner.Count(v.Group) > a.threshold)
 			.Build();
 
 		for (var g = 0; g < 7; g++)
@@ -270,10 +270,10 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void Reentrant_InnerCommandWithSameArgs_LikeEager_AndDepthReturnsToZero() {
 		var inner = _cache.Prepare<int, PqItem, Ctx>()
 			.UseIndex(_byGroup, static c => c.Group)
-			.Where(static (v, c) => v.Id >= c.Min)
+			.Where(static (v, in c) => v.Id >= c.Min)
 			.Build();
 		var outer = _cache.Prepare<int, PqItem, Ctx>()
-			.Where(static (v, c) => v.Id >= c.Min && c.Inner!.Count(c with { Group = v.Group }) > c.Threshold)
+			.Where(static (v, in c) => v.Id >= c.Min && c.Inner!.Count(c with { Group = v.Group }) > c.Threshold)
 			.Build();
 
 		foreach (var (min, threshold) in new[] { (0, 30), (50, 25), (100, 20), (200, 3) }) {
@@ -291,7 +291,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	[Test]
 	public void AfterExecution_PoppedBoxIsCleared() {
 		var prepared = _cache.Prepare<int, PqItem, (string tag, int min)>()
-			.Where(static (v, a) => a.tag.Length > 0 && v.Id >= a.min)
+			.Where(static (v, in a) => a.tag.Length > 0 && v.Id >= a.min)
 			.Build();
 		var args = (tag: "hello", min: 100);
 
@@ -308,7 +308,7 @@ public class PreparedQueryArgWhereDifferentialTests {
 	public void ThrowingArgPredicate_Propagates_LeavesNoRentedArrays_ResetsDepth_AndCommandStaysUsable() {
 		var prepared = _cache.Prepare<int, PqItem, int>()
 			.UseIndex(_byGroup, 1)
-			.Where(static (v, poison) => v.Id == poison ? throw new InvalidOperationException("boom") : v.Id > 10)
+			.Where(static (v, in poison) => v.Id == poison ? throw new InvalidOperationException("boom") : v.Id > 10)
 			.Build();
 		var mark = ArgPredicatePool<PqItem, int>.DepthForTests;
 

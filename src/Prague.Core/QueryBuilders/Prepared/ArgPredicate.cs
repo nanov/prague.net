@@ -10,7 +10,7 @@ using System.Runtime.CompilerServices;
 ///   are only ever touched by the thread that rented them.
 /// </summary>
 internal sealed class ArgPredicate<TValue, TArgs> {
-	private Func<TValue, TArgs, bool>? _func;
+	private ArgFilter<TValue, TArgs>? _func;
 	private TArgs _args;
 	private FusedFilter<TValue, TArgs>? _fused;
 	private FusedOrdering<TValue, TArgs>? _ordering;
@@ -36,7 +36,7 @@ internal sealed class ArgPredicate<TValue, TArgs> {
 	private bool InvokeFusedSampled(TValue value) => _fused!.PassesSampled(value, in _args, _ordering!);
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal void Bind(Func<TValue, TArgs, bool> func, in TArgs args) {
+	internal void Bind(ArgFilter<TValue, TArgs> func, in TArgs args) {
 		_func = func;
 		_args = args;
 	}
@@ -57,7 +57,7 @@ internal sealed class ArgPredicate<TValue, TArgs> {
 		_args = default!;
 	}
 
-	internal Func<TValue, TArgs, bool>? FuncForTests => _func;
+	internal ArgFilter<TValue, TArgs>? FuncForTests => _func;
 
 	internal TArgs ArgsForTests => _args;
 }
@@ -85,7 +85,7 @@ internal static class ArgPredicatePool<TValue, TArgs> {
 
 	/// <summary>Binds the next free box on this thread and returns its predicate, valid until the enclosing <see cref="Reset" />.</summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal static Predicate<TValue> Rent(Func<TValue, TArgs, bool> func, in TArgs args) {
+	internal static Predicate<TValue> Rent(ArgFilter<TValue, TArgs> func, in TArgs args) {
 		var depth = _depth;
 		var boxes = _boxes;
 		if (boxes is null || (uint)depth >= (uint)boxes.Length)

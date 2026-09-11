@@ -81,7 +81,7 @@ public class PreparedQueryBenchmarks {
 		_listWherePrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Build();
 		_listArgWherePrepared = _items.Prepare<int, PqbItem, (int group, int min)>()
 			.UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.Build();
 		_rangePrepared = _items.Prepare<int, PqbItem, (int lo, int hi)>()
 			.UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi))
@@ -303,7 +303,7 @@ public class PreparedQueryBenchmarks {
 		=> _items.Prepare<int, PqbItem, (int group, int lo, int hi, int min)>()
 			.UseIndex(_byGroup, static a => a.group)
 			.UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi))
-			.Where(static (v, a) => v.Id >= a.min)
+			.Where(static (v, in a) => v.Id >= a.min)
 			.Where(static v => v.Flag)
 			.Build();
 }

@@ -23,11 +23,11 @@ internal interface IPointLookupSource<TKey, TValue, TArgs>
 /// </summary>
 internal readonly struct FilterStep<TValue, TArgs> {
 	private readonly Predicate<TValue>? _constant;
-	private readonly Func<TValue, TArgs, bool>? _arg;
+	private readonly ArgFilter<TValue, TArgs>? _arg;
 
 	internal FilterStep(Predicate<TValue> constant) => _constant = constant;
 
-	internal FilterStep(Func<TValue, TArgs, bool> arg) => _arg = arg;
+	internal FilterStep(ArgFilter<TValue, TArgs> arg) => _arg = arg;
 
 	internal Predicate<TValue>? Constant => _constant;
 

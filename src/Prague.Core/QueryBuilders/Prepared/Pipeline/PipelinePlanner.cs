@@ -78,7 +78,7 @@ internal sealed class PipelinePlanner<TKey, TValue, TArgs>
 					list.Add(new FilterNode<TArgs>((byte)_branchFilters.Count));
 					_branchFilters.Add(d.Kind == NarrowerKind.Filter
 						? new FilterStep<TValue, TArgs>((Predicate<TValue>)d.Filter!)
-						: new FilterStep<TValue, TArgs>((Func<TValue, TArgs, bool>)d.Filter!));
+						: new FilterStep<TValue, TArgs>((ArgFilter<TValue, TArgs>)d.Filter!));
 					break;
 				case NarrowerKind.If:
 				case NarrowerKind.IfElse:

@@ -517,7 +517,7 @@ internal static class FrozenPlanner {
 			if (d.Kind == NarrowerKind.Filter)
 				steps[n++] = new FilterStep<TValue, TArgs>((Predicate<TValue>)d.Filter!);
 			else if (d.Kind == NarrowerKind.FilterArg)
-				steps[n++] = new FilterStep<TValue, TArgs>((Func<TValue, TArgs, bool>)d.Filter!);
+				steps[n++] = new FilterStep<TValue, TArgs>((ArgFilter<TValue, TArgs>)d.Filter!);
 		}
 
 		var fused = new FusedFilter<TValue, TArgs>(steps, hasArgs, options.AdaptiveFilterOrdering);
@@ -573,7 +573,7 @@ internal static class FrozenPlanner {
 			if (d.Kind == NarrowerKind.Filter)
 				list.Add(new FilterStep<TValue, TArgs>((Predicate<TValue>)d.Filter!));
 			else if (d.Kind == NarrowerKind.FilterArg)
-				list.Add(new FilterStep<TValue, TArgs>((Func<TValue, TArgs, bool>)d.Filter!));
+				list.Add(new FilterStep<TValue, TArgs>((ArgFilter<TValue, TArgs>)d.Filter!));
 		}
 
 		return list.ToArray();
@@ -588,7 +588,7 @@ internal static class FrozenPlanner {
 			var d = narrowers[i];
 			steps[i - 1] = d.Kind == NarrowerKind.Filter
 				? new FilterStep<TValue, TArgs>((Predicate<TValue>)d.Filter!)
-				: new FilterStep<TValue, TArgs>((Func<TValue, TArgs, bool>)d.Filter!);
+				: new FilterStep<TValue, TArgs>((ArgFilter<TValue, TArgs>)d.Filter!);
 		}
 
 		return steps;

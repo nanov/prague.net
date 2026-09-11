@@ -527,15 +527,15 @@ public sealed class ProductSearch {
     public ProductSearch(ProductCache products) {
         _search = products.Prepare<(int dept, int brand, long since, decimal minPrice, bool inStockOnly)>()
             .Or(
-                b => b.WithDepartmentId(static a => a.dept),          // parameterized WithXxx
+                b => b.WithDepartmentId(static a => a.dept),    // parameterized WithXxx
                 b => b.WithBrandId(static a => a.brand))
-            .WithReleaseDate(static (rb, a) => rb.Gte(a.since))        // parameterized range
-            .Where(static (p, a) => p.Price >= a.minPrice)            // parameterized Where — no closure
-            .If(static a => a.inStockOnly,                            // narrowing that applies only when the arg says so
+            .WithReleaseDate(static (rb, a) => rb.Gte(a.since)) // parameterized range
+            .Where(static (p, in a) => p.Price >= a.minPrice)   // parameterized Where — no closure
+            .If(static a => a.inStockOnly,                      // narrowing that applies only when the arg says so
                 b => b.Where(static p => p.Stock > 0))
-            .SortBounded(new ByReleaseDateDesc())                    // struct comparer, paged
-            .JoinWithProductInfo()                                    // FK-generated join, unchanged
-            .Build();                                                 // the only allocation
+            .SortBounded(new ByReleaseDateDesc())               // struct comparer, paged
+            .JoinWithProductInfo()                              // FK-generated join, unchanged
+            .Build();                                           // the only allocation
     }
 
     public int CountPage((int dept, int brand, long since, decimal minPrice, bool inStockOnly) args) {
@@ -551,6 +551,20 @@ public sealed class ProductSearch {
 to the bound form; write the selectors as `static` lambdas so the delegate is created once at build.
 `Execute`, `ExecutePooled`, `Count` and the `*Cloned` variants take `in TArgs` plus the usual
 `skip`/`take`.
+
+**The arg `Where` predicate takes `TArgs` by `in`** — it is the one callback that runs once per
+candidate row rather than once per execution, so a by-value `TArgs` would copy the whole struct per
+row. Its type is `ArgFilter<TValue, TArgs>`, not `Func<TValue, TArgs, bool>`, and the lambda has to
+spell the modifier: **`static (v, in a) => …`**. A plain `(v, a) => …` does not convert (CS1676);
+the parameter type is still inferred, and a stored delegate must be typed `ArgFilter<…>`. Prefer a
+`readonly struct` / `readonly record struct` for `TArgs`: `in` removes the copy at the call, but
+reading a *property* of a non-readonly struct through an `in` reference copies it again inside the
+lambda. Field access on a `ValueTuple` is free.
+
+Every other callback is an ordinary `Func<…>` and needs no change — the `WithXxx` / `UseIndex`
+selectors, `If` / `IfElse` conditions, `Match` tag selectors, `UpdatedAfter` instants and the
+`(rb, a) => …` range builder all run once per execution, where the copy is 1–2 ns and not worth an
+API break.
 
 **What a branch may contain:**
 - `Or(b1, b2)` branches: `WithXxx` / `UseIndex` (bound or parameterized), nested `Or`, narrow-only `If`.

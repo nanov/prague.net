@@ -205,7 +205,7 @@ public class PreparedQueryOptionalRangeDifferentialTests {
 		var prepared = _cache.Prepare<int, PqItem, (int? from, int? to)>()
 			.UseIndex(_byGroup, 2)
 			.UseIndex(_codeRange, static a => a.from, static a => a.to)
-			.Where(static (v, a) => v.Id >= (a.from ?? 0) - 1000)
+			.Where(static (v, in a) => v.Id >= (a.from ?? 0) - 1000)
 			.Build();
 		var throwing = _cache.Prepare<int, PqItem, (int? from, int? to)>()
 			.UseIndex(_byGroup, 2)

@@ -267,8 +267,8 @@ public class FrozenQueryBenchmarks {
 		_uniqueArgFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byCode, static c => c).BuildFrozen();
 		_uniqueWherePrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byCode, static c => c).Where(static v => v.Flag).Build();
 		_uniqueWhereFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byCode, static c => c).Where(static v => v.Flag).BuildFrozen();
-		_uniqueArgWherePrepared = _items.Prepare<int, PqbItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, a) => v.Score >= a.min).Build();
-		_uniqueArgWhereFrozen = _items.Prepare<int, PqbItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, a) => v.Score >= a.min).BuildFrozen();
+		_uniqueArgWherePrepared = _items.Prepare<int, PqbItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, in a) => v.Score >= a.min).Build();
+		_uniqueArgWhereFrozen = _items.Prepare<int, PqbItem, (int code, int min)>().UseIndex(_byCode, static a => a.code).Where(static (v, in a) => v.Score >= a.min).BuildFrozen();
 		_listWherePrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).Build();
 		_listWhereFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).BuildFrozen();
 		_rangePrepared = _items.Prepare<int, PqbItem, (int lo, int hi)>().UseIndex(_codeRange, static (rb, a) => rb.Gte(a.lo).Lt(a.hi)).Build();
@@ -337,9 +337,9 @@ public class FrozenQueryBenchmarks {
 		_listThreeWheresFrozenFixedOrder = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g)
 			.Where(static v => v.Id >= 0).Where(static v => v.Flag).Where(static v => v.Score % 100 == 0).BuildFrozen(fixedOrder);
 		_listTwoArgWheresPrepared = _items.Prepare<int, PqbItem, (int group, int min, int max)>().UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min).Where(static (v, a) => v.Id <= a.max).Build();
+			.Where(static (v, in a) => v.Id >= a.min).Where(static (v, in a) => v.Id <= a.max).Build();
 		_listTwoArgWheresFrozen = _items.Prepare<int, PqbItem, (int group, int min, int max)>().UseIndex(_byGroup, static a => a.group)
-			.Where(static (v, a) => v.Id >= a.min).Where(static (v, a) => v.Id <= a.max).BuildFrozen();
+			.Where(static (v, in a) => v.Id >= a.min).Where(static (v, in a) => v.Id <= a.max).BuildFrozen();
 		_listWhereFrozenNoHints = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Where(static v => v.Flag).BuildFrozen(noHints);
 		_listListPrepared = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).Build();
 		_listListFrozen = _items.Prepare<int, PqbItem, (int group, int tier)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byTier, static a => a.tier).BuildFrozen();

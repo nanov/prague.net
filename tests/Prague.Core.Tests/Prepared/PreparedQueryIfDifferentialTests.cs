@@ -191,7 +191,7 @@ public class PreparedQueryIfDifferentialTests {
 	public void If_ParameterizedWhereBranch_LikeEager(bool cond, int min) {
 		var prepared = _cache.Prepare<int, PqItem, (bool cond, int min)>()
 			.UseIndex(_byGroup, 4)
-			.If(static a => a.cond, b => b.Where(static (v, a) => v.Id >= a.min))
+			.If(static a => a.cond, b => b.Where(static (v, in a) => v.Id >= a.min))
 			.Build();
 		var args = (cond, min);
 
@@ -480,7 +480,7 @@ public class PreparedQueryIfDifferentialTests {
 	public void ParameterizedCondition_AndParameterizedBranch_ReadTheSameArgs_LikeEager(int? city, int minQty) {
 		var prepared = _cache.Prepare<int, PqItem, (int? city, int minQty)>()
 			.If(static a => a.city is not null, b => b.UseIndex(_byGroup, static a => a.city!.Value))
-			.Where(static (v, a) => v.Id >= a.minQty)
+			.Where(static (v, in a) => v.Id >= a.minQty)
 			.Build();
 		var args = (city, minQty);
 
@@ -629,7 +629,7 @@ public class PreparedQueryIfDifferentialTests {
 		var prepared = _cache.Prepare<int, PqItem, (bool cond, int g)>()
 			.UseIndex(_byBucket, 2)
 			.If(static a => a.cond, b => b.UseIndex(_byGroup, static a => a.g).Or(x => x.UseIndex(_byBucket, 2), x => x.If(static a => a.g > 3, i => i.UseIndex(_byBucket, 4))))
-			.Where(static (v, a) => v.Id >= a.g)
+			.Where(static (v, in a) => v.Id >= a.g)
 			.Build();
 
 		LeakAssert.Balanced(() => {
