@@ -46,6 +46,14 @@ public readonly struct MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArg
 ///   as the old fall-through, said out loud.
 ///   </para>
 ///   <para>
+///   <b>Two forms, one arm chain.</b> <c>Match(selector, arms)</c> dispatches on a tag; <c>Match(arms)</c>
+///   — the guard form — takes no selector and gives each <c>Case</c> a <c>Func&lt;TArgs, bool&gt;</c>
+///   instead, replaying the first arm whose guard holds (declaration order, later guards never called).
+///   Both record into the same <see cref="IOpenMatchArms{TKey,TValue,TArgs,TTag}" /> chain and close on
+///   the same <c>Default</c>; the guard form simply puts <see cref="NoTag" /> in the tag slot. <c>If</c>
+///   and <c>IfElse</c> are the guard form with one <c>Case</c> and nothing else.
+///   </para>
+///   <para>
 ///   The arm rule is the <c>If</c> rule: <c>UseIndex</c> (every family), constant and parameterized
 ///   <c>Where</c>, nested <c>Or</c> / <c>If</c> / <c>Match</c>; joins, sorting and <c>Build()</c> never
 ///   bind inside an arm. Two receiver families as for <c>If</c>: on a top-level builder or inside a
@@ -77,6 +85,33 @@ public static class PreparedQueryBuilderMatchExtensions {
 		ArgumentNullException.ThrowIfNull(arm);
 		var chain = arm(arms._seed)._leftQuery._chain;
 		return new(in arms._seed, new MatchArms<TArms, TArm, TKey, TValue, TArgs, TTag>(in arms._arms, tag, in chain));
+	}
+
+	/// <summary>
+	///   Records the arm for <paramref name="guard" /> — the guard form, where an arm names a predicate
+	///   over the execution arguments rather than a tag. Guards are evaluated in declaration order and
+	///   the first that holds wins; the later ones are never called, exactly as a C# <c>if / else if</c>
+	///   chain short-circuits.
+	/// </summary>
+	public static MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArgs, NoTag, GuardArms<TArms, TArm, TKey, TValue, TArgs>>
+		Case<TBranchDiscriminator, TKey, TValue, TArgs, TArms, TArm>(
+			this in MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArgs, NoTag, TArms> arms,
+			Func<TArgs, bool> guard,
+			Func<
+				CacheQueryBuilderCombined<TBranchDiscriminator,
+					PreparedNarrowers<TKey, TValue, TArgs, EmptyNarrowers<TKey, TValue, TArgs>>, TKey, TValue, Resolvers<BaseResolver<TKey, TValue>>, TValue>,
+				CacheQueryBuilderCombined<TBranchDiscriminator,
+					PreparedNarrowers<TKey, TValue, TArgs, TArm>, TKey, TValue, Resolvers<BaseResolver<TKey, TValue>>, TValue>> arm)
+		where TBranchDiscriminator : struct, IIndexNarrower
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TArms : struct, IOpenMatchArms<TKey, TValue, TArgs, NoTag>
+		where TArm : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TArgs : struct {
+		ArgumentNullException.ThrowIfNull(guard);
+		ArgumentNullException.ThrowIfNull(arm);
+		var chain = arm(arms._seed)._leftQuery._chain;
+		return new(in arms._seed, new GuardArms<TArms, TArm, TKey, TValue, TArgs>(in arms._arms, guard, in chain));
 	}
 
 	/// <summary>
@@ -188,6 +223,67 @@ public static class PreparedQueryBuilderMatchExtensions {
 		where TArgs : struct
 		=> MatchCore(in builder, PreparedBranchSeeds.NarrowOnly<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), selector, arms);
 
+	// ── Guard form: the same three receivers, no selector ────────────────────────
+
+	/// <summary>
+	///   Guard-form <c>Match</c>: no selector, one predicate per <c>Case</c>, and the first arm whose
+	///   guard holds for the execution arguments replays — else the <c>Default</c> the arm chain must end
+	///   in. The prepared twin of a C# <c>if / else if / else</c> chain over type-preserving
+	///   reassignments; <c>If</c> and <c>IfElse</c> are this with one <c>Case</c>.
+	/// </summary>
+	public static CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, GuardMatchNarrower<TKey, TValue, TArgs, TArms>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		Match<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TArms>(
+			this in CacheQueryBuilderCombined<PreparedQueryDiscriminator<TCache>,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			Func<
+				MatchArmsBuilder<PreparedConditionalBranch<TCache>, TKey, TValue, TArgs, NoTag, EmptyArms<TKey, TValue, TArgs, NoTag>>,
+				MatchArmsBuilder<PreparedConditionalBranch<TCache>, TKey, TValue, TArgs, NoTag, TArms>> arms)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, NoTag>
+		where TArgs : struct
+		=> GuardMatchCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), arms);
+
+	/// <summary>Guard-dispatched narrowing inside an <c>If</c> / <c>IfElse</c> branch or a <c>Match</c> arm. The arm chain must end in a <c>Default</c>.</summary>
+	public static CacheQueryBuilderCombined<PreparedConditionalBranch<TCache>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, GuardMatchNarrower<TKey, TValue, TArgs, TArms>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		Match<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TArms>(
+			this in CacheQueryBuilderCombined<PreparedConditionalBranch<TCache>,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			Func<
+				MatchArmsBuilder<PreparedConditionalBranch<TCache>, TKey, TValue, TArgs, NoTag, EmptyArms<TKey, TValue, TArgs, NoTag>>,
+				MatchArmsBuilder<PreparedConditionalBranch<TCache>, TKey, TValue, TArgs, NoTag, TArms>> arms)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, NoTag>
+		where TArgs : struct
+		=> GuardMatchCore(in builder, PreparedBranchSeeds.Conditional<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), arms);
+
+	/// <summary>Guard-dispatched narrowing inside an <c>Or</c> branch: every arm is narrow-only, as the enclosing branch is, and the chain must end in a <c>Default</c>.</summary>
+	public static CacheQueryBuilderCombined<PreparedNarrowOnly<TCache>,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, GuardMatchNarrower<TKey, TValue, TArgs, TArms>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		Match<TCache, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TArms>(
+			this in CacheQueryBuilderCombined<PreparedNarrowOnly<TCache>,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			Func<
+				MatchArmsBuilder<PreparedNarrowOnly<TCache>, TKey, TValue, TArgs, NoTag, EmptyArms<TKey, TValue, TArgs, NoTag>>,
+				MatchArmsBuilder<PreparedNarrowOnly<TCache>, TKey, TValue, TArgs, NoTag, TArms>> arms)
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, NoTag>
+		where TArgs : struct
+		=> GuardMatchCore(in builder, PreparedBranchSeeds.NarrowOnly<TCache, TKey, TValue, TArgs>(builder._discriminator.Cache, builder._leftQuery._cache), arms);
+
 	// ── Core ─────────────────────────────────────────────────────────────────────
 	//
 	// The arms lambda runs once, at build time, against an arm recorder over the empty seed; every
@@ -220,5 +316,32 @@ public static class PreparedQueryBuilderMatchExtensions {
 		ArgumentNullException.ThrowIfNull(arms);
 		var recorded = arms(new MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArgs, TTag, EmptyArms<TKey, TValue, TArgs, TTag>>(in seed, default))._arms;
 		return PreparedQueryBuilderExtensions.Link(in builder, new MatchNarrower<TKey, TValue, TArgs, TTag, TArms>(selector, in recorded));
+	}
+
+	// The guard core: the same recording, with NoTag in the tag slot — a guard arm reads the arguments
+	// itself, so the chain carries no selected value and there is no selector to call per execution.
+
+	private static CacheQueryBuilderCombined<TDiscriminator,
+			PreparedNarrowers<TKey, TValue, TArgs, NarrowerLink<TChain, GuardMatchNarrower<TKey, TValue, TArgs, TArms>, TKey, TValue, TArgs>>,
+			TKey, TValue, TResolverChain, TResult>
+		GuardMatchCore<TDiscriminator, TBranchDiscriminator, TKey, TValue, TArgs, TChain, TResolverChain, TResult, TArms>(
+			in CacheQueryBuilderCombined<TDiscriminator,
+				PreparedNarrowers<TKey, TValue, TArgs, TChain>, TKey, TValue, TResolverChain, TResult> builder,
+			in CacheQueryBuilderCombined<TBranchDiscriminator,
+				PreparedNarrowers<TKey, TValue, TArgs, EmptyNarrowers<TKey, TValue, TArgs>>, TKey, TValue, Resolvers<BaseResolver<TKey, TValue>>, TValue> seed,
+			Func<
+				MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArgs, NoTag, EmptyArms<TKey, TValue, TArgs, NoTag>>,
+				MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArgs, NoTag, TArms>> arms)
+		where TDiscriminator : struct, IIndexNarrower
+		where TBranchDiscriminator : struct, IIndexNarrower
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TChain : struct, INarrowerChain<TKey, TValue, TArgs>
+		where TResolverChain : struct, IResolvers
+		where TArms : struct, IClosedMatchArms<TKey, TValue, TArgs, NoTag>
+		where TArgs : struct {
+		ArgumentNullException.ThrowIfNull(arms);
+		var recorded = arms(new MatchArmsBuilder<TBranchDiscriminator, TKey, TValue, TArgs, NoTag, EmptyArms<TKey, TValue, TArgs, NoTag>>(in seed, default))._arms;
+		return PreparedQueryBuilderExtensions.Link(in builder, new GuardMatchNarrower<TKey, TValue, TArgs, TArms>(in recorded));
 	}
 }

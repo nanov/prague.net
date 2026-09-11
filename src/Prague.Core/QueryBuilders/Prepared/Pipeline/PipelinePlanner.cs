@@ -126,12 +126,23 @@ internal sealed class PipelinePlanner<TKey, TValue, TArgs>
 		IBranchSelector<TArgs> selector;
 		string[] labels;
 		if (d.Kind == NarrowerKind.Match) {
-			if (d.Source is not IBranchSelectorSource<TArgs> source || d.Value is not MatchArmTags tags)
+			if (d.Source is not IBranchSelectorSource<TArgs> source)
 				return false;
-			selector = source.CreateSelector(tags);
 			labels = new string[d.Children.Count];
-			for (var a = 0; a < labels.Length; a++)
-				labels[a] = a < tags.Tags.Count ? "case " + tags.Tags[a] : "default";
+			switch (d.Value) {
+				case MatchArmTags tags:
+					for (var a = 0; a < labels.Length; a++)
+						labels[a] = a < tags.Tags.Count ? "case " + tags.Tags[a] : "default";
+					break;
+				case MatchArmGuards guards:
+					for (var a = 0; a < labels.Length; a++)
+						labels[a] = a < guards.Guards.Count ? "guard#" + a : "default";
+					break;
+				default:
+					return false;
+			}
+
+			selector = source.CreateSelector(d.Value);
 		} else {
 			if (d.Selector is not Func<TArgs, bool> condition)
 				return false;

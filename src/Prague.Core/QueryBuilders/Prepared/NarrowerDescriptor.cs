@@ -27,7 +27,8 @@ public enum NarrowerKind {
 ///   time, so it holds the index as an <see cref="object" /> (for identity), the bound value boxed, and
 ///   the delegates as <see cref="Delegate" />. Composite narrowers (<c>Or</c>, <c>If</c>, <c>IfElse</c>,
 ///   <c>Match</c>) describe their sub-chains recursively in <see cref="Children" />; a <c>Match</c> keeps
-///   its arm tags in <see cref="Value" /> as a <see cref="MatchArmTags" />.
+///   its arm discriminators in <see cref="Value" /> as a <see cref="MatchArmTags" /> (tag form) or a
+///   <see cref="MatchArmGuards" /> (guard form).
 /// </summary>
 public sealed class NarrowerDescriptor {
 	private static readonly IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> NoChildren = [];
@@ -88,6 +89,13 @@ public sealed class NarrowerDescriptor {
 	internal static NarrowerDescriptor ForMatch(Delegate selector, MatchArmTags tags, IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> arms, object source)
 		=> new(NarrowerKind.Match, true, null, tags, selector, null, arms, source);
 
+	/// <summary>A guard-form <c>Match</c>: no selector, the per-<c>Case</c> predicates (<see cref="Value" />) and one child per arm, the default last.</summary>
+	public static NarrowerDescriptor ForGuardMatch(MatchArmGuards guards, IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> arms)
+		=> new(NarrowerKind.Match, true, null, guards, null, null, arms, null);
+
+	internal static NarrowerDescriptor ForGuardMatch(MatchArmGuards guards, IReadOnlyList<IReadOnlyList<NarrowerDescriptor>> arms, object source)
+		=> new(NarrowerKind.Match, true, null, guards, null, null, arms, source);
+
 	public override string ToString() {
 		var sb = new StringBuilder();
 		Write(sb, 0);
@@ -102,9 +110,12 @@ public sealed class NarrowerDescriptor {
 			sb.Append(" value=").Append(Value);
 		sb.AppendLine();
 		var tags = Value as MatchArmTags;
+		var guards = Value as MatchArmGuards;
 		for (var b = 0; b < Children.Count; b++) {
 			sb.Append(' ', depth * 2 + 2);
-			if (tags is null)
+			if (guards is not null)
+				sb.Append(b < guards.Guards.Count ? "guard#" + b : "default").AppendLine(":");
+			else if (tags is null)
 				sb.Append("branch ").Append(b + 1).AppendLine(":");
 			else if (b < tags.Tags.Count)
 				sb.Append("case ").Append(tags.Tags[b]).AppendLine(":");

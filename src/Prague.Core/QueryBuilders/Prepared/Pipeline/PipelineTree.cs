@@ -83,7 +83,22 @@ internal sealed class IfSelector<TArgs>(Func<TArgs, bool> condition, bool hasEls
 }
 
 /// <summary>
-///   The <c>Match</c> dispatch: the first arm whose tag equals the selected one under
+///   The guard-form <c>Match</c> dispatch: the first arm whose predicate holds — declaration order,
+///   later guards never called, the replay's own rule — else the default arm, which is always the last
+///   and always there.
+/// </summary>
+internal sealed class GuardSelector<TArgs>(Func<TArgs, bool>[] guards) : IBranchSelector<TArgs>
+	where TArgs : struct {
+	public int Select(in TArgs args) {
+		for (var i = 0; i < guards.Length; i++)
+			if (guards[i](args))
+				return i;
+		return guards.Length;
+	}
+}
+
+/// <summary>
+///   The tag-form <c>Match</c> dispatch: the first arm whose tag equals the selected one under
 ///   <see cref="EqualityComparer{T}.Default" /> (the replay's rule — a tag declared twice resolves to its
 ///   first arm), else the default arm, which is always the last and always there.
 /// </summary>
@@ -98,13 +113,19 @@ internal sealed class MatchSelector<TArgs, TTag>(Func<TArgs, TTag> selector, TTa
 	}
 }
 
-/// <summary>A narrower that can build the typed <see cref="IBranchSelector{TArgs}" /> for its descriptor (the <c>Match</c> narrower, which alone knows its <c>TTag</c>).</summary>
+/// <summary>
+///   A narrower that can build the typed <see cref="IBranchSelector{TArgs}" /> for its descriptor: the
+///   two <c>Match</c> narrowers, which alone know their <c>TTag</c> / their guards' argument type. The
+///   argument is the descriptor's own <see cref="NarrowerDescriptor.Value" /> — a
+///   <see cref="MatchArmTags" /> for the tag form, a <see cref="MatchArmGuards" /> for the guard one —
+///   which each implementation casts back to what it wrote there.
+/// </summary>
 internal interface IBranchSelectorSource<TArgs>
 	where TArgs : struct {
-	IBranchSelector<TArgs> CreateSelector(MatchArmTags tags);
+	IBranchSelector<TArgs> CreateSelector(object arms);
 }
 
-/// <summary>An <c>If</c> / <c>IfElse</c> / <c>Match</c> node: the selector and one node list per arm (the <c>Match</c> default last).</summary>
+/// <summary>An <c>If</c> / <c>IfElse</c> / <c>Match</c> node: the selector and one node list per arm (a <c>Match</c>'s <c>Default</c> last).</summary>
 internal sealed class SelectNode<TArgs> : PipelineNode<TArgs>
 	where TArgs : struct {
 	/// <summary>The node's index among the plan's select nodes, for the last-bind record.</summary>

@@ -147,8 +147,8 @@ public readonly struct DefaultArm<TPrev, TArm, TKey, TValue, TArgs, TTag> : IClo
 ///   build (the prepared twin of a C# <c>switch</c> over type-preserving builder reassignments), so
 ///   the plan stays analyzable — which is why an opaque per-execution <c>Eval</c> callback was
 ///   rejected in its favour. Seeding is the eager core's, as for
-///   <see cref="IfNarrower{TKey,TValue,TArgs,TSub}" />: a <c>Match</c> whose selected arm is a no-op
-///   (an empty <c>Default()</c>, say) leaves <c>_first</c> untouched and the next narrower seeds.
+///   <see cref="GuardMatchNarrower{TKey,TValue,TArgs,TArms}" />: a <c>Match</c> whose selected arm is a
+///   no-op (an empty <c>Default()</c>, say) leaves <c>_first</c> untouched and the next narrower seeds.
 /// </summary>
 public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrower<TKey, TValue, TArgs>, IBranchSelectorSource<TArgs>
 	where TKey : notnull, IEquatable<TKey>
@@ -179,18 +179,20 @@ public readonly struct MatchNarrower<TKey, TValue, TArgs, TTag, TArms> : INarrow
 	}
 
 	// The pipeline's bind-time dispatch (design §5.2): the same selector, the tags unboxed once at build.
-	IBranchSelector<TArgs> IBranchSelectorSource<TArgs>.CreateSelector(MatchArmTags tags) {
-		var typed = new TTag[tags.Tags.Count];
+	IBranchSelector<TArgs> IBranchSelectorSource<TArgs>.CreateSelector(object arms) {
+		var tags = ((MatchArmTags)arms).Tags;
+		var typed = new TTag[tags.Count];
 		for (var i = 0; i < typed.Length; i++)
-			typed[i] = (TTag)tags.Tags[i];
+			typed[i] = (TTag)tags[i];
 		return new MatchSelector<TArgs, TTag>(_selector, typed);
 	}
 }
 
 /// <summary>
-///   The <see cref="NarrowerDescriptor.Value" /> of a <see cref="NarrowerKind.Match" /> step: the
-///   boxed tag of every <c>Case</c> in declaration order. <c>Children[i]</c> is the sub-chain of
-///   <c>Tags[i]</c>; the <c>Default</c> — always present — is the last child.
+///   The <see cref="NarrowerDescriptor.Value" /> of a tag-form <see cref="NarrowerKind.Match" /> step:
+///   the boxed tag of every <c>Case</c> in declaration order. <c>Children[i]</c> is the sub-chain of
+///   <c>Tags[i]</c>; the <c>Default</c> — always present — is the last child. A guard-form <c>Match</c>
+///   carries a <see cref="MatchArmGuards" /> here instead.
 /// </summary>
 public sealed class MatchArmTags {
 	public IReadOnlyList<object> Tags { get; }
