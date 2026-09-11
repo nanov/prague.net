@@ -101,6 +101,10 @@ internal struct StepBinding {
 		Unsafe.WriteUnaligned(ref Unsafe.Add(ref Unsafe.As<BindingBits, byte>(ref Bits), slot * 16), value);
 	}
 
+	// readonly on purpose, and load-bearing: five IPipelineStep members take the binding as `in
+	// StepBinding` (48+ bytes, an InlineArray at that), and a non-readonly member called through an
+	// `in` reference is copied defensively — per row, silently, with no diagnostic. The Unsafe.AsRef
+	// below is what lets the read stay readonly while still taking a ref into Bits.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal readonly T Read<T>(int slot) {
 		if (RuntimeHelpers.IsReferenceOrContainsReferences<T>()) {

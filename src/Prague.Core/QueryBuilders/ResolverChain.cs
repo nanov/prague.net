@@ -67,7 +67,12 @@ public interface IFlippedResolvers { }
 public struct Resolvers<TResolver> : IResolvers, IFlippedResolvers
 	where TResolver : struct, IJoinResolver {
 	private TResolver _resolver;
-	internal ref TResolver Resolver => ref Unsafe.AsRef(in _resolver);
+
+	// readonly: the chain is held in readonly fields (the frozen executors, the prepared query), and a
+	// non-readonly member read through one copies the whole chain to a temp before handing back the
+	// ref — so the ref would point at the copy, and the copy costs sizeof(chain) per execution. The
+	// Unsafe.AsRef is what makes the readonly modifier legal here; it was already doing the laundering.
+	internal readonly ref TResolver Resolver => ref Unsafe.AsRef(in _resolver);
 
 	public Resolvers(TResolver resolver) {
 		_resolver = resolver;
