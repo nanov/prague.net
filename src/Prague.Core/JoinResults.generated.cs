@@ -17,6 +17,17 @@ using Prague.Core.TypeSystem;
 using Prague.Core.Utils;
 
 
+/// <summary>
+///   The join arity this file was generated for (<c>MaxJoinResults</c> in <c>T4Constants.ttinclude</c>).
+///   <c>FillFused</c> below indexes its fill-hint array by chain position up to this value, so anything
+///   sizing that array reads the bound from here instead of repeating the number — the two drifted once,
+///   and an 8-entry array under a 15-position walk is an out-of-range read per execution.
+/// </summary>
+internal static class JoinResultLimits {
+	/// <summary>The highest chain position a join can occupy; positions are 1-based, 0 being the left slot.</summary>
+	internal const int MaxJoinResults = 15;
+}
+
 #region Generated IJoinResult Interfaces
 
 public interface IJoinResult {

@@ -41,10 +41,11 @@ using Collections;
 ///   pass over the rows — per left the bucket, per right one store lookup, appended into one append-only
 ///   buffer in row order so each slot is a contiguous run, the slots given the buffer once the fill is done
 ///   — no pair set, no partitioning up front, no dictionary lookup per delivery; an inner one drops the rows
-///   whose slot stayed empty, narrows a bounded page before the heap and a count by a bucket probe. A
-///   classic sorter declared before the join keeps it unfused (the container crops before the ordinary walk
-///   fills only the page); a filter callback keeps it unfused too (the callback is a builder lambda over the
-///   paired core). An <b>unfused</b> outer <c>JoinMany</c> is an unfused resolver of the ordinary walk
+///   whose slot stayed empty, narrows a bounded page before the heap and a count by a bucket probe. A sorter
+///   declared before the join keeps it unfused only when it is not the innermost one or does not order by
+///   the left value (the container then crops before the ordinary walk fills only the page); an innermost
+///   sorter over the left value fuses it, a classic <c>Sort</c> as much as a <c>SortBounded</c>. A filter
+///   callback keeps it unfused too (the callback is a builder lambda over the paired core). An <b>unfused</b> outer <c>JoinMany</c> is an unfused resolver of the ordinary walk
 ///   (<c>ExecuteJoins</c> / <c>ExecuteJoinsBounded</c>): its <c>UnsafeExecuteWithAccessor</c> runs over the
 ///   rows the pass formed (or the page rows in the bounded flow), exactly as over the eager base walk's rows;
 ///   an unfused inner one runs in the fill walk (<c>FillFused(…, innerMany: true)</c>), in chain order with
@@ -106,6 +107,11 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		var chain = resolvers;
 		shape = new JoinChainShape<TValue> { AllowRegroupingInner = fuseRegroupingInner };
 		chain.Execute(ref shape);
+		// Arity: the fill walk indexes the hint array by chain position, so a chain deeper than the array
+		// goes to the replay instead of reading past it. Unreachable while MaxPositions tracks the generated
+		// arity — which is the point: raising MaxJoinResults without re-running T4 costs a plan, not a throw.
+		if (shape.MaxPosition >= JoinChainShape<TValue>.MaxPositions)
+			return false;
 		if (shape.Sorters > 1 || shape.HasUnfusable || shape.HasUnfusedInner)
 			return false;
 		return shape.Joins == shape.FusedJoins + shape.ManyJoins - shape.FusedManyJoins || (shape.BoundedCapable && !shape.HasInner);
@@ -422,8 +428,14 @@ internal struct JoinChainShape<TLeftValue> : IResolverExecutor {
 	internal int Joins;
 	internal int FusedJoins;
 	internal int FusedMask;
-	/// <summary>Chain positions are 1-based and at most the join arity; the hint array is sized to this.</summary>
-	internal const int MaxPositions = 8;
+	/// <summary>
+	///   One past the highest chain position a join can occupy: positions are 1-based and the generated
+	///   <c>FillFused</c> walks them up to <see cref="JoinResultLimits.MaxJoinResults" />, so the hint array
+	///   the executor hands it is sized to this. It was 8 against a 15-position walk — a chain of more than
+	///   seven joins read past the array once per execution. <see cref="MaxPosition" /> guards the bound
+	///   rather than trusting it.
+	/// </summary>
+	internal const int MaxPositions = JoinResultLimits.MaxJoinResults + 1;
 
 	/// <summary>The fused positions that are inner: what a count has to fill.</summary>
 	internal int InnerFusedMask;
@@ -435,6 +447,8 @@ internal struct JoinChainShape<TLeftValue> : IResolverExecutor {
 	internal bool HasUnfusedInnerMany;
 	internal bool HasUnfusedInner;
 	internal bool HasUnfusable;
+	/// <summary>The highest position the chain reported: the planner rejects a chain that would index past the hint array.</summary>
+	internal int MaxPosition;
 
 	/// <summary>
 	///   The eager <c>ExecuteCoreJoinedTop</c> resolver gate: one innermost sorter over the left value and
@@ -458,6 +472,8 @@ internal struct JoinChainShape<TLeftValue> : IResolverExecutor {
 	internal bool ClassicSort => Sorters == 1 && !SorterAllowsBounded;
 
 	public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver {
+		if (position > MaxPosition)
+			MaxPosition = position;
 		if (TResolver.IsSorter) {
 			Sorters++;
 			SorterInnermost = position == 0;
