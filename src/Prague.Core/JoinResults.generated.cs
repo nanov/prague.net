@@ -1768,6 +1768,11 @@ internal ref struct UnsafeRightAccessor<TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new RightNonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c>Right</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new RightNonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -1865,6 +1870,11 @@ internal ref struct UnsafeRight2Accessor<TKey, TJoinResult>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right2NonNullFilter<TKey, TJoinResult, TRightValue>());
+
+	/// <summary>Drops the rows whose slot <c>Right2</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right2NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right2</c>) is
@@ -1964,6 +1974,11 @@ internal ref struct UnsafeRight3Accessor<TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right3NonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c>Right3</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right3NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right3</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2061,6 +2076,11 @@ internal ref struct UnsafeRight4Accessor<TKey, TJoinResult>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right4NonNullFilter<TKey, TJoinResult, TRightValue>());
+
+	/// <summary>Drops the rows whose slot <c>Right4</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right4NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right4</c>) is
@@ -2160,6 +2180,11 @@ internal ref struct UnsafeRight5Accessor<TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right5NonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c>Right5</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right5NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right5</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2257,6 +2282,11 @@ internal ref struct UnsafeRight6Accessor<TKey, TJoinResult>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right6NonNullFilter<TKey, TJoinResult, TRightValue>());
+
+	/// <summary>Drops the rows whose slot <c>Right6</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right6NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right6</c>) is
@@ -2356,6 +2386,11 @@ internal ref struct UnsafeRight7Accessor<TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right7NonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c>Right7</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right7NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right7</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2453,6 +2488,11 @@ internal ref struct UnsafeRight8Accessor<TKey, TJoinResult>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right8NonNullFilter<TKey, TJoinResult, TRightValue>());
+
+	/// <summary>Drops the rows whose slot <c>Right8</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right8NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right8</c>) is
@@ -2552,6 +2592,11 @@ internal ref struct UnsafeRight9Accessor<TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right9NonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c>Right9</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right9NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right9</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2649,6 +2694,11 @@ internal ref struct UnsafeRight10Accessor<TKey, TJoinResult>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right10NonNullFilter<TKey, TJoinResult, TRightValue>());
+
+	/// <summary>Drops the rows whose slot <c>Right10</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right10NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right10</c>) is
@@ -2748,6 +2798,11 @@ internal ref struct UnsafeRight11Accessor<TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right11NonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c>Right11</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right11NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right11</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2845,6 +2900,11 @@ internal ref struct UnsafeRight12Accessor<TKey, TJoinResult>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right12NonNullFilter<TKey, TJoinResult, TRightValue>());
+
+	/// <summary>Drops the rows whose slot <c>Right12</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right12NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right12</c>) is
@@ -2944,6 +3004,11 @@ internal ref struct UnsafeRight13Accessor<TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right13NonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c>Right13</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right13NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right13</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -3042,6 +3107,11 @@ internal ref struct UnsafeRight14Accessor<TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right14NonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c>Right14</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right14NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right14</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -3139,6 +3209,11 @@ internal ref struct UnsafeRight15Accessor<TKey, TJoinResult>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new Right15NonNullFilter<TKey, TJoinResult, TRightValue>());
+
+	/// <summary>Drops the rows whose slot <c>Right15</c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new Right15NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right15</c>) is
@@ -3328,9 +3403,16 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 	private readonly int _take;
 	// A bit per chain position the frozen pipeline fuses (a fusable JoinOne, design §7.1). In the fill
 	// walk (_fillFused) exactly those resolvers run — one point lookup per row into their slot — and the
-	// sorter and the rest are skipped; in the ordinary walk they are skipped and the rest runs.
+	// sorter and the rest are skipped; in the ordinary walk they are skipped and the rest runs. With
+	// _fillInnerMany the fill walk also runs every INNER JoinMany (design §7.2 as implemented): its fan-out
+	// over the rows formed so far, then the rows whose slot stayed empty are dropped — in chain order with
+	// the fused inner fills, as the eager indexed-inner phase orders its narrowings. Outer JoinManys keep
+	// their place in the ordinary walk.
 	private readonly int _fusedMask;
 	private readonly bool _fillFused;
+	private readonly bool _fillInnerMany;
+	// Per chain position, a fused JoinMany's buffer size hint (the executor's; null outside the fill walk).
+	private readonly int[]? _fillHints;
 	private ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
 	private ref QueryResultsDisposer _disposer;
 
@@ -3349,7 +3431,9 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		bool fillInner,
 		bool skipSorter,
 		int fusedMask = 0,
-		bool fillFused = false) {
+		bool fillFused = false,
+		bool fillInnerMany = false,
+		int[]? fillHints = null) {
 		_skip = skip;
 		_take = take;
 		_cloneOnAdd = cloneOnAdd;
@@ -3358,6 +3442,8 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		_skipSorter = skipSorter;
 		_fusedMask = fusedMask;
 		_fillFused = fillFused;
+		_fillInnerMany = fillInnerMany;
+		_fillHints = fillHints;
 		_disposer = ref disposer;
 		_results = ref results;
 	}
@@ -3387,14 +3473,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 1)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRightAccessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![1]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRightAccessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRightAccessor<TLeftKey, TResult>(ref _results);
@@ -3413,14 +3511,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 2)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight2Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![2]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight2Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight2Accessor<TLeftKey, TResult>(ref _results);
@@ -3439,14 +3549,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 3)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight3Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![3]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight3Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight3Accessor<TLeftKey, TResult>(ref _results);
@@ -3465,14 +3587,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 4)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight4Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![4]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight4Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight4Accessor<TLeftKey, TResult>(ref _results);
@@ -3491,14 +3625,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 5)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight5Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![5]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight5Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight5Accessor<TLeftKey, TResult>(ref _results);
@@ -3517,14 +3663,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 6)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight6Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![6]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight6Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight6Accessor<TLeftKey, TResult>(ref _results);
@@ -3543,14 +3701,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 7)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight7Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![7]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight7Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight7Accessor<TLeftKey, TResult>(ref _results);
@@ -3569,14 +3739,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 8)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight8Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![8]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight8Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight8Accessor<TLeftKey, TResult>(ref _results);
@@ -3595,14 +3777,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 9)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight9Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![9]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight9Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight9Accessor<TLeftKey, TResult>(ref _results);
@@ -3621,14 +3815,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 10)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight10Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![10]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight10Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight10Accessor<TLeftKey, TResult>(ref _results);
@@ -3647,14 +3853,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 11)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight11Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![11]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight11Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight11Accessor<TLeftKey, TResult>(ref _results);
@@ -3673,14 +3891,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 12)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight12Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![12]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight12Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight12Accessor<TLeftKey, TResult>(ref _results);
@@ -3699,14 +3929,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 13)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight13Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![13]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight13Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight13Accessor<TLeftKey, TResult>(ref _results);
@@ -3725,14 +3967,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 14)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight14Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![14]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight14Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight14Accessor<TLeftKey, TResult>(ref _results);
@@ -3751,14 +4005,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << 15)) != 0) {
 					if (_fillFused) {
 						var a = new UnsafeRight15Accessor<TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![15]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new UnsafeRight15Accessor<TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new UnsafeRight15Accessor<TLeftKey, TResult>(ref _results);

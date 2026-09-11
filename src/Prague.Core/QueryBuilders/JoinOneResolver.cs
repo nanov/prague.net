@@ -204,7 +204,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 		return _rightStore.TryGet(rightKey, out right);
 	}
 
-	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd) {
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
 		var keys = accessor.GetKeys<TLeftKey>();
 		var misses = 0;
 		for (var i = 0; i < keys.Length; i++) {
@@ -650,7 +650,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		return _rightStore.TryGet(rightKey, out right);
 	}
 
-	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd) {
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
 		var keys = accessor.GetKeys<TLeftKey>();
 		var misses = 0;
 		for (var i = 0; i < keys.Length; i++) {
@@ -1034,7 +1034,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 		return false;
 	}
 
-	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd) {
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
 		var keys = accessor.GetKeys<TLeftKey>();
 		var misses = 0;
 		for (var i = 0; i < keys.Length; i++) {
@@ -1353,7 +1353,7 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		return false;
 	}
 
-	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd) {
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
 		var keys = accessor.GetKeys<TLeftKey>();
 		var misses = 0;
 		for (var i = 0; i < keys.Length; i++) {

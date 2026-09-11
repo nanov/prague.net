@@ -47,6 +47,8 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	// ── Fields ───────────────────────────────────────────────────────────────
 
 	private readonly TRightCache _rightCache;
+	// The right store itself, for the frozen fill's per-right lookup: Cache.Cache is an interface call on a shared-generic type parameter.
+	private readonly InMemoryDataCache<TRightKey, TRightValue> _rightStore;
 	private readonly CacheKeyValueListIndex<TRightKey, TRightValue, TIndexKey> _rightIndex;
 	private TFilter _filter;
 	private TSelector _selector;
@@ -64,6 +66,7 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		TSelector selector,
 		bool isInner = false) {
 		_rightCache = rightCache;
+		_rightStore = rightCache.Cache;
 		_rightIndex = rightIndex;
 		_filter = filter;
 		_selector = selector;
@@ -74,6 +77,34 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 
 	public static bool IsSorter { get; } = false;
 	public bool Inner => _isInner;
+
+	// The frozen pipeline (design §7.2 as implemented): a JoinMany is filled by its own two-pass fan-out after
+	// the pass formed the rows; an inner one then drops the rows whose slot stayed empty.
+	static bool IJoinResolver.IsMany => true;
+
+	void IJoinResolver.UnsafePruneEmptyManySlots<TAccessor>(ref TAccessor accessor) => accessor.PruneEmptyManySlots<TRightValue>();
+
+	// The frozen per-left fill (JoinManyFusedFill): fusable without a filter callback, over this family's
+	// own bucket read and the right store cached in a field (no IDataCache interface hop per row).
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
+
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint)
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Fill(ref accessor, new Buckets(_rightIndex, _selector), _rightStore, cloneOnAdd, _isInner, ref disposer, ref sizeHint);
+
+	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values)
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Narrow(keys, values, new Buckets(_rightIndex, _selector), _rightStore);
+
+	// The frozen fill's bucket source: the family's own read — the selector, then the right list index.
+	private struct Buckets(CacheKeyValueListIndex<TRightKey, TRightValue, TIndexKey> rightIndex, TSelector selector) : IManyBucketSource<TLeftKey, TRightKey> {
+		private TSelector _selector = selector;
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public bool TryGetBucket(TLeftKey leftKey, out PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket) {
+			var indexKey = TSelector.IsIdentity ? Unsafe.As<TLeftKey, TIndexKey>(ref leftKey) : _selector.Select(leftKey);
+			bucket = rightIndex.GetValuesUnsafe(indexKey);
+			return bucket is { Count: > 0 };
+		}
+	}
 
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 
@@ -387,6 +418,7 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 
 	private readonly CacheSymmetricKeyValueListIndex<TLeftKey, TLeftValue, TLookupKey> _leftIndex;
 	private readonly TRightCache _rightCache;
+	private readonly InMemoryDataCache<TRightKey, TRightValue> _rightStore;
 	private readonly CacheKeyValueListIndex<TRightKey, TRightValue, TRightIndexKey> _rightIndex;
 	private TFilter _filter;
 	private TSelector _selector;
@@ -406,6 +438,7 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 		bool isInner = false) {
 		_leftIndex = leftIndex;
 		_rightCache = rightCache;
+		_rightStore = rightCache.Cache;
 		_rightIndex = rightIndex;
 		_filter = filter;
 		_selector = selector;
@@ -416,6 +449,40 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 
 	public static bool IsSorter { get; } = false;
 	public bool Inner => _isInner;
+
+	// The frozen pipeline (design §7.2 as implemented): a JoinMany is filled by its own two-pass fan-out after
+	// the pass formed the rows; an inner one then drops the rows whose slot stayed empty.
+	static bool IJoinResolver.IsMany => true;
+
+	void IJoinResolver.UnsafePruneEmptyManySlots<TAccessor>(ref TAccessor accessor) => accessor.PruneEmptyManySlots<TRightValue>();
+
+	// The frozen per-left fill (JoinManyFusedFill): fusable without a filter callback, over this family's
+	// own bucket read and the right store cached in a field (no IDataCache interface hop per row).
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
+
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint)
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Fill(ref accessor, new Buckets(_leftIndex, _rightIndex, _selector), _rightStore, cloneOnAdd, _isInner, ref disposer, ref sizeHint);
+
+	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values)
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Narrow(keys, values, new Buckets(_leftIndex, _rightIndex, _selector), _rightStore);
+
+	// The frozen fill's bucket source: the family's own read — Reverse → lookup key → selector → right bucket.
+	private struct Buckets(CacheSymmetricKeyValueListIndex<TLeftKey, TLeftValue, TLookupKey> leftIndex, CacheKeyValueListIndex<TRightKey, TRightValue, TRightIndexKey> rightIndex, TSelector selector)
+		: IManyBucketSource<TLeftKey, TRightKey> {
+		private TSelector _selector = selector;
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public bool TryGetBucket(TLeftKey leftKey, out PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket) {
+			if (!leftIndex.Reverse.TryGetValue(leftKey, out var lookupKey)) {
+				bucket = null!;
+				return false;
+			}
+
+			var rightIndexKey = TSelector.IsIdentity ? Unsafe.As<TLookupKey, TRightIndexKey>(ref lookupKey) : _selector.Select(lookupKey);
+			bucket = rightIndex.GetValuesUnsafe(rightIndexKey);
+			return bucket is { Count: > 0 };
+		}
+	}
 
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 

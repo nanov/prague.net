@@ -261,6 +261,36 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		return count;
 	}
 
+	/// <summary>
+	///   The span twin of <see cref="TryCountValues(ref ValueSet{TKey,DefaultKeyComparer{TKey}})" /> — the same
+	///   tables walk, the same membership (a key the tables hold), no value copied out and no call per key —
+	///   for the frozen pipeline's count of a plan whose pass needs no value (design §8 / step 8).
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	internal int TryCountValues(ReadOnlySpan<TKey> keys) {
+		var tables = _tables;
+		var count = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			var key = keys[i];
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					++count;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							++count;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		return count;
+	}
+
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	internal int TryCountValues(ref ValueSet<TKey, DefaultKeyComparer<TKey>> keys, Predicate<TValue> predicate) {
 		if (keys.Count == 0)

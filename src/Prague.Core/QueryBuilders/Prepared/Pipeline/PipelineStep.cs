@@ -497,6 +497,7 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	private readonly PipelineSort _sort;
 	private readonly int _joins;
 	private readonly int _fusedJoins;
+	private readonly int _manyJoins;
 	private readonly PipelineTree<TArgs>? _tree;
 	private readonly int _branchFilters;
 	private readonly bool _orSeed;
@@ -507,7 +508,7 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	private int _lastOtherSignal;
 
 	internal PipelinePlan(IPipelineStep<TKey, TValue, TArgs>[] steps, int filters, bool fused, bool freeSeed, PipelineSort sort, int joins, int fusedJoins = 0,
-		PipelineTree<TArgs>? tree = null, int branchFilters = 0, bool orSeed = false) {
+		PipelineTree<TArgs>? tree = null, int branchFilters = 0, bool orSeed = false, int manyJoins = 0) {
 		_steps = steps;
 		_filters = filters;
 		_fused = fused;
@@ -515,6 +516,7 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 		_sort = sort;
 		_joins = joins;
 		_fusedJoins = fusedJoins;
+		_manyJoins = manyJoins;
 		_tree = tree;
 		_branchFilters = branchFilters;
 		_orSeed = orSeed;
@@ -583,13 +585,13 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 				sb.Append(", sort: classic (the container sorts every row after the pass)");
 				break;
 			case PipelineSort.Bounded:
-				sb.Append(", sort: bounded (a finite page feeds the top-k container, ties by encounter ordinal; take = int.MaxValue or a negative page feeds the classic container)");
+				sb.Append(", sort: bounded (a finite page feeds the top-k container, ties by encounter ordinal — a classic Sort too, whose stable ties are the same order; take = int.MaxValue or a negative page feeds the classic container)");
 				break;
 		}
 
 		if (_joins > 0)
-			sb.Append(", joins: ").Append(_joins).Append(" (fused: ").Append(_fusedJoins).Append(", unfused: ").Append(_joins - _fusedJoins)
-				.Append("; fused: one right lookup per row in the pass, an inner miss drops the row; unfused: the resolver's paired read after the pass)");
+			sb.Append(", joins: ").Append(_joins).Append(" (fused: ").Append(_fusedJoins).Append(", unfused: ").Append(_joins - _fusedJoins).Append(", many: ").Append(_manyJoins)
+				.Append("; fused: one right lookup per row in the pass — a JoinMany the per-left fill into one buffer — an inner miss drops the row; unfused: the resolver's paired read after the pass — a JoinMany its fan-out, filtered or after a classic Sort; many: how many of the joins are JoinManys)");
 		sb.AppendLine();
 		ExplainLastBind(sb);
 		var decision = _lastDecision;

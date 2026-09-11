@@ -24,6 +24,9 @@ public class FrozenPipelineAllocationTests {
 	private CacheSymmetricKeyValueListIndex<int, PqItem, int> _bySym = null!;
 	private InMemoryDataCache<int, PqCustomer> _details = null!;
 	private InMemoryDataCache<int, PqCustomer> _customers = null!;
+	// Step 8: lines by item, Id % 4 per item (none for every fourth).
+	private InMemoryDataCache<int, PqLine> _lines = null!;
+	private CacheKeyValueListIndex<int, PqLine, int> _lineByItem = null!;
 
 	[OneTimeSetUp]
 	public void SetUp() {
@@ -40,10 +43,14 @@ public class FrozenPipelineAllocationTests {
 		_bySym = _cache.CacheSymmetricKeyValueListIndex<int>(static (_, v) => v.Group);
 		_details = new InMemoryDataCache<int, PqCustomer>();
 		_customers = new InMemoryDataCache<int, PqCustomer>();
+		_lines = new InMemoryDataCache<int, PqLine>();
+		_lineByItem = _lines.CacheKeyValueListIndex<int>(static (_, v) => v.OrderId);
 		for (var i = 0; i < N; i++) {
 			_cache.AddOrUpdate(i, new PqItem { Id = i, Code = 1000 + i, Group = i % 97, Flag = i % 3 == 0 }, 1_000_000L + i);
 			if (i % 4 != 0)
 				_details.AddOrUpdate(i, new PqCustomer { Id = i, Region = i % 2 == 0 ? "EU" : "US" });
+			for (var k = 0; k < i % 4; k++)
+				_lines.AddOrUpdate(100_000 + i * 4 + k, new PqLine { Id = 100_000 + i * 4 + k, OrderId = i });
 		}
 
 		for (var g = 0; g < 97; g += 2)
@@ -268,6 +275,42 @@ public class FrozenPipelineAllocationTests {
 		Pin("fused chained outer+inner", Measure(() => chainedPrepared.ExecutePooled(group).Dispose()), Measure(() => chained.ExecutePooled(group).Dispose()), Measure(() => chained.Count(group)));
 		Pin("sort after fused join", Measure(() => sortedPrepared.ExecutePooled(group).Dispose()), Measure(() => sorted.ExecutePooled(group).Dispose()), Measure(() => sorted.Count(group)));
 		Pin("sort-bounded page → fused inner", Measure(() => boundedPrepared.ExecutePooled(group, 0, 20).Dispose()), Measure(() => bounded.ExecutePooled(group, 0, 20).Dispose()), Measure(() => bounded.Count(group)));
+	}
+
+	// Step 8: JoinMany — outer and inner right-list, inner after a fused JoinOne, a classic Sort then the fan-out
+	// over the page, a SortBounded page then the fan-out (bounded flow), and shape A with a JoinMany. The fan-out's
+	// shared buffer and pair set are pooled in a pooled execution; the inner Count forms the rows into a pooled container.
+	[Test]
+	public void JoinMany_Outer_Inner_ChainedAfterFusedOne_SortBefore_SortBoundedBefore_ShapeA() {
+		var outerPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).JoinMany(_lines, _lineByItem).Build();
+		var outer = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).JoinMany(_lines, _lineByItem).BuildFrozen();
+		var innerPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).InnerJoinMany(_lines, _lineByItem).Build();
+		var inner = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).InnerJoinMany(_lines, _lineByItem).BuildFrozen();
+		var chainedPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).InnerJoinOne(_details).InnerJoinMany(_lines, _lineByItem).Build();
+		var chained = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).InnerJoinOne(_details).InnerJoinMany(_lines, _lineByItem).BuildFrozen();
+		var sortedPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).Sort(new ByCode()).JoinMany(_lines, _lineByItem).Build();
+		var sorted = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).Sort(new ByCode()).JoinMany(_lines, _lineByItem).BuildFrozen();
+		var boundedPrepared = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).JoinMany(_lines, _lineByItem).Build();
+		var bounded = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).JoinMany(_lines, _lineByItem).BuildFrozen();
+		var shapeAPrepared = _cache.Prepare<int, PqItem, (int group, int band)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).SortBounded(new ByCode()).JoinMany(_lines, _lineByItem).Build();
+		var shapeA = _cache.Prepare<int, PqItem, (int group, int band)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).SortBounded(new ByCode()).JoinMany(_lines, _lineByItem).BuildFrozen();
+		Assert.Multiple(() => {
+			Assert.That(outer.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(inner.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(chained.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(sorted.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(bounded.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(shapeA.Plan.Executor, Is.EqualTo("Pipeline"));
+			Assert.That(chained.Explain(), Does.Contain("joins: 2 (fused: 2, unfused: 0, many: 1"));
+		});
+		var group = 13;
+		var shapeAArgs = (group: 13, band: 13);
+		Pin("outer join-many", Measure(() => outerPrepared.ExecutePooled(group).Dispose()), Measure(() => outer.ExecutePooled(group).Dispose()), Measure(() => outer.Count(group)));
+		Pin("inner join-many", Measure(() => innerPrepared.ExecutePooled(group).Dispose()), Measure(() => inner.ExecutePooled(group).Dispose()), Measure(() => inner.Count(group)));
+		Pin("fused inner one then inner many", Measure(() => chainedPrepared.ExecutePooled(group).Dispose()), Measure(() => chained.ExecutePooled(group).Dispose()), Measure(() => chained.Count(group)));
+		Pin("sort then join-many page", Measure(() => sortedPrepared.ExecutePooled(group, 0, 10).Dispose()), Measure(() => sorted.ExecutePooled(group, 0, 10).Dispose()), Measure(() => sorted.Count(group)));
+		Pin("sort-bounded page then join-many", Measure(() => boundedPrepared.ExecutePooled(group, 0, 10).Dispose()), Measure(() => bounded.ExecutePooled(group, 0, 10).Dispose()), Measure(() => bounded.Count(group)));
+		Pin("shape A with a join-many", Measure(() => shapeAPrepared.ExecutePooled(shapeAArgs, 2, 5).Dispose()), Measure(() => shapeA.ExecutePooled(shapeAArgs, 2, 5).Dispose()), Measure(() => shapeA.Count(shapeAArgs)));
 	}
 
 	// Step 4: composites. Or-first by default (OrSeed: the union itself), Or-first under OrSeed = false (the

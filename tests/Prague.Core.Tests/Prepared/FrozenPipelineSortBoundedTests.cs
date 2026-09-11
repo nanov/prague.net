@@ -324,10 +324,10 @@ public class FrozenPipelineSortBoundedTests {
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).UseIndex(_byTier, 3).SortBounded(new ByCode()).JoinOne(_bySym, _customers).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded → two outer JoinOnes (shape B)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinOne(_details).BuildFrozen(NoPipeline).Plan.Executor, Is.EqualTo("Replay"), "joined, pipeline off");
 			// Step 5: fused JoinOnes open the inner, classic-Sort, sort-after-join and unsorted joined shapes
-			// (FrozenPipelineJoinTests pins them); JoinMany and the seedless chain still replay.
+			// (FrozenPipelineJoinTests pins them); step 8 admits JoinMany (FrozenPipelineJoinManyTests); the seedless chain still replays.
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "an inner fused join probes the right per left (step 5)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).InnerJoinOne(_bySym, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric join regroups its rows (opt in with FuseSymmetricInnerJoins)");
-			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinMany(_lines, _lineByItem).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "JoinMany (design §7.2)");
+			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).SortBounded(new ByCode()).JoinMany(_lines, _lineByItem).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "SortBounded → outer JoinMany: the fan-out fills the bounded page (step 8)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).JoinOne(_details).SortBounded(new ByLeftCode()).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a sort after the fused join runs in the classic joined container (step 5)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic Sort → fused join (step 5)");
 			Assert.That(_cache.Prepare().UseIndex(_byGroup, 3).JoinOne(_details).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unsorted fused join (step 5)");
@@ -338,7 +338,7 @@ public class FrozenPipelineSortBoundedTests {
 		var joined = _cache.Prepare<int, PqItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new ByCode()).JoinOne(_bySym, _customers).JoinOne(_details).BuildFrozen();
 		Assert.That(joined.Explain(), Does.Contain("executor: Pipeline").And.Contain("sort: bounded").And.Contain("joins: 2 (fused: 2, unfused: 0").And.Contain("resolvers: yes, sorted: yes"));
 		var classic = _cache.Prepare().UseIndex(_byGroup, 3).Sort(new ByCode()).BuildFrozen();
-		Assert.That(classic.Explain(), Does.Contain("sort: classic"));
+		Assert.That(classic.Explain(), Does.Contain("sort: bounded").And.Contain("pipeline: seed = free for Execute"), "a classic Sort takes the bounded flow for a finite page (step 8) and keeps its free seed");
 	}
 
 	// ── (d) Joined: shapes A / B on rows and joined values ─────────────────────────

@@ -1354,6 +1354,10 @@ public sealed class InMemoryDataCache<TKey, TValue>
 		return _cache.TryGetValue(key, out value);
 	}
 
+	/// <summary>How many of <paramref name="keys" /> the store holds — the eager <c>Count</c>'s own membership walk (<c>TryCountValues</c>) over a key span.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal int TryCount(ReadOnlySpan<TKey> keys) => _cache.TryCountValues(keys);
+
 	internal int TryCount(ref ValueSet<TKey, DefaultKeyComparer<TKey>> keys, Predicate<TValue>? predicate = null) {
 		return predicate is null
 			? _cache.TryCountValues(ref keys)

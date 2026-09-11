@@ -76,6 +76,11 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	internal bool Open(in TArgs args, scoped ref PipelineFrame<TKey> frame)
 		=> Bind(in args, ref frame) && ChooseSeed(_steps, ref frame, _freeSeed) && Seed(_steps, ref frame);
 
+	/// <summary>As <see cref="Open(in TArgs, ref PipelineFrame{TKey})" /> with the seed mode given: the joined count that has to form rows (an inner <c>JoinMany</c>) seeds free, as every count does.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool Open(in TArgs args, scoped ref PipelineFrame<TKey> frame, bool freeSeed)
+		=> Bind(in args, ref frame) && ChooseSeed(_steps, ref frame, freeSeed) && Seed(_steps, ref frame);
+
 	/// <summary>The sampled-execution handshake of the fused filter, when the plan has one.</summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal bool BeginSampling() => _fused is not null && _fused.BeginExecution();
@@ -89,10 +94,35 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void Release(scoped ref PipelineFrame<TKey> frame) => Release(_steps, ref frame);
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	/// <summary>
+	///   The counting pass without a container. A plan whose pass needs no value for the arguments — no
+	///   key-side or value-side probe active, no filter (top-level, fused or in a taken arm) — counts the seed
+	///   keys the store holds in the store's own bulk walk (<c>TryCountValues</c>, the walk the eager
+	///   <c>Count</c> runs over its candidate set: the same tables, the same membership, so a key an index
+	///   bucket holds but the store does not — or no longer — is rejected by both), instead of one
+	///   <c>TryGet</c> call per key that copies a value nobody reads. Decided once per execution from the
+	///   frame's activation lists, never per row; any other plan walks as before.
+	/// </summary>
+	// SkipLocalsInit: the seed's stack buffer is written before it is read; the frame's constructor
+	// zeroes the rest (its bindings hold references and an activation state the steps read back).
+	[SkipLocalsInit]
 	internal int Count(in TArgs args) {
-		var counter = new CountContainer();
-		return Count(in args, ref counter);
+		Span<long> stack = stackalloc long[PipelineLimits.SeedStackLongs];
+		var frame = new PipelineFrame<TKey>(SeedKeys<TKey>.Over(stack));
+		var steps = _steps;
+		try {
+			if (!Bind(in args, ref frame) || !ChooseSeed(steps, ref frame, true) || !Seed(steps, ref frame))
+				return 0;
+			if (frame.KeyProbeList.Length == 0 && frame.ValueProbeList.Length == 0 && frame.ActiveFilterList.Length == 0 && _filters.Length == 0 && _fused is null)
+				return _cache.TryCount(frame.Seed.Keys);
+			var counter = new CountContainer();
+			var sampled = BeginSampling();
+			var count = Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.ActiveFilterList, frame.Bindings, sampled, ref counter);
+			EndSampling(sampled);
+			return count;
+		} finally {
+			Release(steps, ref frame);
+		}
 	}
 
 	/// <summary>
@@ -633,11 +663,14 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 ///   The stage-3 executor for simple plans — unsorted, under a classic
 ///   <c>Sort</c>, or under <c>SortBounded</c> (design §8): the <see cref="PipelineCore{TKey,TValue,TArgs}" />
 ///   pass drives the eager <see cref="SimpleResultContainer{TKey,TValue,TResolver}" /> (whose
-///   <c>BuildResults</c> also runs the classic sorter) or, for a finite page of a <c>SortBounded</c>
-///   plan, the eager <see cref="TopKSimpleResultContainer{TKey,TValue,TResolver}" /> — the same gate
-///   the eager <c>ExecuteCoreSimpleTop</c> applies, so an unbounded or negative page takes the classic
-///   container exactly as eager does. The bounded container stamps each row's encounter ordinal as the
-///   tie-breaker, which is why a <c>SortBounded</c> plan keeps the fixed seed: the ordinals are eager's.
+///   <c>BuildResults</c> also runs the classic sorter) or, for a finite page of a sorted plan, the eager
+///   <see cref="TopKSimpleResultContainer{TKey,TValue,TResolver}" /> — the eager <c>ExecuteCoreSimpleTop</c>
+///   page gate, so an unbounded or negative page takes the classic container exactly as eager does. A
+///   classic <c>Sort</c> takes the bounded flow too (step 8): the bounded container breaks ties by
+///   encounter ordinal, which is the stable sort's tie order for the same input sequence, and a
+///   comparer-equal pair has no specified order anyway — so a page of a 1k-row <c>Sort</c> costs a heap of
+///   its size instead of the full sort. A <c>SortBounded</c> plan keeps the fixed seed so its ordinals are
+///   eager's; a classic <c>Sort</c> keeps its free seed (design §8), on either container.
 /// </summary>
 internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFrozenExecutor<TArgs, TValue>
 	where TKey : notnull, IEquatable<TKey>
@@ -652,7 +685,7 @@ internal readonly struct PipelineExecutor<TKey, TValue, TArgs, TResolver> : IFro
 		FilterStep<TValue, TArgs>[] filters, FusedFilter<TValue, TArgs>? fused, PipelinePlan<TKey, TValue, TArgs> plan, FilterStep<TValue, TArgs>[]? branchFilters = null) {
 		_core = new(cache, steps, filters, fused, plan, branchFilters);
 		_resolvers = resolvers;
-		_bounded = TResolver.IsSorter && _resolvers.Resolver.AllowsBounded && _resolvers.Resolver.OrdersByLeftValues<TValue>();
+		_bounded = TResolver.IsSorter && _resolvers.Resolver.OrdersByLeftValues<TValue>();
 	}
 
 	public static string Name => "Pipeline";

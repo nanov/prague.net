@@ -65,6 +65,7 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 	// is called.
 	private readonly CacheKeyValueListIndex<TRightKey, TOwnerValue, TLeftKey> _rightsIndex;
 	private readonly TRightCache _rightCache;
+	private readonly InMemoryDataCache<TRightKey, TRightValue> _rightStore;
 	private TFilter _filter;
 	private readonly bool _isInner;
 
@@ -80,6 +81,7 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 		bool isInner = false) {
 		_rightsIndex = rightsIndex;
 		_rightCache = rightCache;
+		_rightStore = rightCache.Cache;
 		_filter = filter;
 		_isInner = isInner;
 	}
@@ -88,6 +90,31 @@ public struct JoinManyCollectionResolver<TLeftKey, TLeftValue, TRightCache, TRig
 
 	public static bool IsSorter { get; } = false;
 	public bool Inner => _isInner;
+
+	// The frozen pipeline (design §7.2 as implemented): a JoinMany is filled by its own two-pass fan-out after
+	// the pass formed the rows; an inner one then drops the rows whose slot stayed empty.
+	static bool IJoinResolver.IsMany => true;
+
+	void IJoinResolver.UnsafePruneEmptyManySlots<TAccessor>(ref TAccessor accessor) => accessor.PruneEmptyManySlots<TRightValue>();
+
+	// The frozen per-left fill (JoinManyFusedFill): fusable without a filter callback, over this family's
+	// own bucket read and the right store cached in a field (no IDataCache interface hop per row).
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
+
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint)
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Fill(ref accessor, new Buckets(_rightsIndex), _rightStore, cloneOnAdd, _isInner, ref disposer, ref sizeHint);
+
+	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values)
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Narrow(keys, values, new Buckets(_rightsIndex), _rightStore);
+
+	// The frozen fill's bucket source: the index half that answers "rights for a left".
+	private readonly struct Buckets(CacheKeyValueListIndex<TRightKey, TOwnerValue, TLeftKey> rightsIndex) : IManyBucketSource<TLeftKey, TRightKey> {
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public bool TryGetBucket(TLeftKey leftKey, out PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket) {
+			bucket = rightsIndex.GetValuesUnsafe(leftKey);
+			return bucket is { Count: > 0 };
+		}
+	}
 
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 

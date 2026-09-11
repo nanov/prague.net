@@ -492,18 +492,68 @@ replays, and `FrozenOptions.FuseSymmetricInnerJoins` opts into the fused-and-reo
 exist and the fan-out only fills them.
 Fallback to replay: any `JoinOneFilter` / `JoinOneFilterWithArg` (the filter is `Func<TBuilder,TBuilder>`
 over a paired core — `JoinOneResolver.cs:32-60`), chained joins deeper than the T4 emits handle
-today, and any chain containing a `JoinMany`.
+today; a chain containing a `JoinMany` is admitted since step 8 (§7.2).
 
-### 7.2 `JoinMany` = replay in v1
+### 7.2 `JoinMany` — as implemented (step 8; v1 said "replay")
 
-`JoinMany` rows are slots in one shared buffer partitioned by `PrepareSharedBuffer` after every
-left's count is known (`context/joins.md`, "JoinMany fan-out", "Concurrency"): the resolver must
-record every (left, right) pair *before* it can size anything, dedupe rights across lefts through
-`JoinManyFanOut`, and deliver by slot. That is inherently two-pass and its correctness argument (exact
-reservation from recorded pairs) is delicate; fusing it into a one-pass pipeline would need a
-per-left growable slot, which the `QueryResults` shared-buffer design does not have. Replay is
-correct and costs what it costs today; revisit after v1 with the measured fan-out engine as the
-baseline.
+v1 deferred `JoinMany` on the argument that its fan-out is inherently two-pass: the rows are slots
+in one shared buffer partitioned by `PrepareSharedBuffer` after every left's count is known, so the
+resolver must record every (left, right) pair before it can size anything, dedupe rights across
+lefts through `JoinManyFanOut`, and deliver by slot (`context/joins.md`, "JoinMany fan-out",
+"Concurrency"). Step 8 separated the two things that argument conflates and did both:
+
+1. **The chain is admitted regardless.** `FrozenPlanner.Joined` no longer gates on `manyCount == 0`;
+   `JoinChainShape` counts a `JoinMany` (`IJoinResolver.IsMany`, JIT-folded) as a join of its own
+   kind, never as "unfusable". The narrowing is the pipeline pass; what the fan-out costs is paid
+   after it, over the rows the pass formed, exactly as it is paid over the eager base walk's rows.
+   An **unfused** outer `JoinMany` is an ordinary unfused resolver of the post-pass walk
+   (`ExecuteJoins` / `ExecuteJoinsBounded` → `UnsafeExecuteWithAccessor`); an unfused **inner** one
+   runs in the fill walk (`FillFused(…, innerMany: true)`), in chain order with the fused inner
+   fills, then drops the rows whose slot stayed empty (`IUnsafeValueAccessor.PruneEmptyManySlots`,
+   the eager `RetainNonEmptyManySlots` rule without a candidate set). Such a chain stays on the
+   classic flow (eager's `AllInnerNarrowable` gate) and its `Count` forms the rows and runs the inner
+   fills (`CountThroughFill`), as eager's `CountCoreJoined` runs the whole inner phase.
+2. **Without a filter callback the join fuses** (`CanFuse = TFilter.IsNoOp`, like a `JoinOne`),
+   through `JoinManyFusedFill` (`QueryBuilders/JoinManyFusedFill.cs`): one pass over the rows —
+   per left the family's own bucket read (`IManyBucketSource`: right-list → selector → right list
+   index; left-symmetric → `Reverse` → selector → right list index; collection → the index half),
+   per right one store lookup — appending the rights into **one append-only buffer in row order**.
+   That is the answer to "the slot cannot grow": it never has to. Because lefts are processed
+   sequentially, each slot is a contiguous run of the buffer whose length is known the moment its
+   left is done; the buffer grows by doubling (pooled rent / copy / return) and the slots are given
+   the final array afterwards, by row index, as `(offset, count)` runs (`QueryResults.SetFilled` +
+   `AssignSharedBuffer`). No pair set, no `PrepareSharedBuffer`, no dictionary lookup per delivery,
+   no `Init` per left. Exactness holds by construction — a slot holds exactly what was appended for
+   it — so nothing is dropped or marked `Truncated` whatever the index writer does; the one thing
+   the pair set also bought, "a right the bucket enumerator yields twice for one left is delivered
+   once", is kept with a linear check over the slot's last 16 keys and a `ValueSet` beyond that.
+   A pooled buffer is registered with the result's disposer exactly as the eager shared buffer is;
+   a `Clone()` that throws mid-fill returns the rental in the fill's `finally`. The buffer's first
+   rental is sized by the previous execution's total (an advisory `int` per chain position, owned
+   by the executor). An inner fused `JoinMany` narrows a bounded page before the heap and a count
+   by a bucket probe (`UnsafeNarrowFused`: the first right the store has decides), so it keeps the
+   bounded flow where eager falls back to the classic core.
+
+   Two build-time gates keep the fill off where it would do more work than eager: a **filter
+   callback** (a builder lambda over the paired core — it needs the pair set) and a **classic `Sort`
+   declared before the join** (the container sorts and crops before the ordinary walk fills only
+   the page; an innermost `SortBounded` is fine, the bounded flow materializes the page first, and a
+   sorter *after* the join needs every row filled anyway).
+
+**Order.** Rows come out in the seed's order on every family — the eager inner phase creates them
+in candidate order too, so no `JoinMany` family regroups the way the inner left-symmetric `JoinOne`
+does. Inside a slot the fused fill keeps the bucket's order; the eager fan-out delivers a slot in
+pair-set order, which differs only when rights are shared across lefts in overlapping buckets (the
+collection shapes, a non-injective selector: eager interleaves by first-recording order). A slot is
+an unordered set and an unsorted result's sequence is not a contract (owner's ruling: "order is not
+important if not specified"), so no opt-in exists for the eager interleaving; sorted results with a
+total comparer are byte-identical.
+
+**Measured** (`RESULTS.MD`, "stage 3, step 8"): shape A with a `JoinMany` 19.1 → 6.7 µs (admission
+alone) and lower with the fused fill; three lists + inner `JoinMany` 23.8 → 11.8 µs by admission;
+the 1k-row fan-outs move only with the fused fill (right-list 97.9 → 64.8 µs, collection 116.5 →
+57.3, left-symmetric 86.2 → 46.8). The pair-set fan-out stays for filtered joins and after a classic
+`Sort`, and for the eager path, untouched.
 
 ### 7.3 Sort after join
 
@@ -534,6 +584,15 @@ replacing the pair-set build.
   the eager `TopKJoinedBaseContainer` — identical behaviour, but the sorter arrives as a struct type
   parameter, so a comparison is the user comparer's `Compare` rather than one `__Canon`-shared hop per
   chain link.
+- **Classic `Sort` with a finite page takes the bounded flow too** (step 8, under the owner's ruling
+  that ties inside a sorted result are unspecified). The bounded container breaks ties by encounter
+  ordinal, which *is* the stable sort's tie order for the same input sequence, so for one seed the two
+  plans produce the same sequence; the classic `Sort` keeps its free seed on either container (a
+  `SortBounded` keeps the fixed seed, so its ordinals stay eager's). Gate: the sorter is innermost and
+  orders by the left value (`OrdersByLeftValues`); a sorter over the joined row still sorts in the
+  classic container. A page of a 1k-row `Sort` then costs a heap of its size instead of the full sort
+  (`Sort_JoinMany`, `RESULTS.MD` "stage 3, step 8"), and a `JoinMany` after such a `Sort` fuses (§7.2)
+  because the page is materialized before the fill.
 
 ## 9. Fallback matrix and the planner rule
 
@@ -545,7 +604,8 @@ more executor. Selection order:
 | simple, unsorted, `[UniqueEq, Filter*]` | `PointLookup` (stage 1, unchanged) |
 | simple or single-sorter; every top-level step is a supported kind (§4) incl. `Or`/`If`/`IfElse`/`Match` whose leaves are supported; ≤ 16 index steps after flattening; every `TIndexKey` is a reference type or an unmanaged type ≤ 16 bytes | **`Pipeline`** |
 | joined: as above and every resolver is a `JoinOne` with `CanFuse` (or the sorter) | **`Pipeline`** (fused joins) |
-| any `JoinMany`, any filtered `JoinOne`, nested/keyed join seams | `Replay` (joined) |
+| joined: as above with any `JoinMany` (filtered or not, outer or inner) among fused `JoinOne`s (step 8, §7.2) | **`Pipeline`** — a `JoinMany` without a filter callback and no classic `Sort` before it fuses (the per-left fill); otherwise its fan-out runs after the pass |
+| any filtered `JoinOne` outside the `SortBounded` → outer-joins shape, an inner left-symmetric `JoinOne` (unless opted in), nested/keyed join seams | `Replay` (joined) |
 | a `TIndexKey` that is an unmanaged struct > 16 bytes (rare: big value tuples) | `Replay` |
 | `LastUpdated*` against an adapter whose group key is not the entity key (`LastUpdatedIndexAdapter._groupKeySelector`, `InMemoryDataCache.cs:1073-1117`) | `Replay` in v1 — the probe needs the group key of the row; add `GroupKeyOf` later |
 | anything the binder rejects at build (unknown descriptor kind) | `Replay` |

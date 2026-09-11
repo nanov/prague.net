@@ -48,15 +48,17 @@ public sealed class FrozenOptions {
 	///   Bind a simple plan — unsorted, under <c>Sort</c> or under <c>SortBounded</c>; its index steps
 	///   unique / list equality and membership, range, key-set, last-updated, and the composites
 	///   <c>Or</c> / <c>If</c> / <c>IfElse</c> / <c>Match</c> over them — and a joined plan of the same
-	///   steps whose joins are fusable <c>JoinOne</c>s (or a <c>SortBounded</c> followed by outer
-	///   <c>JoinOne</c>s), to the pipeline executor: one index step's keys are copied out once and every
+	///   steps whose joins are fusable <c>JoinOne</c>s and / or <c>JoinMany</c>s (or a <c>SortBounded</c>
+	///   followed by outer <c>JoinOne</c>s), to the pipeline executor: one index step's keys are copied out once and every
 	///   other step is an O(1) probe on the key or the fetched value — no candidate set, no intersection,
 	///   one store lookup per candidate. An <c>If</c> / <c>Match</c> arm is chosen once per execution at
 	///   bind and its steps take part like top-level ones; an <c>Or</c> probes as the OR of its branches'
 	///   ANDs. Same rows in the same order as the eager builder for unsorted plans (the first declared
 	///   step seeds; a smaller equality step is walked instead and its survivors put back in the first
 	///   step's order when that is cheaper) — except an <c>Or</c> that is the first narrowing, whose
-	///   union order is the default (<see cref="OrSeed" />). Off → the replay.
+	///   union order is the default (<see cref="OrSeed" />). A <c>JoinMany</c> is never fused: its own
+	///   two-pass fan-out runs after the pass over the rows the pass formed, so only the narrowing is
+	///   pipelined (an inner one drops the lefts without a right there). Off → the replay.
 	/// </summary>
 	public bool Pipeline { get; init; } = true;
 

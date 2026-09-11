@@ -363,8 +363,8 @@ internal static class FrozenReplay {
 ///   <c>BuildFrozen()</c>'s planner. Flattens the typed chain through <c>Describe</c>, picks the
 ///   executor — point lookup, the pipeline (every simple plan of index steps and composites over them
 ///   that <see cref="PipelinePlanner{TKey,TValue,TArgs}" /> accepts, unsorted or under a <c>Sort</c> /
-///   <c>SortBounded</c>; a joined plan of the same steps whose joins are fusable <c>JoinOne</c>s, with
-///   or without one sorter) or the replay — and attaches the optimizations the plan qualifies
+///   <c>SortBounded</c>; a joined plan of the same steps whose joins are fusable <c>JoinOne</c>s and / or
+///   <c>JoinMany</c>s, with or without one sorter) or the replay — and attaches the optimizations the plan qualifies
 ///   for: a fused filter for two or more top-level <c>Where</c>s and, for replayed plans, a capacity
 ///   hint when they are equality-seeded. Everything here runs once per build; nothing is reached from
 ///   an execution.
@@ -412,12 +412,14 @@ internal static class FrozenPlanner {
 		var names = new List<string>();
 		var live = new List<IPlanExplainable>();
 		// Stage 3: the pipeline takes every simple plan the pipeline planner accepts (index steps and, since
-		// step 4, Or / If / IfElse / Match over them) — unsorted, under a classic Sort (the sorter runs
-		// inside the eager container the pipeline drives) or under SortBounded (a finite page drives the
-		// eager top-k container behind the ExecuteCoreSimpleTop gate, an unbounded one the classic
-		// container — design §8).
+		// step 4, Or / If / IfElse / Match over them) — unsorted, or sorted: a finite page drives the eager
+		// top-k container behind the ExecuteCoreSimpleTop page gate (SortBounded, and since step 8 a classic
+		// Sort too — its ties are the stable sort's), an unbounded one the classic container (design §8).
 		var sorter = isSorted && TResolver.IsSorter;
-		var sort = !sorter ? PipelineSort.None : resolvers.Resolver.AllowsBounded ? PipelineSort.Bounded : PipelineSort.Classic;
+		// A classic Sort takes the bounded flow for a finite page as a SortBounded does (step 8: the tie
+		// order is the stable sort's either way); it keeps its free seed.
+		var sort = !sorter ? PipelineSort.None : resolvers.Resolver.OrdersByLeftValues<TValue>() ? PipelineSort.Bounded : PipelineSort.Classic;
+		var classicSort = sorter && !resolvers.Resolver.AllowsBounded;
 		if (options.Pipeline && (!hasResolvers || sorter)
 		    && PipelinePlanner<TKey, TValue, TArgs>.TryPlan(cache, narrowers, options, out var pipelineSteps, out var tree, out var branchFilters)) {
 			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
@@ -429,7 +431,7 @@ internal static class FrozenPlanner {
 			// Free seed: Count always; Execute when the rows are fully sorted afterwards (classic Sort —
 			// design §8) or the caller opted out of the eager encounter order. Never on its own for
 			// SortBounded: the bounded container breaks ties by encounter ordinal, which must be eager's.
-			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || sort == PipelineSort.Classic, sort, 0,
+			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || classicSort, sort, 0,
 				tree: tree, branchFilters: branchFilters.Length, orSeed: options.OrSeed);
 			live.Insert(0, plan);
 			return new FrozenQuery<TArgs, TValue, PipelineExecutor<TKey, TValue, TArgs, TResolver>>(
@@ -457,14 +459,18 @@ internal static class FrozenPlanner {
 		chain.Describe(narrowers);
 		var names = new List<string>();
 		var live = new List<IPlanExplainable>();
-		// Stage 3, steps 5 and 6: a chain of fusable JoinOnes (outer / inner, identity / selector, the four
-		// families, chained), optionally one classic Sort or SortBounded before or after them, takes the
-		// joined pipeline — the pass fills the fused rights per row; a SortBounded innermost feeds the
-		// eager bounded base container. The step-6 shape (SortBounded → outer joins) also admits
-		// resolvers that cannot fuse (a filter callback): they keep their paired read. Any JoinMany (its
-		// two-pass fan-out, design §7.2), an unfusable resolver elsewhere, or an inner left-symmetric join
-		// (its fan-out regroups the rows — opt in with FrozenOptions.FuseSymmetricInnerJoins) replays.
-		if (options.Pipeline && manyCount == 0 && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in resolvers, options.FuseSymmetricInnerJoins, out var shape)
+		// Stage 3, steps 5, 6 and 8: a chain of fusable JoinOnes (outer / inner, identity / selector, the four
+		// families, chained) and JoinManys (the three families, outer / inner, with or without a filter
+		// callback), optionally one classic Sort or SortBounded before or after them, takes the joined
+		// pipeline — the pass fills the fused rights per row, a JoinMany's own two-pass fan-out runs after
+		// the pass over the rows the pass formed (design §7.2 as implemented; an inner one drops the lefts
+		// without a right there); a SortBounded innermost feeds the bounded container unless an inner
+		// JoinMany is in the chain (eager's AllInnerNarrowable gate: the classic flow instead). The step-6
+		// shape (SortBounded → outer joins) also admits JoinOnes that cannot fuse (a filter callback): they
+		// keep their paired read. An unfusable JoinOne elsewhere, an inner left-symmetric JoinOne (its
+		// fan-out regroups the rows — opt in with FrozenOptions.FuseSymmetricInnerJoins) or a nested
+		// JoinMany replays.
+		if (options.Pipeline && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in resolvers, options.FuseSymmetricInnerJoins, out var shape)
 		    && PipelinePlanner<TKey, TValue, TArgs>.TryPlan(cache, narrowers, options, out var pipelineSteps, out var tree, out var branchFilters)) {
 			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
 			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
@@ -476,7 +482,7 @@ internal static class FrozenPlanner {
 			// design §8) or the caller's opt-in. Never on its own for a SortBounded (its tie-breaking
 			// ordinals must be eager's) or an unsorted chain (the encounter order is eager's).
 			var plan = new PipelinePlan<TKey, TValue, TArgs>(pipelineSteps, filters.Length, pipelineFused is not null, options.ReorderIndexNarrowers || shape.ClassicSort, shape.Sort, shape.Joins, shape.FusedJoins,
-				tree, branchFilters.Length, options.OrSeed);
+				tree, branchFilters.Length, options.OrSeed, shape.ManyJoins);
 			live.Insert(0, plan);
 			return new FrozenQuery<TArgs, TResult, PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>>(
 				new(cache, pipelineSteps, in resolvers, manyCount, filters, pipelineFused, plan, in shape, branchFilters), narrowers, true, isSorted, new(names, live));

@@ -139,15 +139,41 @@ public interface IJoinResolver {
 	static virtual bool FusedInnerRegroups => false;
 
 	/// <summary>
+	/// Is this a <c>JoinMany</c> family (right-list, left-symmetric, collection)? The frozen pipeline admits
+	/// such a chain (design §7.2 as implemented): without a filter callback (<see cref="CanFuse" />) and with
+	/// no classic sorter before it, the resolver fills its slots in the pass's fill walk through
+	/// <see cref="UnsafeFillFusedRows{TAccessor}" /> — the frozen per-left fill of <c>JoinManyFusedFill</c>,
+	/// one append-only buffer, no pair set — and narrows through <see cref="UnsafeNarrowFused{TKey,TValue}" />;
+	/// otherwise its own two-pass fan-out runs after the pass over the rows the pass formed
+	/// (<see cref="UnsafeExecuteWithAccessor{TAccessor}" />), an inner one then dropping the rows whose
+	/// slot stayed empty (<see cref="UnsafePruneEmptyManySlots{TAccessor}" />). JIT-folded per instantiation;
+	/// decided at build, never per row.
+	/// </summary>
+	static virtual bool IsMany => false;
+
+	/// <summary>
+	/// The inner <c>JoinMany</c> narrowing of the frozen pipeline: after <see cref="UnsafeExecuteWithAccessor{TAccessor}" />
+	/// filled this resolver's slots, drop the rows whose slot holds no right — the eager
+	/// <c>RetainNonEmptyManySlots</c> rule (a left without a right, or whose rights the filter rejected, is
+	/// neither emitted nor counted). Only invoked on inner resolvers whose <see cref="IsMany" /> is true.
+	/// </summary>
+	internal void UnsafePruneEmptyManySlots<TAccessor>(ref TAccessor accessor)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct
+		=> throw new InvalidOperationException("Resolver is not a JoinMany");
+
+	/// <summary>
 	/// The frozen pipeline's fused fill (design §7.1): writes this resolver's right slot of every row in
 	/// <paramref name="accessor" /> with one point lookup per row — the right on a hit (cloned when
 	/// <paramref name="cloneOnAdd" />, as the paired walk's add would), the slot's default on a miss — and,
 	/// for an inner join, drops the rows without a right (<see cref="IUnsafeValueAccessor.PruneNullSlots{TRightValue}" />).
 	/// Returns true when rows were dropped. One call per resolver per execution: the per-row work is the
 	/// resolver's own lookups and the slot write, no chain dispatch. Only invoked on resolvers whose
-	/// <see cref="SupportsFusedLookup" /> is true.
+	/// <see cref="SupportsFusedLookup" /> is true — and, for a fused <c>JoinMany</c> (<see cref="IsMany" />,
+	/// <see cref="CanFuse" />), the frozen per-left fill: it rents the slots' buffer (pooled when the
+	/// <paramref name="disposer" /> is active, and registered with it) sized by <paramref name="sizeHint" />,
+	/// the previous execution's total, which it writes back. A <c>JoinOne</c> ignores those three.
 	/// </summary>
-	internal bool UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+	internal bool UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint)
 		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct
 		=> throw new InvalidOperationException("Resolver has no fused lookup");
 
@@ -156,7 +182,8 @@ public interface IJoinResolver {
 	/// keeps, in order, the keys that have a right — moving <paramref name="values" /> in lockstep when
 	/// given (empty for a count) — and returns the survivor count. <typeparamref name="TKey" /> is the
 	/// chain's left key type; the resolver reinterprets it to its own. Only invoked on inner resolvers
-	/// whose <see cref="SupportsFusedLookup" /> is true.
+	/// whose <see cref="SupportsFusedLookup" /> is true, or fused <c>JoinMany</c>s (a left keeps its row when
+	/// its bucket holds a right the store has).
 	/// </summary>
 	internal int UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values)
 		where TKey : notnull, IEquatable<TKey>
@@ -219,6 +246,9 @@ public interface IUnsafeValueAccessor {
 
 	/// <summary>Drops the rows whose slot here is null / default (an inner fused join's misses), keeping the order of the rest.</summary>
 	internal void PruneNullSlots<TRightValue>();
+
+	/// <summary>Drops the rows whose slot here is an empty <see cref="QueryResults{TInnerValue}" /> (an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill), keeping the order of the rest.</summary>
+	internal void PruneEmptyManySlots<TInnerValue>();
 }
 public interface IUnsafeValueAccessor<TLeftKey> : IUnsafeValueAccessor
 	where TLeftKey : IEquatable<TLeftKey> {

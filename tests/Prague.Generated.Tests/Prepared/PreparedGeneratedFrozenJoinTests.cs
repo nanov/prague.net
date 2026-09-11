@@ -5,13 +5,15 @@ using Prague.Generated.Tests.Join;
 using NUnit.Framework;
 using static PreparedParity;
 
-// Generated FK JoinWith{T} / InnerJoinWith{T} shapes under BuildFrozen() (stage 3, step 5): after a
+// Generated FK JoinWith{T} / InnerJoinWith{T} shapes under BuildFrozen() (stage 3, steps 5 and 8): after a
 // generated narrowing step the reverse one-to-one join (a right-unique resolver), the forward
 // many-to-one join (a left-symmetric resolver) and the inner reverse one-to-one fuse into the pipeline
 // pass — one right lookup per row — and a SortBounded before them keeps the bounded page flow. The
-// reverse one-to-many join (JoinMany) replays, and so does the INNER forward many-to-one: a left-
-// symmetric fan-out regroups its rows, so it fuses only under FrozenOptions.FuseSymmetricInnerJoins.
-// Every shape is eager == frozen row for row on whichever path it takes.
+// reverse one-to-many join (a JoinMany, outer or inner) and the collection FK joins (JoinManyCollection
+// both ways) take the pipeline too since step 8: the narrowing is the pass, the fan-out runs after it.
+// The INNER forward many-to-one still replays: a left-symmetric JoinOne fan-out regroups its rows, so it
+// fuses only under FrozenOptions.FuseSymmetricInnerJoins. Every shape is eager == frozen as a set with
+// the same Count; the sorted shapes row for row.
 [TestFixture]
 public class PreparedGeneratedFrozenJoinTests {
 	private DataCacheRegistry _registry = null!;
@@ -132,10 +134,88 @@ public class PreparedGeneratedFrozenJoinTests {
 	}
 
 	[Test]
-	public void ReverseOneToMany_JoinMany_Replays_LikeEager() {
-		var frozen = _authors.Prepare<int>().WithId(static id => id).JoinWithBook().BuildFrozen();
-		Assert.That(frozen.Explain(), Does.Contain("executor: Replay"));
-		foreach (var id in new[] { 0, 7, 11 })
-			AssertSame(_authors.Query().WithId(id).JoinWithBook().Execute(), frozen.Execute(id), ManyRow);
+	public void ReverseOneToMany_JoinMany_Outer_Inner_TakeThePipeline_LikeEager() {
+		var outer = _authors.Prepare<int>().WithId(static id => id).JoinWithBook().BuildFrozen();
+		var inner = _authors.Prepare<int>().WithId(static id => id).InnerJoinWithBook().BuildFrozen();
+		Assert.That(outer.Explain(), Does.Contain("executor: Pipeline").And.Contain("joins: 1 (fused: 1, unfused: 0, many: 1"));
+		Assert.That(inner.Explain(), Does.Contain("executor: Pipeline").And.Contain("many: 1"));
+		// Author 11 has no book: the outer row keeps an empty slot, the inner drops it and does not count it.
+		foreach (var id in new[] { 0, 7, 11, 99 }) {
+			AssertSame(_authors.Query().WithId(id).JoinWithBook().Execute(), outer.Execute(id), ManyRow);
+			AssertSame(_authors.Query().WithId(id).JoinWithBook().ExecutePooledCloned(), outer.ExecutePooledCloned(id), ManyRow);
+			AssertSame(_authors.Query().WithId(id).InnerJoinWithBook().Execute(), inner.Execute(id), ManyRow);
+			AssertSame(_authors.Query().WithId(id).InnerJoinWithBook().ExecutePooled(), inner.ExecutePooled(id), ManyRow);
+			Assert.That(outer.Count(id), Is.EqualTo(_authors.Query().WithId(id).JoinWithBook().Count()), "outer Count " + id);
+			Assert.That(inner.Count(id), Is.EqualTo(_authors.Query().WithId(id).InnerJoinWithBook().Count()), "inner Count " + id);
+		}
+
+		using var innerRows = inner.Execute(11);
+		Assert.That(innerRows.Count, Is.Zero);
+		Assert.That(inner.Count(11), Is.Zero);
+		using var outerRows = outer.Execute(11);
+		Assert.That(outerRows.Count, Is.EqualTo(1));
+		Assert.That(outerRows[0].Right.Count, Is.Zero);
+	}
+
+	private static string CollectionRow<TLeft, TRight>(JoinResult<TLeft, QueryResults<TRight>> r, Func<TLeft, int> left, Func<TRight, int> right) {
+		var ids = new int[r.Right.Count];
+		for (var i = 0; i < ids.Length; i++) ids[i] = right(r.Right[i]);
+		Array.Sort(ids);
+		return left(r.Left) + "|" + string.Join(',', ids);
+	}
+
+	private static void AssertSameSet<T>(QueryResults<T> eager, QueryResults<T> frozen, Func<T, string> row) {
+		try {
+			Assert.That(frozen.Count, Is.EqualTo(eager.Count), "Count");
+			Assert.That(frozen.TotalCount, Is.EqualTo(eager.TotalCount), "TotalCount");
+			var e = new string[eager.Count];
+			var f = new string[frozen.Count];
+			for (var i = 0; i < e.Length; i++) e[i] = row(eager[i]);
+			for (var i = 0; i < f.Length; i++) f[i] = row(frozen[i]);
+			Array.Sort(e, StringComparer.Ordinal);
+			Array.Sort(f, StringComparer.Ordinal);
+			Assert.That(f, Is.EqualTo(e).AsCollection, "row set");
+		} finally {
+			eager.Dispose();
+			frozen.Dispose();
+		}
+	}
+
+	// The collection FK (CfkBook.TagIds → CfkTag): forward (book → its tags) and reverse (tag → the books listing it),
+	// both JoinManyCollection resolvers; tags shared across books go through the fan-out's chains.
+	[Test]
+	public void CollectionFk_Forward_Reverse_Outer_Inner_TakeThePipeline_LikeEager() {
+		var registry = new DataCacheRegistryBuilder().Register<CfkTagCache>().Register<CfkBookCache>().Build();
+		var tags = registry.GetCache<CfkTagCache>();
+		var books = registry.GetCache<CfkBookCache>();
+		for (var t = 0; t < 8; t++)
+			tags.AddOrUpdate(new CfkTag { Id = t, Name = t % 2 == 0 ? "fantasy" : "scifi" });
+		for (var b = 0; b < 30; b++)
+			books.AddOrUpdate(new CfkBook { Id = b, Title = b % 3 == 0 ? "alpha" : "beta", TagIds = b % 5 == 0 ? [] : [b % 8, (b + 3) % 8, 9] });
+
+		var forward = books.Prepare<string>().WithTitle(static t => t).JoinWithCfkTag().BuildFrozen();
+		var forwardInner = books.Prepare<string>().WithTitle(static t => t).InnerJoinWithCfkTag().BuildFrozen();
+		var reverse = tags.Prepare<string>().WithName(static n => n).JoinWithCfkBook().BuildFrozen();
+		var reverseInner = tags.Prepare<string>().WithName(static n => n).InnerJoinWithCfkBook().BuildFrozen();
+		Assert.Multiple(() => {
+			Assert.That(forward.Explain(), Does.Contain("executor: Pipeline").And.Contain("many: 1"));
+			Assert.That(forwardInner.Explain(), Does.Contain("executor: Pipeline").And.Contain("many: 1"));
+			Assert.That(reverse.Explain(), Does.Contain("executor: Pipeline").And.Contain("many: 1"));
+			Assert.That(reverseInner.Explain(), Does.Contain("executor: Pipeline").And.Contain("many: 1"));
+		});
+		foreach (var title in new[] { "alpha", "beta", "gamma" }) {
+			AssertSameSet(books.Query().WithTitle(title).JoinWithCfkTag().Execute(), forward.Execute(title), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
+			AssertSameSet(books.Query().WithTitle(title).JoinWithCfkTag().ExecutePooledCloned(), forward.ExecutePooledCloned(title), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
+			AssertSameSet(books.Query().WithTitle(title).InnerJoinWithCfkTag().ExecutePooled(), forwardInner.ExecutePooled(title), static r => CollectionRow(r, static b => b.Id, static t => t.Id));
+			Assert.That(forward.Count(title), Is.EqualTo(books.Query().WithTitle(title).JoinWithCfkTag().Count()), "forward Count " + title);
+			Assert.That(forwardInner.Count(title), Is.EqualTo(books.Query().WithTitle(title).InnerJoinWithCfkTag().Count()), "inner forward Count " + title);
+		}
+
+		foreach (var name in new[] { "fantasy", "scifi", "none" }) {
+			AssertSameSet(tags.Query().WithName(name).JoinWithCfkBook().Execute(), reverse.Execute(name), static r => CollectionRow(r, static t => t.Id, static b => b.Id));
+			AssertSameSet(tags.Query().WithName(name).InnerJoinWithCfkBook().ExecutePooled(1, 2), reverseInner.ExecutePooled(name, 1, 2), static r => CollectionRow(r, static t => t.Id, static b => b.Id));
+			Assert.That(reverse.Count(name), Is.EqualTo(tags.Query().WithName(name).JoinWithCfkBook().Count()), "reverse Count " + name);
+			Assert.That(reverseInner.Count(name), Is.EqualTo(tags.Query().WithName(name).InnerJoinWithCfkBook().Count()), "inner reverse Count " + name);
+		}
 	}
 }

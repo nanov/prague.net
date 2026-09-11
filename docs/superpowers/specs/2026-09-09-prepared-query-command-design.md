@@ -982,6 +982,98 @@ through the new container unchanged. `Prague.Core.Tests/Prepared` 398 in Release
 Debug on net9.0, `Prague.Generated.Tests` 1214 green. No codegen or T4 change.
 
 
+### Stage 3 — step 8: `JoinMany` — admission, the fused per-left fill, classic `Sort` on the bounded flow
+
+*Design:* pipeline design §7.2 (rewritten from "replay in v1" to what was built), §8 (the `Sort`
+gate), §9 (fallback matrix); the fill in `QueryBuilders/JoinManyFusedFill.cs`, the shape in
+`Pipeline/PipelineJoinedExecutor.cs` (`JoinChainShape`), the resolver hooks in `JoinManyResolver.cs`
+/ `JoinManyCollectionResolver.cs`, the accessor's `PruneEmptyManySlots` and the fill walk's hint
+plumbing in `JoinResults.tt`.
+
+*The gap, measured first.* `FrozenPlanner.Joined` gated the joined pipeline on `manyCount == 0`, so
+any chain with a `JoinMany` replayed — narrowing included. Baseline rows were added first (`RESULTS.MD`
+"stage 3, step 8", table 1): every `JoinMany` `_Frozen` row sat on its `_Prepared` row.
+
+*What executes — in three separable pieces, each measured on its own.*
+
+1. **Admission.** The gate is gone; `JoinChainShape` counts a `JoinMany` (`IJoinResolver.IsMany`,
+   JIT-folded) as its own kind. An unfused outer `JoinMany` is an ordinary unfused resolver of the
+   post-pass walk (its `UnsafeExecuteWithAccessor` over the rows the pass formed); an unfused inner one
+   runs in the fill walk (`FillFused(…, innerMany: true)`) in chain order with the fused inner fills,
+   then `PruneEmptyManySlots` (the `RetainNonEmptyManySlots` rule without a candidate set) — the chain
+   stays on the classic flow (eager's `AllInnerNarrowable` gate) and its `Count` forms the rows and runs
+   the inner fills (`CountThroughFill`). Measured alone: shape A with a `JoinMany` 19.1 → 6.7 µs, three
+   lists + inner `JoinMany` 23.8 → 11.8, its `Count` 23.8 → 11.3; the 1k-row fan-outs unmoved (~97 µs:
+   the fan-out is the cost there, the pass's 2 µs is not).
+2. **The fused per-left fill** (`CanFuse = TFilter.IsNoOp`, like a `JoinOne`; off behind a sorter over
+   the joined row). `JoinManyFusedFill` walks the rows once: per left the family's own bucket read
+   (`IManyBucketSource`, a per-family struct), per right one store lookup, appended into **one
+   append-only buffer in row order** — each slot is a contiguous run whose length is known when its
+   left is done; the buffer grows by doubling and the slots get the final array afterwards by row index
+   (`QueryResults.SetFilled` + `AssignSharedBuffer`). No pair set, no `PrepareSharedBuffer`, no
+   dictionary lookup per delivery; exact by construction (never `Truncated`); the "delivered once" rule
+   for a right the enumerator yields twice is kept by a 16-key window and a `ValueSet` beyond; the
+   pooled buffer is registered with the disposer, a throwing `Clone()` returns the rental in the fill's
+   `finally`; the first rental is sized by the previous execution's total (an advisory `int[]` per
+   chain position the executor owns). An inner fused `JoinMany` prunes its empty rows, narrows a bounded
+   page before the heap and a count through `UnsafeNarrowFused` (the first right the store has decides),
+   keeping the bounded flow where eager falls back. Measured: right-list 97.9 → 64.8 µs (1.53×),
+   left-symmetric 86.2 → 46.8 (1.79×), collection 116.5 → 57.3 (2.07×); inner 1.65× / 2.15× / 2.14×;
+   `Count_InnerJoinMany` 98 → 26 (3.8×); shape A with a `JoinMany` 19.0 → 5.63 (**3.38×**), three lists
+   + inner `JoinMany` 24.1 → 7.2 (**3.35×**), its `Count` 24 → 2.8 (8.7×).
+3. **Classic `Sort` on the bounded flow.** Under the owner's ruling that ties inside a sorted result
+   are unspecified, an innermost `Sort` over the left value takes the bounded top-k plan for a finite
+   page (its encounter-ordinal ties are the stable sort's ties for the same input; the classic `Sort`
+   keeps its free seed, a `SortBounded` its fixed seed). `Sort_JoinMany` page 0..20: 125.8 → 17.2 µs
+   (7.3×). A `Sort` over the joined row still sorts in the classic container.
+
+*Order.* Rows come out in the seed's order on every `JoinMany` family — the eager inner phase creates
+them in candidate order too, so none regroups like the inner left-symmetric `JoinOne`. Inside a slot the
+fused fill keeps the bucket's order, eager the pair-set order: they differ only with rights shared across
+lefts in overlapping buckets (the same set). Under the ruling "order is not important if not specified" no
+opt-in exists for the eager interleaving; sorted results with a total comparer are byte-identical (pinned).
+
+4. **The probe-free count.** Admission first sent `Count_JoinMany` (an outer `JoinMany` over one 1k
+   bucket, no filter) from the hinted replay's 3.42 µs to 5.37: an outer join never changes a count, so
+   that was `PipelineCore.Count` paying an `InMemoryDataCache.TryGet` call per seed key against the
+   key-only `TryCountValues` the eager `Count` runs. It now counts a plan whose pass needs no value — no
+   probe of either side active, no filter anywhere, decided once per execution from the frame's
+   activation lists — with a span twin of exactly that `TryCountValues` body (`ConcurrentCacheStore`):
+   the same tables walk and the same membership, so nothing counted changes inside or outside the
+   staleness window (a key an index bucket holds but the store does not is rejected by both). 3.10 µs.
+   Plans with a probe or a filter walk as before; the joined count with inner fused joins still fetches
+   values it does not read (its `RowBuffer` narrowing), left for later.
+
+*Not in this step.* A filtered `JoinMany`'s fan-out (the callback needs the pair set); the nested
+`JoinMany` (replays); the keys-only collection for the inner-fused joined count.
+
+#### Measured (Apple M4 Pro, .NET 9, `--inProcess`, default job; full tables in `RESULTS.MD`, "stage 3, step 8")
+
+| Row | Eager | `Build()` | `BuildFrozen()` | Ratio | Frozen alloc |
+|---|---:|---:|---:|---:|---|
+| `JoinMany` / `_LeftSym` / `_Collection` | 99.6 / 83.9 / 118.6 µs | = | **64.8 / 46.8 / 57.3 µs** | 0.65 / 0.56 / 0.48 | 0 B |
+| `InnerJoinMany` / `_LeftSym` / `_Collection` | 106.4 / 103.3 / 124.4 µs | = | **64.5 / 48.1 / 58.1 µs** | 0.61 / 0.47 / 0.47 | 0 B |
+| `Count_InnerJoinMany` / `Count_ListListListInnerJoinMany` | 98.2 / 24.0 µs | = | **25.9 / 2.77 µs** | 0.26 / 0.12 | 0 B |
+| `ListListListSortBoundedJoinMany` (shape A + many) / `ListListListInnerJoinMany` | 19.0 / 24.1 µs | = | **5.63 / 7.20 µs** | 0.30 / 0.30 | 0 B |
+| `SortBounded_JoinMany` / `Sort_JoinMany` (pages 0..20) | 27.3 / 125.8 µs | = | **17.2 / 17.2 µs** | 0.63 / 0.14 | 0 B |
+| `Count_JoinMany` (the presence count) | 4.96 µs | = | **3.10 µs** (replay before: 3.42) | 0.63 | 0 B |
+| Shapes A / B / B-range, `ListList`, `ListListList`, `SortBounded`, `JoinOne`, `InnerJoinOne` | — | — | on their step-4/7 numbers | — | 0 B |
+
+Tests: `FrozenPipelineJoinManyTests` (10 — three families × outer / inner × identity / selector / filter
+callback × the four `Execute*` × eight pages incl. `take = int.MaxValue`, past the end and 0, same set /
+`Count` / `TotalCount` / `Truncated` and pages partitioning the frozen whole, clone identity of the left
+and every right; zero / one / many / shared rights; chains with fused `JoinOne`s and two `JoinMany`s;
+`Sort` before and after with total comparers and `SortBounded` outer / inner / mixed byte-identical to
+eager; executor selection; `LeakAssert.Balanced` under a throwing filter callback / selector / predicate /
+comparer / `Clone()` with eager twins; 8 readers × a writer churning lines, notes and invoices, plus
+`DroppedRows == 0`; an informational strict-sequence test for the shapes where it holds),
+`FrozenPipelineAllocationTests` +6 pins (0 B), `PreparedGeneratedFrozenJoinTests` (`JoinWithBook` /
+`InnerJoinWithBook`, the collection FK both ways), pins moved in `FrozenPipelineJoinTests` /
+`FrozenPipelineSortBoundedTests` / `FrozenQueryTests`. `Prague.Core.Tests/Prepared` 440 in Release
+(net9.0), 440 + 1106 in Debug, `Prague.Generated.Tests` 1224 green; `JoinResults.generated.cs` byte-identical
+to a fresh `t4` run.
+
+
 ### Stage 3 — step 4: composites as pipeline steps
 
 *Design:* pipeline design §5 (5.1 `Or`, 5.2 `If` / `Match`), §9 (fallback matrix), §13 step 4; the

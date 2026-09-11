@@ -10,9 +10,12 @@ using Prague.Core;
 ///   the frozen planner binds to the point-lookup executor; the simple unsorted list / range / key-set /
 ///   last-updated shapes bind to the stage-3 pipeline, as do <c>Sort</c> / <c>SortBounded</c>, the
 ///   <c>SortBounded</c> → <c>JoinOne</c> production shapes and (step 5) every chain of fusable
-///   <c>JoinOne</c>s — outer, inner, chained; <c>Or</c> / <c>If</c> / <c>Match</c> (step 4); a filtered <c>JoinOne</c> replays,
-///   so their <c>_Frozen</c> rows must sit on top of the <c>_Prepared</c> rows. Every body executes pooled and disposes. Same data as
-///   <see cref="PreparedQueryBenchmarks" />: 100k rows, list buckets of 1k, range windows of 1k codes.
+///   <c>JoinOne</c>s — outer, inner, chained; <c>Or</c> / <c>If</c> / <c>Match</c> (step 4); and (step 8) every chain with a
+///   <c>JoinMany</c> — the narrowing is the pipeline pass, the fan-out runs after it over the rows the pass formed. A filtered
+///   <c>JoinOne</c> replays, so its <c>_Frozen</c> row must sit on top of the <c>_Prepared</c> row. Every body executes pooled and
+///   disposes. Same data as <see cref="PreparedQueryBenchmarks" />: 100k rows, list buckets of 1k, range windows of 1k codes; the
+///   <c>JoinMany</c> right sides are lines by item (two per item, none for every fourth), three notes per customer shared by the
+///   customer's 1k orders (the shared-right chain path) and a tag collection on 10k documents (M:N, a quarter untagged).
 /// </summary>
 [MemoryDiagnoser]
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
@@ -73,6 +76,36 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?, PqbCustomer?>> _joinOneChainedFrozen = null!;
 	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredPrepared = null!;
 	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredFrozen = null!;
+	// Step 8: JoinMany right sides.
+	private InMemoryDataCache<int, PqbLine> _lines = null!;
+	private CacheKeyValueListIndex<int, PqbLine, int> _lineByItem = null!;
+	private InMemoryDataCache<int, PqbNote> _notes = null!;
+	private CacheKeyValueListIndex<int, PqbNote, int> _noteByCustomer = null!;
+	private InMemoryDataCache<int, PqbDoc> _docs = null!;
+	private CacheKeyValueListIndex<int, PqbDoc, int> _docByGroup = null!;
+	private CacheCollectionSymmetricKeyValueListIndex<int, PqbDoc, int> _docTags = null!;
+	private InMemoryDataCache<int, PqbTag> _tags = null!;
+	private PreparedQuery<int, JoinResult<PqbItem, QueryResults<PqbLine>>> _joinManyPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbItem, QueryResults<PqbLine>>> _joinManyFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbItem, QueryResults<PqbLine>>> _innerJoinManyPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbItem, QueryResults<PqbLine>>> _innerJoinManyFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbOrder, QueryResults<PqbNote>>> _joinManyLeftSymPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbOrder, QueryResults<PqbNote>>> _joinManyLeftSymFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbOrder, QueryResults<PqbNote>>> _innerJoinManyLeftSymPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbOrder, QueryResults<PqbNote>>> _innerJoinManyLeftSymFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbDoc, QueryResults<PqbTag>>> _joinManyCollectionPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbDoc, QueryResults<PqbTag>>> _joinManyCollectionFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbDoc, QueryResults<PqbTag>>> _innerJoinManyCollectionPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbDoc, QueryResults<PqbTag>>> _innerJoinManyCollectionFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbItem, QueryResults<PqbLine>>> _sortJoinManyPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbItem, QueryResults<PqbLine>>> _sortJoinManyFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbItem, QueryResults<PqbLine>>> _sortBoundedJoinManyPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbItem, QueryResults<PqbLine>>> _sortBoundedJoinManyFrozen = null!;
+	private PreparedQuery<(int group, int band, int lane), JoinResult<PqbItem, QueryResults<PqbLine>>> _threeListSortJoinManyPrepared = null!;
+	private FrozenQuery<(int group, int band, int lane), JoinResult<PqbItem, QueryResults<PqbLine>>> _threeListSortJoinManyFrozen = null!;
+	private PreparedQuery<(int group, int band, int lane), JoinResult<PqbItem, QueryResults<PqbLine>>> _threeListInnerJoinManyPrepared = null!;
+	private FrozenQuery<(int group, int band, int lane), JoinResult<PqbItem, QueryResults<PqbLine>>> _threeListInnerJoinManyFrozen = null!;
+	private int _docGroup = 3;
 	private PreparedQuery<(int mode, int group, int code), PqbItem> _matchPrepared = null!;
 	private FrozenQuery<(int mode, int group, int code), PqbItem> _matchFrozen = null!;
 
@@ -204,6 +237,29 @@ public class FrozenQueryBenchmarks {
 				_orderDetails.AddOrUpdate(i, new PqbCustomer { Id = i, Region = i % 2 == 0 ? "EU" : "US" });
 		}
 
+		_lines = new InMemoryDataCache<int, PqbLine>();
+		_lineByItem = _lines.CacheKeyValueListIndex<int>(static (_, v) => v.ItemId);
+		for (var i = 0; i < N; i++) {
+			if (i % 4 == 0)
+				continue;
+			_lines.AddOrUpdate(2 * i, new PqbLine { Id = 2 * i, ItemId = i, Qty = i % 7 });
+			_lines.AddOrUpdate(2 * i + 1, new PqbLine { Id = 2 * i + 1, ItemId = i, Qty = i % 11 });
+		}
+
+		_notes = new InMemoryDataCache<int, PqbNote>();
+		_noteByCustomer = _notes.CacheKeyValueListIndex<int>(static (_, v) => v.CustomerId);
+		for (var c = 0; c < Buckets; c++)
+			for (var k = 0; k < 3; k++)
+				_notes.AddOrUpdate(c * 3 + k, new PqbNote { Id = c * 3 + k, CustomerId = c, Text = "n" + k });
+		_docs = new InMemoryDataCache<int, PqbDoc>();
+		_docByGroup = _docs.CacheKeyValueListIndex<int>(static (_, v) => v.Group);
+		_docTags = _docs.CacheCollectionSymmetricKeyValueListIndex<int>(static (_, v) => v.TagIds);
+		_tags = new InMemoryDataCache<int, PqbTag>();
+		for (var t = 0; t < 500; t++)
+			_tags.AddOrUpdate(t, new PqbTag { Id = t, Name = "t" + t });
+		for (var d = 0; d < RecordCount; d++)
+			_docs.AddOrUpdate(d, new PqbDoc { Id = d, Group = d % 10, TagIds = d % 4 == 0 ? [] : [d % 500, d * 7 % 500, d * 13 % 500] });
+
 		_uniqueBoundPrepared = _items.Prepare().UseIndex(_byCode, _code).Build();
 		_uniqueBoundFrozen = _items.Prepare().UseIndex(_byCode, _code).BuildFrozen();
 		_uniqueBoundIntArgsFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byCode, _code).BuildFrozen();
@@ -225,6 +281,30 @@ public class FrozenQueryBenchmarks {
 		_joinOneChainedFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).JoinOne(_orderDetails).BuildFrozen();
 		_joinOneFilteredPrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Build();
 		_joinOneFilteredFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen();
+		_joinManyPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).JoinMany(_lines, _lineByItem).Build();
+		_joinManyFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).JoinMany(_lines, _lineByItem).BuildFrozen();
+		_innerJoinManyPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).InnerJoinMany(_lines, _lineByItem).Build();
+		_innerJoinManyFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).InnerJoinMany(_lines, _lineByItem).BuildFrozen();
+		_joinManyLeftSymPrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinMany(_byCustomer, _notes, _noteByCustomer).Build();
+		_joinManyLeftSymFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinMany(_byCustomer, _notes, _noteByCustomer).BuildFrozen();
+		_innerJoinManyLeftSymPrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinMany(_byCustomer, _notes, _noteByCustomer).Build();
+		_innerJoinManyLeftSymFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).InnerJoinMany(_byCustomer, _notes, _noteByCustomer).BuildFrozen();
+		_joinManyCollectionPrepared = _docs.Prepare<int, PqbDoc, int>().UseIndex(_docByGroup, static g => g).JoinManyCollectionForward(_tags, _docTags).Build();
+		_joinManyCollectionFrozen = _docs.Prepare<int, PqbDoc, int>().UseIndex(_docByGroup, static g => g).JoinManyCollectionForward(_tags, _docTags).BuildFrozen();
+		_innerJoinManyCollectionPrepared = _docs.Prepare<int, PqbDoc, int>().UseIndex(_docByGroup, static g => g).InnerJoinManyCollectionForward(_tags, _docTags).Build();
+		_innerJoinManyCollectionFrozen = _docs.Prepare<int, PqbDoc, int>().UseIndex(_docByGroup, static g => g).InnerJoinManyCollectionForward(_tags, _docTags).BuildFrozen();
+		_sortJoinManyPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Sort(new PqbByScore()).JoinMany(_lines, _lineByItem).Build();
+		_sortJoinManyFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).Sort(new PqbByScore()).JoinMany(_lines, _lineByItem).BuildFrozen();
+		_sortBoundedJoinManyPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new PqbByScore()).JoinMany(_lines, _lineByItem).Build();
+		_sortBoundedJoinManyFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).SortBounded(new PqbByScore()).JoinMany(_lines, _lineByItem).BuildFrozen();
+		_threeListSortJoinManyPrepared = _items.Prepare<int, PqbItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane)
+			.SortBounded(new PqbByScoreTies()).JoinMany(_lines, _lineByItem).Build();
+		_threeListSortJoinManyFrozen = _items.Prepare<int, PqbItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane)
+			.SortBounded(new PqbByScoreTies()).JoinMany(_lines, _lineByItem).BuildFrozen();
+		_threeListInnerJoinManyPrepared = _items.Prepare<int, PqbItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane)
+			.InnerJoinMany(_lines, _lineByItem).Build();
+		_threeListInnerJoinManyFrozen = _items.Prepare<int, PqbItem, (int group, int band, int lane)>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane)
+			.InnerJoinMany(_lines, _lineByItem).BuildFrozen();
 		_matchPrepared = _items.Prepare<int, PqbItem, (int mode, int group, int code)>().Match(static a => a.mode, m => m
 			.Case(0, b => b.UseIndex(_byCode, static a => a.code))
 			.Case(1, b => b.UseIndex(_byGroup, static a => a.group))
@@ -526,6 +606,228 @@ public class FrozenQueryBenchmarks {
 		using var r = _joinOneFilteredFrozen.ExecutePooled(_customer);
 		return r.Count;
 	}
+
+	// ── 8. JoinMany (step 8): the narrowing is the pipeline pass, the fan-out runs after it over the rows the pass formed ──
+	// 8a. right-list family, outer: list (1k) → lines by item (two per item, none for every fourth: ~1.5k rights, no shared right).
+	[BenchmarkCategory("JoinMany"), Benchmark(Baseline = true)]
+	public int JoinMany_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _group).JoinMany(_lines, _lineByItem).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinMany"), Benchmark]
+	public int JoinMany_Prepared() {
+		using var r = _joinManyPrepared.ExecutePooled(_group);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinMany"), Benchmark]
+	public int JoinMany_Frozen() {
+		using var r = _joinManyFrozen.ExecutePooled(_group);
+		return r.Count;
+	}
+
+	// 8b. right-list family, inner: a quarter of the lefts have no line and are dropped (not emitted, not counted).
+	[BenchmarkCategory("InnerJoinMany"), Benchmark(Baseline = true)]
+	public int InnerJoinMany_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _group).InnerJoinMany(_lines, _lineByItem).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinMany"), Benchmark]
+	public int InnerJoinMany_Prepared() {
+		using var r = _innerJoinManyPrepared.ExecutePooled(_group);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinMany"), Benchmark]
+	public int InnerJoinMany_Frozen() {
+		using var r = _innerJoinManyFrozen.ExecutePooled(_group);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Count_JoinMany"), Benchmark(Baseline = true)]
+	public int Count_JoinMany_Eager() => _items.Query().UseIndex(_byGroup, _group).JoinMany(_lines, _lineByItem).Count();
+
+	[BenchmarkCategory("Count_JoinMany"), Benchmark]
+	public int Count_JoinMany_Prepared() => _joinManyPrepared.Count(_group);
+
+	[BenchmarkCategory("Count_JoinMany"), Benchmark]
+	public int Count_JoinMany_Frozen() => _joinManyFrozen.Count(_group);
+
+	// The inner Count needs the fan-out's answer per left (eager's CountCoreJoined runs the whole inner phase).
+	[BenchmarkCategory("Count_InnerJoinMany"), Benchmark(Baseline = true)]
+	public int Count_InnerJoinMany_Eager() => _items.Query().UseIndex(_byGroup, _group).InnerJoinMany(_lines, _lineByItem).Count();
+
+	[BenchmarkCategory("Count_InnerJoinMany"), Benchmark]
+	public int Count_InnerJoinMany_Prepared() => _innerJoinManyPrepared.Count(_group);
+
+	[BenchmarkCategory("Count_InnerJoinMany"), Benchmark]
+	public int Count_InnerJoinMany_Frozen() => _innerJoinManyFrozen.Count(_group);
+
+	// 8c. left-symmetric family: the customer's 1k orders all share the customer's three notes — 3k pairs, 3 distinct
+	// rights, every right delivered through the fan-out's chains (the shared-right path).
+	[BenchmarkCategory("JoinMany_LeftSym"), Benchmark(Baseline = true)]
+	public int JoinMany_LeftSym_Eager() {
+		using var r = _orders.Query().UseIndex(_byCustomer, _customer).JoinMany(_byCustomer, _notes, _noteByCustomer).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinMany_LeftSym"), Benchmark]
+	public int JoinMany_LeftSym_Prepared() {
+		using var r = _joinManyLeftSymPrepared.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinMany_LeftSym"), Benchmark]
+	public int JoinMany_LeftSym_Frozen() {
+		using var r = _joinManyLeftSymFrozen.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinMany_LeftSym"), Benchmark(Baseline = true)]
+	public int InnerJoinMany_LeftSym_Eager() {
+		using var r = _orders.Query().UseIndex(_byCustomer, _customer).InnerJoinMany(_byCustomer, _notes, _noteByCustomer).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinMany_LeftSym"), Benchmark]
+	public int InnerJoinMany_LeftSym_Prepared() {
+		using var r = _innerJoinManyLeftSymPrepared.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinMany_LeftSym"), Benchmark]
+	public int InnerJoinMany_LeftSym_Frozen() {
+		using var r = _innerJoinManyLeftSymFrozen.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	// 8d. collection family (M:N, forward): 1k documents of a group → their tags (three each, a quarter untagged; 500 tags shared
+	// across the documents, so the chains carry most deliveries). Inner drops the untagged quarter.
+	[BenchmarkCategory("JoinMany_Collection"), Benchmark(Baseline = true)]
+	public int JoinMany_Collection_Eager() {
+		using var r = _docs.Query().UseIndex(_docByGroup, _docGroup).JoinManyCollectionForward(_tags, _docTags).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinMany_Collection"), Benchmark]
+	public int JoinMany_Collection_Prepared() {
+		using var r = _joinManyCollectionPrepared.ExecutePooled(_docGroup);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinMany_Collection"), Benchmark]
+	public int JoinMany_Collection_Frozen() {
+		using var r = _joinManyCollectionFrozen.ExecutePooled(_docGroup);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinMany_Collection"), Benchmark(Baseline = true)]
+	public int InnerJoinMany_Collection_Eager() {
+		using var r = _docs.Query().UseIndex(_docByGroup, _docGroup).InnerJoinManyCollectionForward(_tags, _docTags).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinMany_Collection"), Benchmark]
+	public int InnerJoinMany_Collection_Prepared() {
+		using var r = _innerJoinManyCollectionPrepared.ExecutePooled(_docGroup);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("InnerJoinMany_Collection"), Benchmark]
+	public int InnerJoinMany_Collection_Frozen() {
+		using var r = _innerJoinManyCollectionFrozen.ExecutePooled(_docGroup);
+		return r.Count;
+	}
+
+	// 8e. classic Sort then JoinMany, page 0..20: the container sorts and crops the 1k rows, the fan-out fills the 20 page rows.
+	[BenchmarkCategory("Sort_JoinMany"), Benchmark(Baseline = true)]
+	public int Sort_JoinMany_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _group).Sort(new PqbByScore()).JoinMany(_lines, _lineByItem).ExecutePooled(0, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Sort_JoinMany"), Benchmark]
+	public int Sort_JoinMany_Prepared() {
+		using var r = _sortJoinManyPrepared.ExecutePooled(_group, 0, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Sort_JoinMany"), Benchmark]
+	public int Sort_JoinMany_Frozen() {
+		using var r = _sortJoinManyFrozen.ExecutePooled(_group, 0, 20);
+		return r.Count;
+	}
+
+	// 8f. SortBounded then JoinMany, page 0..20: the bounded flow — a heap of 20 over the 1k walk, the fan-out fills the page rows only.
+	[BenchmarkCategory("SortBounded_JoinMany"), Benchmark(Baseline = true)]
+	public int SortBounded_JoinMany_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _group).SortBounded(new PqbByScore()).JoinMany(_lines, _lineByItem).ExecutePooled(0, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("SortBounded_JoinMany"), Benchmark]
+	public int SortBounded_JoinMany_Prepared() {
+		using var r = _sortBoundedJoinManyPrepared.ExecutePooled(_group, 0, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("SortBounded_JoinMany"), Benchmark]
+	public int SortBounded_JoinMany_Frozen() {
+		using var r = _sortBoundedJoinManyFrozen.ExecutePooled(_group, 0, 20);
+		return r.Count;
+	}
+
+	// 8g. the production shape A with a JoinMany: three lists (1k ∩ 333 ∩ 111 → 111 rows), SortBounded page 20..40, lines by item.
+	[BenchmarkCategory("ListListListSortBoundedJoinMany"), Benchmark(Baseline = true)]
+	public int ListListListSortBoundedJoinMany_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _threeListArgs.group).UseIndex(_byBand, _threeListArgs.band).UseIndex(_byLane, _threeListArgs.lane)
+			.SortBounded(new PqbByScoreTies()).JoinMany(_lines, _lineByItem).ExecutePooled(20, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("ListListListSortBoundedJoinMany"), Benchmark]
+	public int ListListListSortBoundedJoinMany_Prepared() {
+		using var r = _threeListSortJoinManyPrepared.ExecutePooled(_threeListArgs, 20, 20);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("ListListListSortBoundedJoinMany"), Benchmark]
+	public int ListListListSortBoundedJoinMany_Frozen() {
+		using var r = _threeListSortJoinManyFrozen.ExecutePooled(_threeListArgs, 20, 20);
+		return r.Count;
+	}
+
+	// 8h. narrow hard, then fan out, inner: three lists → 111 rows → inner lines (a quarter dropped).
+	[BenchmarkCategory("ListListListInnerJoinMany"), Benchmark(Baseline = true)]
+	public int ListListListInnerJoinMany_Eager() {
+		using var r = _items.Query().UseIndex(_byGroup, _threeListArgs.group).UseIndex(_byBand, _threeListArgs.band).UseIndex(_byLane, _threeListArgs.lane)
+			.InnerJoinMany(_lines, _lineByItem).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("ListListListInnerJoinMany"), Benchmark]
+	public int ListListListInnerJoinMany_Prepared() {
+		using var r = _threeListInnerJoinManyPrepared.ExecutePooled(_threeListArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("ListListListInnerJoinMany"), Benchmark]
+	public int ListListListInnerJoinMany_Frozen() {
+		using var r = _threeListInnerJoinManyFrozen.ExecutePooled(_threeListArgs);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Count_ListListListInnerJoinMany"), Benchmark(Baseline = true)]
+	public int Count_ListListListInnerJoinMany_Eager()
+		=> _items.Query().UseIndex(_byGroup, _threeListArgs.group).UseIndex(_byBand, _threeListArgs.band).UseIndex(_byLane, _threeListArgs.lane).InnerJoinMany(_lines, _lineByItem).Count();
+
+	[BenchmarkCategory("Count_ListListListInnerJoinMany"), Benchmark]
+	public int Count_ListListListInnerJoinMany_Prepared() => _threeListInnerJoinManyPrepared.Count(_threeListArgs);
+
+	[BenchmarkCategory("Count_ListListListInnerJoinMany"), Benchmark]
+	public int Count_ListListListInnerJoinMany_Frozen() => _threeListInnerJoinManyFrozen.Count(_threeListArgs);
 
 	// ── 8. Match, three parameterized arms — step 4: the arm is chosen at bind, the pipeline runs it ──
 
@@ -1168,4 +1470,52 @@ public readonly struct PqbByScoreTies : IComparer<PqbItem> {
 
 public readonly struct PqbRecordByScoreTies : IComparer<PqbRecord> {
 	public int Compare(PqbRecord? x, PqbRecord? y) => ((x?.Score ?? 0) & 7).CompareTo((y?.Score ?? 0) & 7);
+}
+
+// JoinMany right sides (step 8).
+public sealed class PqbLine : ICacheEquatable<PqbLine>, ICacheClonable<PqbLine> {
+	public int Id { get; init; }
+	public int ItemId { get; init; }
+	public int Qty { get; init; }
+
+	public bool CacheEquals(PqbLine? other) => other is not null && other.Id == Id && other.ItemId == ItemId && other.Qty == Qty;
+
+	public int CacheGetHashCode() => HashCode.Combine(Id, ItemId, Qty);
+
+	public PqbLine Clone() => new() { Id = Id, ItemId = ItemId, Qty = Qty };
+}
+
+public sealed class PqbNote : ICacheEquatable<PqbNote>, ICacheClonable<PqbNote> {
+	public int Id { get; init; }
+	public int CustomerId { get; init; }
+	public string Text { get; init; } = "";
+
+	public bool CacheEquals(PqbNote? other) => other is not null && other.Id == Id && other.CustomerId == CustomerId && other.Text == Text;
+
+	public int CacheGetHashCode() => HashCode.Combine(Id, CustomerId, Text);
+
+	public PqbNote Clone() => new() { Id = Id, CustomerId = CustomerId, Text = Text };
+}
+
+public sealed class PqbDoc : ICacheEquatable<PqbDoc>, ICacheClonable<PqbDoc> {
+	public int Id { get; init; }
+	public int Group { get; init; }
+	public List<int> TagIds { get; init; } = [];
+
+	public bool CacheEquals(PqbDoc? other) => other is not null && other.Id == Id && other.Group == Group && other.TagIds.SequenceEqual(TagIds);
+
+	public int CacheGetHashCode() => HashCode.Combine(Id, Group, TagIds.Count);
+
+	public PqbDoc Clone() => new() { Id = Id, Group = Group, TagIds = [.. TagIds] };
+}
+
+public sealed class PqbTag : ICacheEquatable<PqbTag>, ICacheClonable<PqbTag> {
+	public int Id { get; init; }
+	public string Name { get; init; } = "";
+
+	public bool CacheEquals(PqbTag? other) => other is not null && other.Id == Id && other.Name == Name;
+
+	public int CacheGetHashCode() => HashCode.Combine(Id, Name);
+
+	public PqbTag Clone() => new() { Id = Id, Name = Name };
 }

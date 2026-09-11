@@ -17,7 +17,7 @@ using static PreparedQueryJoinDifferentialTests;
 // incl. take = int.MaxValue, with clone identity of both sides; (b) missing rights: outer → null slot,
 // inner → row dropped and Count matches eager; (c) chained fused pairs and triples; (d) Sort after a fused
 // join over a joined field; (e) executor selection and Explain incl. the replay fallbacks (a filtered
-// JoinOne, JoinMany) and the mixed step-6 shape (a fused and an unfused outer join after a SortBounded);
+// JoinOne; a JoinMany is admitted since step 8, see FrozenPipelineJoinManyTests) and the mixed step-6 shape (a fused and an unfused outer join after a SortBounded);
 // (f) rented arrays balanced under a throwing selector / predicate / comparer / Clone() on the fused paths,
 // eager twins included; (g) 8 readers against a writer churning the rights. An INNER left-symmetric join is
 // the one shape that does not fuse by default: its eager fan-out creates the rows grouped by right key,
@@ -79,6 +79,10 @@ public class FrozenPipelineJoinTests {
 
 	private readonly struct ByCustomer : IComparer<PqOrder> {
 		public int Compare(PqOrder? x, PqOrder? y) => (x?.CustomerId ?? 0).CompareTo(y?.CustomerId ?? 0);
+	}
+
+	private sealed class ByRegionThenIdDescOverInvoice : IComparer<JoinResult<PqOrder, PqInvoice?>> {
+		public int Compare(JoinResult<PqOrder, PqInvoice?> x, JoinResult<PqOrder, PqInvoice?> y) => y.Left.Id.CompareTo(x.Left.Id);
 	}
 
 	// Total orders over the joined row: a post-join sorter over a joined field.
@@ -536,7 +540,7 @@ public class FrozenPipelineJoinTests {
 
 		Assert.That(afterF.Explain(), Does.Contain("sort: classic").And.Contain("joins: 1 (fused: 1, unfused: 0"));
 		Assert.That(afterBoundedF.Explain(), Does.Contain("sort: classic"), "a SortBounded after the join is the classic container's sort, as in eager");
-		Assert.That(beforeF.Explain(), Does.Contain("pipeline: seed = free for Execute").And.Contain("sort: classic"));
+		Assert.That(beforeF.Explain(), Does.Contain("pipeline: seed = free for Execute").And.Contain("sort: bounded"), "a classic Sort over the left value before the joins: a finite page takes the bounded flow (step 8), the seed stays free");
 	}
 
 	[Test]
@@ -669,7 +673,7 @@ public class FrozenPipelineJoinTests {
 	// ── (e) Executor selection and Explain ────────────────────────────────────────
 
 	[Test]
-	public void Executor_FusedShapesTakeThePipeline_FilteredAndJoinManyReplay_MixedStepSixShapeKeepsTheMask() {
+	public void Executor_FusedShapesTakeThePipeline_FilteredReplays_JoinManyAdmitted_MixedStepSixShapeKeepsTheMask() {
 		const string region = "EU";
 		Assert.Multiple(() => {
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "unsorted fused");
@@ -683,12 +687,13 @@ public class FrozenPipelineJoinTests {
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a filtered JoinOne cannot fuse (unsorted)");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, static (q, r) => q.Where(c => c.Region == r), region).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a filtered JoinOne with an arg cannot fuse");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "one unfusable join outside the step-6 shape replays the chain");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).Sort(new ByQtyThenId()).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a classic Sort is not the step-6 shape");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).Sort(new ByQtyThenId()).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a classic Sort over the left value is the step-6 shape too since step 8 (its finite pages take the bounded flow)");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).Sort(new ByRegionThenIdDescOverInvoice()).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a Sort over the joined row is not");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "the step-6 shape keeps its unfused paired read");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an unfusable inner join replays");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "JoinMany (design §7.2)");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a JoinMany anywhere in the chain");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "inner + JoinMany");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "JoinMany: admitted, its fan-out after the pass (step 8; FrozenPipelineJoinManyTests)");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a JoinMany anywhere in the chain");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric JoinOne still replays, JoinMany or not");
 			Assert.That(_orders.Prepare().Or(b => b.UseIndex(_byProduct, 1), b => b.UseIndex(_byProduct, 2)).JoinOne(_invoices).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a composite narrowing (step 4)");
 		});
 

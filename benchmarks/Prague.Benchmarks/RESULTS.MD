@@ -1532,3 +1532,143 @@ with a branch filter, `Match(Or)` under `SortBounded` + fused join — all 0 B),
 twins of the same shapes, `Or`/`If`/`IfElse`/`Match`, nested, sort-bounded-joined). `Prague.Core.Tests/
 Prepared` 429 in Release (net9.0), 429 + 1106 in Debug on net9.0 (1 pre-existing skip), `Prague.Generated.
 Tests` 1223 green. No codegen or T4 change.
+
+
+# Frozen queries — `BuildFrozen()` stage 3, step 8: `JoinMany` — admission, the fused per-left fill, and `Sort` on the bounded flow
+
+Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md` §7.2 (rewritten: "as
+implemented"), §8, §9. Apple M4 Pro, .NET 9.0 (osx-arm64), Release, `--inProcess`, default job,
+`[MemoryDiagnoser]`, one category (or two small ones) per run; the machine idled at a 1-minute load of
+4–6 throughout, so the 5–20 µs rows carry the usual ~5% between-run spread and every claim below rests on a
+gap far larger than it. New right sides on the existing stores: `_lines` by item (two per item, none for
+every fourth; 150k rows), three `_notes` per customer shared by the customer's 1k orders (the fan-out's
+shared-right chain path), and a tag collection on 10k documents (three of 500 tags each, a quarter
+untagged; M:N). Three stages were measured on the same tree, in this order.
+
+## 1. Baseline — before step 8 (every `JoinMany` chain replayed; `_Frozen` = the hinted replay)
+
+| Method | Eager | `Build()` | `BuildFrozen()` (replay) | Allocated |
+|---|---:|---:|---:|---:|
+| `JoinMany` (right-list, list 1k → ~1.5k lines) | 98.24 µs | 99.40 | 97.29 | 0 B |
+| `InnerJoinMany` (a quarter of the lefts dropped) | 103.4 | 107.0 | 108.2 | 0 B |
+| `JoinMany_LeftSym` (1k orders × 3 shared notes) | 86.19 | 85.38 | 84.08 | 0 B |
+| `InnerJoinMany_LeftSym` | 103.9 | 103.4 | 102.7 | 0 B |
+| `JoinMany_Collection` (1k docs → their tags, M:N) | 116.50 | 115.55 | 115.71 | 0 B |
+| `InnerJoinMany_Collection` | 124.8 | 125.1 | 122.8 | 0 B |
+| `Count_JoinMany` | 4.901 | 4.946 | 3.421 | 0 B |
+| `Count_InnerJoinMany` | 96.87 | 98.54 | 99.91 | 0 B |
+| `Sort_JoinMany` (page 0..20) | 123.18 | 120.55 | 121.32 | 0 B |
+| `SortBounded_JoinMany` (page 0..20) | 29.32 (StdDev 3.4) | 29.29 | 26.22 | 0 B |
+| `ListListListSortBoundedJoinMany` (shape A with a `JoinMany`, page 20..40) | 19.16 | 19.18 | 17.87 | 0 B |
+| `ListListListInnerJoinMany` (three lists → 111 rows → inner lines) | 23.84 | 24.24 | 22.76 | 0 B |
+| `Count_ListListListInnerJoinMany` | 23.54 | 24.27 | 22.76 | 0 B |
+
+(The `1 B` / `2 B` BDN reads on some 100 µs rows are the diagnoser's rounding on a rare GC-side
+allocation, not a per-execution one — the `FrozenPipelineAllocationTests` pins read 0 B for the same shapes.)
+
+## 2. Admission only — the narrowing is the pass, the eager fan-out runs after it
+
+| Method | Eager | `Build()` | `BuildFrozen()` | Ratio |
+|---|---:|---:|---:|---:|
+| `JoinMany` / `_LeftSym` / `_Collection` | 97.90 / 83.46 / 116.99 | 97.12 / 84.09 / 115.23 | 96.90 / 85.75 / 114.55 | 0.99 / 1.03 / 0.98 |
+| `InnerJoinMany` / `_LeftSym` / `_Collection` | 104.07 / 104.57 / 125.41 | 102.98 / 106.98 / 125.30 | 98.70 / 87.01 / 118.91 | 0.95 / 0.83 / 0.95 |
+| `Count_JoinMany` / `Count_InnerJoinMany` | 4.921 / 97.81 | 4.813 / 98.71 | 4.772 / 96.18 | 0.97 / 0.98 |
+| `Sort_JoinMany` / `SortBounded_JoinMany` | 121.83 / 26.14 | 120.44 / 26.25 | 121.70 / **17.40** | 1.00 / **0.67** |
+| `ListListListSortBoundedJoinMany` | 19.09 | 19.05 | **6.71** | **0.35** |
+| `ListListListInnerJoinMany` / `Count_` | 23.76 / 23.76 | 23.92 / 23.13 | **11.77 / 11.27** | **0.50 / 0.47** |
+
+The split the brief predicted: where the narrowing is the cost (three lists, a bounded page) admission
+alone is 2–3×; where the 1k-row fan-out is the cost (~90 µs of the 97), the pass's 2 µs is invisible.
+
+## 3. The fused per-left fill (`JoinManyFusedFill`) — and, after it, classic `Sort` on the bounded flow
+
+| Method | Eager | `Build()` | `BuildFrozen()` | Ratio | Speed-up | Allocated |
+|---|---:|---:|---:|---:|---:|---:|
+| `JoinMany` | 99.60 | 97.97 | **64.78** | 0.65 | **1.53×** | 0 B |
+| `JoinMany_LeftSym` | 83.90 | 84.44 | **46.77** | 0.56 | **1.79×** | 0 B |
+| `JoinMany_Collection` | 118.60 | 116.44 | **57.34** | 0.48 | **2.07×** | 0 B |
+| `InnerJoinMany` | 106.43 | 101.43 | **64.45** | 0.61 | **1.65×** | 0 B |
+| `InnerJoinMany_LeftSym` | 103.26 | 102.51 | **48.08** | 0.47 | **2.15×** | 0 B |
+| `InnerJoinMany_Collection` | 124.43 | 127.71 | **58.05** | 0.47 | **2.14×** | 0 B |
+| `Count_InnerJoinMany` (a bucket probe per left) | 98.18 | 98.95 | **25.93** | 0.26 | **3.79×** | 0 B |
+| `Count_JoinMany` (outer: the pipeline's own count) | 4.967 | 4.954 | 5.372 | 1.08 | 0.92× (see below) | 0 B |
+| `ListListListSortBoundedJoinMany` | 19.02 | 18.94 | **5.630** | 0.30 | **3.38×** | 0 B |
+| `ListListListInnerJoinMany` | 24.10 | 24.04 | **7.198** | 0.30 | **3.35×** | 0 B |
+| `Count_ListListListInnerJoinMany` | 23.95 | 23.92 | **2.767** | 0.12 | **8.66×** | 0 B |
+| `SortBounded_JoinMany` (page 0..20; two runs) | 27.34 / 27.20 | 27.34 / 27.41 | **18.13 / 17.15** | 0.66 / 0.63 | **1.51–1.59×** | 0 B |
+| `Sort_JoinMany` (page 0..20) before the `Sort` change | 119.77 | 120.89 | 118.32 | 0.99 | — | 0 B |
+| `Sort_JoinMany` (page 0..20) with a classic `Sort` on the bounded flow | 125.85 | 126.23 | **17.19** | 0.14 | **7.3×** | 0 B |
+| `Sort_ListList` (unbounded page: the classic container, unchanged) | 10.69 | 10.66 | 2.213 | 0.21 | (4.8×, as before) | 0 B |
+
+## The rows that must not move (re-measured on this tree, after everything above)
+
+| Method | Eager | `BuildFrozen()` | Ratio | Steps 4/7 | Verdict |
+|---|---:|---:|---:|---:|---|
+| Shape A `ListListListSortBoundedJoinOne_Frozen` / `Count_` | 17.29 / 10.89 | 5.051 / 1.456 | 0.29 / 0.13 | 4.88–5.03 / 1.42–1.47 | unchanged |
+| Shape B `TimeWindowListListSortBoundedJoinTwo_Frozen` / `_FrozenIndexSide` / `Count_` | 34.01 / — / 21.64 | 18.27 / 22.44 / 12.33 | 0.54 / 0.66 / 0.57 | 17.64–18.69 / 20.03–22.82 / 12.68–12.99 | unchanged |
+| Shape B-range `TimeRangeListListSortBoundedJoinTwo_Frozen` / `Count_` | 36.73 / 24.66 | 20.51 / 16.62 | 0.56 / 0.67 | 20.11–20.74 / 16.79–17.34 (this machine) | unchanged |
+| `ListList_Frozen` / `_FrozenReorder` / `ListListList_Frozen` | 9.31 / — / 11.48 | 1.770 / 1.321 / 2.151 | 0.19 / 0.14 / 0.19 | 1.64–1.68 / 1.22–1.25 / 2.15–2.18 | unchanged (ListList +5%, inside the spread) |
+| `SortBounded_Frozen` / `SortBounded_ListList_Frozen` | 16.41 / 11.70 | 14.75 / 3.779 | 0.90 / 0.32 | 14.4–14.8 / 3.70–3.85 | unchanged (a first run read 15.46 / 4.16 with the eager rows up 3–4% alongside — drift) |
+| `JoinOne_Frozen` / `InnerJoinOne_Frozen` | 30.82 / 35.36 | 21.25 then 20.31 (re-run) / 18.26 | 0.69 → 0.66 / 0.52 | 19.96–20.77 / 17.69–18.61 | unchanged (`JoinOne`'s first run read 2–6% up, the re-run 20.31 — its documented spread is 1.42–1.55×) |
+
+## Reading it
+
+- **The two-pass argument was half right.** §7.2 said the fan-out must record every pair before it
+  can size a slot, because a slot is a fixed partition of one shared buffer. That is true of the *eager*
+  delivery, which walks the pair set by right; it is not true of a delivery that walks the *lefts* in row
+  order — then each slot is a contiguous run of one append-only buffer, its length known the moment its
+  left is done, and the slots can be handed the (possibly relocated) buffer afterwards by row index.
+  `JoinManyFusedFill` does exactly that: per left the family's own bucket read, per right one store
+  lookup, one append. What disappears is the pair-set `AddOrFind` per right, the `PrepareSharedBuffer`
+  walk over every row, and the `ValueDictionary` lookup per `Init` and per delivered right — on the 1k ×
+  1.5k right-list shape roughly 3.2k dictionary lookups and 1.5k set inserts out of ~7k hash operations,
+  which is the 97.9 → 64.8 µs. The shared-right families gain more (left-symmetric 1.79×, collection
+  2.07×) because the eager fan-out's chain bookkeeping goes too.
+- **What stays exact.** Nothing can be dropped or `Truncated` (a slot holds exactly what was appended
+  for it), the pooled buffer is registered with the disposer as before, a throwing `Clone()` returns the
+  rental, and "a right the enumerator yields twice for one left is delivered once" is kept by a 16-key
+  window and a set beyond it. The only observable difference is slot *order* when rights are shared
+  across lefts in overlapping buckets (collection, a non-injective selector): eager interleaves by
+  first-recording order, the fill keeps bucket order — same set, and a slot is an unordered set.
+- **Inner `JoinMany` is now a bucket probe where it counts.** `Count_InnerJoinMany` 98 → 26 µs and
+  `Count_ListListListInnerJoinMany` 24 → 2.8 µs: eager's `CountCoreJoined` runs the whole inner fan-out
+  to learn which lefts have a right; the fused resolver's `UnsafeNarrowFused` stops at the first right
+  the store has. The same probe narrows a bounded page before the heap, so `SortBounded → InnerJoinMany`
+  keeps the bounded flow where eager falls back to the classic core (a total comparer makes the pages
+  identical; the tests pin that).
+- **Where the fill is deliberately off.** A filter callback (a builder lambda over the paired core —
+  it needs the pair set) and a sorter over the joined row declared before the join (the container sorts
+  and crops first; filling every row would do more work than eager). Both keep the eager two-pass fan-out,
+  admitted after the pass. `Explain()` prints `joins: n (fused: f, unfused: u, many: m, …)`.
+- **`Sort` with a page: 7.3× from a gate.** With ties inside a sorted result unspecified (the owner's
+  ruling), a classic `Sort` over the left value can take the bounded top-k plan for a finite page: its
+  encounter-ordinal tie-break is the stable sort's tie order for the same input, so nothing observable
+  changes for a total comparer and a tie group stays a valid order otherwise. `Sort_JoinMany` page 0..20
+  went 125.8 → 17.2 µs — the full stable sort of 1k rows was the whole cost — and a `JoinMany` after such
+  a `Sort` now fuses over the page. `Sort` keeps its free seed; `SortBounded` keeps its fixed seed and its
+  byte-identical pages with tie comparers.
+- **The probe-free count no longer copies values.** `Count_JoinMany` (an outer `JoinMany` over one 1k
+  bucket, no filter) first read 5.37 µs against the 3.42 the hinted *replay* gave it before admission —
+  an outer join never changes a count, so this was the pipeline's own counting walk paying an
+  `InMemoryDataCache.TryGet` call per seed key, value copied out and unread, against the store's
+  key-only `TryCountValues` the eager `Count` runs. `PipelineCore.Count` now counts a plan whose pass
+  needs no value — no key-side or value-side probe active, no filter (top-level, fused, or in a taken
+  arm), decided once per execution from the frame's activation lists — with a span twin of exactly that
+  `TryCountValues` body: the same tables walk, the same membership (a key the store holds), so a key an
+  index bucket holds but the store does not — or no longer — is rejected by both, and nothing counted
+  changes. `Count_JoinMany` reads **3.10 µs** (0.63 of eager, under the replay's 3.42); the other
+  `Count_*` rows are in the table below — the ones with a probe or a filter walk exactly as before.
+- **No tax elsewhere.** Everything added is decided at build (`IsMany`, `CanFuse`, the sorter's place —
+  all JIT-folded or read once); the only per-execution additions are two fields on the fill processor and
+  an `int[]` hint the executor owns. Shapes A / B / B-range, `ListList`, `ListListList`, `SortBounded`,
+  `InnerJoinOne`, `JoinOne` re-measured on their step-4/7 numbers (`JoinOne` read 21.25 once and 20.31 on
+  the re-run, inside the 1.42–1.55× spread step 4 recorded for that row).
+
+## Every `Count_*` row after the presence count
+
+| Method | Eager | `Build()` | `BuildFrozen()` | Ratio | Path |
+|---|---:|---:|---:|---:|---|
+| `Count_JoinMany` | 4.957 | 4.858 | **3.100** | 0.63 | presence count (was 5.37 / replay 3.42) |
+| `Count_InnerJoinMany` | 98.14 | 98.75 | 25.27 | 0.26 | bucket probe (unchanged) |
+| `Count_ListListListInnerJoinMany` | 23.16 | 23.79 | 2.792 | 0.12 | bucket probe (unchanged) |
+COUNT_ROWS_PLACEHOLDER

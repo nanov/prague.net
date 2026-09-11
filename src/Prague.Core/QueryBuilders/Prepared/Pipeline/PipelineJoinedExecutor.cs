@@ -32,9 +32,29 @@ using Collections;
 ///   </para>
 ///   The step-6 shape (an innermost <c>SortBounded</c> followed by outer <c>JoinOne</c>s) also admits
 ///   resolvers that cannot fuse (a filter callback): the mask leaves them their paired read over the page
-///   rows. Any <c>JoinMany</c>, an unfusable inner join, or an unfusable join outside that shape replays
-///   (§7.2, §9). The resolver chain is copied onto the stack per execution because resolvers carry
-///   per-execution scratch, as the prepared joined query does.
+///   rows.
+///   <para>
+///   <b><c>JoinMany</c></b> (step 8; design §7.2 as implemented): never fused — its rows are slots of one
+///   shared buffer that the fan-out partitions once every left's right count is known, a two-pass shape —
+///   but admitted, so the <i>narrowing</i> is the pipeline pass. Without a filter callback the join is
+///   <b>fused</b> like a <c>JoinOne</c>: <c>JoinManyFusedFill</c> fills its slots in the fill walk with one
+///   pass over the rows — per left the bucket, per right one store lookup, appended into one append-only
+///   buffer in row order so each slot is a contiguous run, the slots given the buffer once the fill is done
+///   — no pair set, no partitioning up front, no dictionary lookup per delivery; an inner one drops the rows
+///   whose slot stayed empty, narrows a bounded page before the heap and a count by a bucket probe. A
+///   classic sorter declared before the join keeps it unfused (the container crops before the ordinary walk
+///   fills only the page); a filter callback keeps it unfused too (the callback is a builder lambda over the
+///   paired core). An <b>unfused</b> outer <c>JoinMany</c> is an unfused resolver of the ordinary walk
+///   (<c>ExecuteJoins</c> / <c>ExecuteJoinsBounded</c>): its <c>UnsafeExecuteWithAccessor</c> runs over the
+///   rows the pass formed (or the page rows in the bounded flow), exactly as over the eager base walk's rows;
+///   an unfused inner one runs in the fill walk (<c>FillFused(…, innerMany: true)</c>), in chain order with
+///   the fused inner fills, drops the rows whose slot stayed empty — the eager <c>RetainNonEmptyManySlots</c>
+///   narrowing — keeps the plan on the classic flow (eager's <c>AllInnerNarrowable</c> gate) and makes
+///   <c>Count</c> form the rows and fill them (eager's <c>CountCoreJoined</c> runs the whole inner phase
+///   too). An unfusable inner <c>JoinOne</c>, an unfusable <c>JoinOne</c> outside the step-6 shape, or a
+///   nested <c>JoinMany</c> replays (§9). The resolver chain is copied onto the stack per execution because
+///   resolvers carry per-execution scratch, as the prepared joined query does.
+///   </para>
 /// </summary>
 internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult> : IFrozenExecutor<TArgs, TResult>
 	where TKey : notnull, IEquatable<TKey>
@@ -48,6 +68,13 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 	private readonly int _fusedMask;
 	private readonly bool _allFused;
 	private readonly bool _hasInner;
+	// An UNFUSED inner JoinMany in the chain (step 8: a filter callback, or a classic Sort before it): the
+	// fill walk runs its fan-out and prunes, and Count has to form the rows.
+	private readonly bool _hasUnfusedInnerMany;
+	// The fused INNER positions alone: the count that forms rows fills only what narrows.
+	private readonly int _innerFusedMask;
+	// Per chain position, a fused JoinMany's buffer size hint (the last execution's total; advisory).
+	private readonly int[] _manyHints;
 	// The resolver half of the eager bounded gate, decided once: the chain is immutable after build.
 	private readonly bool _bounded;
 
@@ -60,15 +87,19 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		_fusedMask = shape.FusedMask;
 		_allFused = shape.Joins == shape.FusedJoins;
 		_hasInner = shape.HasInner;
+		_hasUnfusedInnerMany = shape.HasUnfusedInnerMany;
+		_innerFusedMask = shape.InnerFusedMask;
+		_manyHints = new int[JoinChainShape<TValue>.MaxPositions];
 		_bounded = shape.BoundedCapable;
 	}
 
 	public static string Name => "Pipeline";
 
 	/// <summary>
-	///   The chain shapes this executor drives, decided once at build: at most one sorter, no
-	///   <c>JoinMany</c>, and every join either fusable (then fused) or — only in the step-6 shape, an
-	///   innermost bounded left-value sorter followed by outer joins — left to its paired read after the pass.
+	///   The chain shapes this executor drives, decided once at build: at most one sorter, and every join
+	///   either fusable (then fused), a <c>JoinMany</c> (its fan-out runs after the pass, step 8) or — only in
+	///   the step-6 shape, an innermost bounded left-value sorter followed by outer joins — a <c>JoinOne</c>
+	///   left to its paired read after the pass.
 	/// </summary>
 	internal static bool Accepts(in TResolverChain resolvers, bool fuseRegroupingInner, out JoinChainShape<TValue> shape) {
 		var chain = resolvers;
@@ -76,7 +107,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		chain.Execute(ref shape);
 		if (shape.Sorters > 1 || shape.HasUnfusable || shape.HasUnfusedInner)
 			return false;
-		return shape.Joins == shape.FusedJoins || (shape.BoundedCapable && !shape.HasInner);
+		return shape.Joins == shape.FusedJoins + shape.ManyJoins - shape.FusedManyJoins || (shape.BoundedCapable && !shape.HasInner);
 	}
 
 	// SkipLocalsInit: the seed's stack buffer is written before it is read; the frame's constructor
@@ -101,10 +132,14 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 
 	// CountCoreJoined narrows the candidates by the inner joins and counts the survivors: with outer joins
 	// only that is the pipeline's own count, and with inner fused joins the counting pass collects the
-	// matched keys and each inner resolver keeps the ones that have a right (no values, no container).
+	// matched keys and each inner resolver keeps the ones that have a right (no values, no container). An
+	// inner JoinMany's answer per left is its fan-out's (the filter callback decides too), so that count
+	// forms the rows and runs the inner fills — what eager's CountCoreJoined does when it runs the inner phase.
 	public int Count(in TArgs args) {
 		if (!_hasInner)
 			return _core.Count(in args);
+		if (_hasUnfusedInnerMany)
+			return CountThroughFill(in args);
 		var chain = _resolvers;
 		var rows = new RowBuffer(withValues: false);
 		try {
@@ -115,19 +150,48 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		}
 	}
 
+	// The classic flow without a result (step 8): the free-seeded pass forms the rows into a pooled container,
+	// the fill walk runs the fused INNER fills and every inner JoinMany's fan-out in chain order and drops the
+	// lefts without a right, and the survivors are the count. Outer joins are not run — they never change the
+	// count — and nothing is built; the container's Dispose returns the rows and the fan-outs' buffers.
+	[SkipLocalsInit]
+	private int CountThroughFill(in TArgs args) {
+		Span<long> stack = stackalloc long[PipelineLimits.SeedStackLongs];
+		var frame = new PipelineFrame<TKey>(SeedKeys<TKey>.Over(stack));
+		try {
+			if (!_core.Open(in args, ref frame, freeSeed: true))
+				return 0;
+			var chain = _resolvers;
+			var sampled = _core.BeginSampling();
+			var container = new JoinedResultContaier<TKey, TValue, TResolverChain, TResult>(ref chain, true, false, 0, int.MaxValue, _manyCount);
+			try {
+				container.Init(frame.Seed.Count);
+				container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.ActiveFilterList, frame.Bindings, sampled, ref container));
+				container.FillFused(_innerFusedMask, recount: true, _manyHints, innerMany: true);
+				_core.EndSampling(sampled);
+				return container.TotalCount;
+			} finally {
+				container.Dispose();
+			}
+		} finally {
+			_core.Release(ref frame);
+		}
+	}
+
 	// ExecuteCoreJoined with the pass in place of the base walk: the container is sized to the seed and
 	// filled with the lefts, then each fused resolver writes its right slot of every row with one point
 	// lookup per row (an inner one drops the rows without a right and the total becomes the survivors' —
-	// the eager narrowing), and ExecuteJoins runs the sorter (stable, then the page crop) and any unfused
-	// resolver. The fill precedes the sorter because an inner join's rows must be gone before it sorts.
+	// the eager narrowing) and each inner JoinMany runs its fan-out and drops its empty rows (step 8), and
+	// ExecuteJoins runs the sorter (stable, then the page crop) and any unfused resolver — an outer
+	// JoinMany among them. The fill precedes the sorter because an inner join's rows must be gone before it sorts.
 	private QueryResults<TResult> ExecuteClassic(in TArgs args, scoped ref PipelineFrame<TKey> frame, scoped ref TResolverChain chain, bool pool, bool clone, int skip, int take) {
 		var sampled = _core.BeginSampling();
 		var container = new JoinedResultContaier<TKey, TValue, TResolverChain, TResult>(ref chain, pool, clone, skip, take, _manyCount);
 		try {
 			container.Init(frame.Seed.Count);
 			container.Seal(_core.Walk(in args, frame.Seed.Keys, frame.KeyProbeList, frame.ValueProbeList, frame.ActiveFilterList, frame.Bindings, sampled, ref container));
-			if (_fusedMask != 0)
-				container.FillFused(_fusedMask, recount: true);
+			if (_fusedMask != 0 || _hasUnfusedInnerMany)
+				container.FillFused(_fusedMask, recount: true, _manyHints, _hasUnfusedInnerMany);
 			// Runs whatever the mask left: the sorter and the page crop always, an unfused resolver when there is one.
 			container.ExecuteJoins(_fusedMask);
 			var results = container.BuildResults();
@@ -154,7 +218,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 				frame.ActiveFilterList, frame.Bindings, sampled, _hasInner, skip, take);
 			chain.WithSorter(ref feeder);
 			if (_fusedMask != 0)
-				container.FillFused(_fusedMask, recount: false);
+				container.FillFused(_fusedMask, recount: false, _manyHints);
 			if (!_allFused)
 				container.ExecuteJoinsBounded(_fusedMask);
 			var results = container.BuildResults();
@@ -330,7 +394,8 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		}
 
 		public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver {
-			if (TResolver.IsSorter || !TResolver.SupportsFusedLookup || !resolver.Inner || Count == 0)
+			// A JoinMany reaches this walk only when it is fused (the executor's gate): an unfused inner one keeps the chain on CountThroughFill and the classic flow.
+			if (TResolver.IsSorter || !(TResolver.SupportsFusedLookup || TResolver.IsMany) || !resolver.Inner || Count == 0)
 				return;
 			ref var rows = ref Unsafe.AsRef<RowBuffer>(_rows);
 			Count = resolver.UnsafeNarrowFused(rows.Keys[..Count], rows.Values.Length == 0 ? default : rows.Values[..Count]);
@@ -339,10 +404,11 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 }
 
 /// <summary>
-///   What a resolver chain looks like to the joined pipeline planner (design §7.1, §9): the sorter's
+///   What a resolver chain looks like to the joined pipeline planner (design §7.1, §7.2, §9): the sorter's
 ///   place and kind (the eager <see cref="TopKProbeProcessor{TLeftValue}" /> questions), and per join
 ///   whether it fuses (<see cref="IJoinResolver.SupportsFusedLookup" /> and <see cref="IJoinResolver.CanFuse" />),
-///   is inner, or is something else (a <c>JoinMany</c>). Walked once at build.
+///   is a <c>JoinMany</c> (<see cref="IJoinResolver.IsMany" />: its fan-out runs after the pass), is inner, or
+///   is something else. Walked once at build.
 /// </summary>
 internal struct JoinChainShape<TLeftValue> : IResolverExecutor {
 	/// <summary><see cref="FrozenOptions.FuseSymmetricInnerJoins" />: fuse an inner join whose family regroups its rows, accepting the encounter-order change.</summary>
@@ -355,12 +421,30 @@ internal struct JoinChainShape<TLeftValue> : IResolverExecutor {
 	internal int Joins;
 	internal int FusedJoins;
 	internal int FusedMask;
+	/// <summary>Chain positions are 1-based and at most the join arity; the hint array is sized to this.</summary>
+	internal const int MaxPositions = 8;
+
+	/// <summary>The fused positions that are inner: what a count has to fill.</summary>
+	internal int InnerFusedMask;
+	/// <summary>The <c>JoinMany</c>s (step 8): admitted always; fused (the frozen per-left fill, counted in <see cref="FusedJoins" /> too) without a filter callback and no classic sorter before them.</summary>
+	internal int ManyJoins;
+	internal int FusedManyJoins;
 	internal bool HasInner;
+	/// <summary>An inner <c>JoinMany</c> that runs its own fan-out: the chain forms rows to count and stays on the classic flow.</summary>
+	internal bool HasUnfusedInnerMany;
 	internal bool HasUnfusedInner;
 	internal bool HasUnfusable;
 
-	/// <summary>The eager <c>ExecuteCoreJoinedTop</c> resolver gate: one innermost bounded sorter over the left value.</summary>
-	internal bool BoundedCapable => Sorters == 1 && SorterInnermost && SorterAllowsBounded && SorterOrdersByLeftValues;
+	/// <summary>
+	///   The eager <c>ExecuteCoreJoinedTop</c> resolver gate: one innermost sorter over the left value and
+	///   every inner resolver able to narrow before the heap — a fused <c>JoinMany</c> can (its bucket
+	///   probe), an unfused one cannot (its answer per left is the fan-out's), so that chain runs the classic
+	///   flow as eager's <c>AllInnerNarrowable</c> gate does for every inner <c>JoinMany</c>. Unlike eager, a
+	///   classic <c>Sort</c> qualifies too (step 8): the bounded container's encounter-ordinal ties are the
+	///   stable sort's for the same input sequence, and comparer-equal rows have no specified order — so a
+	///   finite page costs a heap of its size instead of the full sort. It keeps its free seed.
+	/// </summary>
+	internal bool BoundedCapable => Sorters == 1 && SorterInnermost && SorterOrdersByLeftValues && !HasUnfusedInnerMany;
 
 	/// <summary>For <c>Explain()</c>: the bounded page flow when the gate can pass, else the classic container's sort (a classic <c>Sort</c> anywhere, a <c>SortBounded</c> after a join).</summary>
 	internal PipelineSort Sort => Sorters == 0 ? PipelineSort.None : BoundedCapable ? PipelineSort.Bounded : PipelineSort.Classic;
@@ -388,12 +472,36 @@ internal struct JoinChainShape<TLeftValue> : IResolverExecutor {
 		Joins++;
 		var inner = resolver.Inner;
 		HasInner |= inner;
+		// A JoinMany (design §7.2 as implemented, step 8), admitted always. Without a filter callback it takes
+		// the frozen per-left fill (JoinManyFusedFill) in the fill walk — unless a sorter over the joined row
+		// precedes it, whose container sorts and crops before the ordinary walk fills only the page: an
+		// innermost sorter over the left value is fine (the bounded flow materializes the page first; its
+		// unbounded fallback needs every row anyway), a sorter after it needs every row filled regardless. Otherwise its own two-pass
+		// fan-out runs after the pass over the rows the pass formed, an inner one dropping the lefts without
+		// a right there. Folded per instantiation.
+		if (TResolver.IsMany) {
+			ManyJoins++;
+			if (resolver.CanFuse && (Sorters == 0 || (SorterInnermost && SorterOrdersByLeftValues))) {
+				FusedJoins++;
+				FusedManyJoins++;
+				FusedMask |= 1 << position;
+				if (inner)
+					InnerFusedMask |= 1 << position;
+				return;
+			}
+
+			HasUnfusedInnerMany |= inner;
+			return;
+		}
+
 		// An inner join whose family emits its rows regrouped (left-symmetric) fuses only when the caller
 		// accepted the order change; otherwise the chain replays and keeps eager's sequence byte for byte.
 		var regroups = inner && TResolver.FusedInnerRegroups && !AllowRegroupingInner;
 		if (TResolver.SupportsFusedLookup && resolver.CanFuse && !regroups) {
 			FusedJoins++;
 			FusedMask |= 1 << position;
+			if (inner)
+				InnerFusedMask |= 1 << position;
 			return;
 		}
 

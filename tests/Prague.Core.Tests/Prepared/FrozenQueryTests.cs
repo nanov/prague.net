@@ -448,11 +448,12 @@ public class FrozenQueryTests {
 		Assert.That(frozen.Count(), Is.EqualTo(prepared.Count()));
 	}
 
+	// Step 8: a JoinMany chain takes the pipeline (the fan-out after the pass); the sequence check here is informational, the contract is the set (FrozenPipelineJoinManyTests).
 	[Test]
-	public void Fallback_JoinMany_FrozenEqualsPreparedEqualsEager() {
+	public void JoinMany_TakesThePipeline_FrozenEqualsPreparedEqualsEager() {
 		var prepared = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinMany(_lines, _lineByOrder).Build();
 		var frozen = _orders.Prepare<int, PqOrder, int>().UseIndex(_byCustomer, static c => c).JoinMany(_lines, _lineByOrder).BuildFrozen();
-		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"));
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Pipeline"));
 		AssertSameJoined(_orders.Query().UseIndex(_byCustomer, 2).JoinMany(_lines, _lineByOrder).Execute(), frozen.Execute(2), Lines);
 		AssertSameJoined(prepared.ExecutePooled(2), frozen.ExecutePooled(2), Lines);
 		Assert.That(frozen.Count(2), Is.EqualTo(prepared.Count(2)));

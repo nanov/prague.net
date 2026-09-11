@@ -233,10 +233,15 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	///   (<see cref="IJoinResolver.UnsafeFillFusedRows{TAccessor}" />); an inner one drops the rows without
 	///   a right. <paramref name="recount" />: the total becomes the surviving row count (the classic flow,
 	///   where the total is the rows added so far); the bounded flow keeps its narrowing's total.
+	///   A fused <c>JoinMany</c> in the mask fills through its frozen per-left fill (<paramref name="fillHints" />:
+	///   its buffer size hint per chain position, the executor's); <paramref name="innerMany" /> (design §7.2 as
+	///   implemented) makes the same walk also run every <i>unfused</i> inner <c>JoinMany</c>'s fan-out over the
+	///   rows and drop the rows whose slot stayed empty, in chain order with the fused inner fills; unfused
+	///   outer <c>JoinMany</c>s run in <see cref="ExecuteJoins" /> like any unfused resolver.
 	/// </summary>
-	internal void FillFused(int fusedMask, bool recount) {
+	internal void FillFused(int fusedMask, bool recount, int[] fillHints, bool innerMany = false) {
 		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(
-			ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: false, skipSorter: true, fusedMask, fillFused: true);
+			ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: false, skipSorter: true, fusedMask, fillFused: true, fillInnerMany: innerMany, fillHints: fillHints);
 		_chainedResolvers.Execute(ref p);
 		if (p.Pruned && recount)
 			_totalCont = _results.Count;

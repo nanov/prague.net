@@ -279,6 +279,11 @@ internal ref struct <#= accessorName #><TKey, TJoinResult>
 	public void PruneNullSlots<TRightValue>()
 		=> _results.Filter(new <#= propName #>NonNullFilter<TKey, TJoinResult, TRightValue>());
 
+	/// <summary>Drops the rows whose slot <c><#= propName #></c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new <#= propName #>NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c><#= propName #></c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -408,9 +413,16 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 	private readonly int _take;
 	// A bit per chain position the frozen pipeline fuses (a fusable JoinOne, design §7.1). In the fill
 	// walk (_fillFused) exactly those resolvers run — one point lookup per row into their slot — and the
-	// sorter and the rest are skipped; in the ordinary walk they are skipped and the rest runs.
+	// sorter and the rest are skipped; in the ordinary walk they are skipped and the rest runs. With
+	// _fillInnerMany the fill walk also runs every INNER JoinMany (design §7.2 as implemented): its fan-out
+	// over the rows formed so far, then the rows whose slot stayed empty are dropped — in chain order with
+	// the fused inner fills, as the eager indexed-inner phase orders its narrowings. Outer JoinManys keep
+	// their place in the ordinary walk.
 	private readonly int _fusedMask;
 	private readonly bool _fillFused;
+	private readonly bool _fillInnerMany;
+	// Per chain position, a fused JoinMany's buffer size hint (the executor's; null outside the fill walk).
+	private readonly int[]? _fillHints;
 	private ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
 	private ref QueryResultsDisposer _disposer;
 
@@ -429,7 +441,9 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		bool fillInner,
 		bool skipSorter,
 		int fusedMask = 0,
-		bool fillFused = false) {
+		bool fillFused = false,
+		bool fillInnerMany = false,
+		int[]? fillHints = null) {
 		_skip = skip;
 		_take = take;
 		_cloneOnAdd = cloneOnAdd;
@@ -438,6 +452,8 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		_skipSorter = skipSorter;
 		_fusedMask = fusedMask;
 		_fillFused = fillFused;
+		_fillInnerMany = fillInnerMany;
+		_fillHints = fillHints;
 		_disposer = ref disposer;
 		_results = ref results;
 	}
@@ -472,14 +488,26 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 				if ((_fusedMask & (1 << <#= i #>)) != 0) {
 					if (_fillFused) {
 						var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
-						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![<#= i #>]);
 					}
 
 					break;
 				}
 
-				if (_fillFused)
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
 					break;
+				}
 
 				if (!resolver.Inner) {
 					var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
