@@ -1,141 +1,83 @@
 namespace Prague.Benchmarks;
 
+using BenchmarkDotNet.Columns;
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Filters;
+using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Loggers;
+using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
+using BenchmarkDotNet.Toolchains.InProcess.NoEmit;
 
-internal class Program {
+internal static class Program {
+	/// <summary>The two production shapes every quick run carries as the no-tax check.</summary>
+	private static readonly string[] QuickTrio = ["ListListListSortBoundedJoinOne", "TimeWindowListListSortBoundedJoinTwo"];
+
 	private static void Main(string[] args) {
+		if (args.Length > 0 && args[0] == "--quick") {
+			RunQuick(args.AsSpan(1));
+			return;
+		}
+
 		BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
 	}
-	/*
-	if (args.Length > 0 && args[0].StartsWith("--memory")) {
-		var seconds = 60;
-		var eqIdx = args[0].IndexOf('=');
-		if (eqIdx > 0 && int.TryParse(args[0][(eqIdx + 1)..], out var s))
-			seconds = s;
-		RunMemoryComparison(seconds);
+
+	/// <summary>
+	///   <c>--quick [--target &lt;category&gt;]...</c> — one short in-process job over shapes A and B plus the
+	///   given categories, ending in one line per method: mean, ratio to the category's baseline, bytes per
+	///   operation. It steers work; a keep-or-kill decision still takes one full single-category run.
+	/// </summary>
+	private static void RunQuick(ReadOnlySpan<string> rest) {
+		var categories = new List<string>(QuickTrio);
+		for (var i = 0; i < rest.Length; i++) {
+			if (rest[i] == "--target" && i + 1 < rest.Length)
+				categories.Add(rest[++i]);
+			else if (!rest[i].StartsWith("--", StringComparison.Ordinal))
+				categories.Add(rest[i]);
+		}
+
+		var job = Job.ShortRun
+			.WithToolchain(InProcessNoEmitToolchain.Instance)
+			.WithWarmupCount(3)
+			.WithIterationCount(5)
+			.WithId("Quick");
+
+		var config = ManualConfig.CreateEmpty()
+			.AddJob(job)
+			.AddFilter(new AnyCategoriesFilter(categories.ToArray()))
+			.AddColumnProvider(DefaultColumnProviders.Instance)
+			.AddLogger(ConsoleLogger.Default)
+			.WithOptions(ConfigOptions.DisableLogFile | ConfigOptions.JoinSummary);
+
+		var summaries = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(["--filter", "*"], config);
+
+		Console.WriteLine();
+		Console.WriteLine("quick — short job, steer only; decide on a full single-category run");
+		Console.WriteLine($"{"category",-44} {"method",-16} {"mean",12} {"ratio",7} {"alloc",8}");
+		foreach (var summary in summaries)
+		foreach (var group in summary.Reports.GroupBy(r => r.BenchmarkCase.Descriptor.Categories.FirstOrDefault() ?? string.Empty).OrderBy(g => g.Key)) {
+			var baseline = group.FirstOrDefault(r => r.BenchmarkCase.Descriptor.Baseline)?.ResultStatistics?.Mean;
+			foreach (var report in group) {
+				var mean = report.ResultStatistics?.Mean;
+				var ratio = mean is { } m && baseline is { } b && m > 0 ? $"{b / m,7:F2}" : $"{"-",7}";
+				var alloc = report.GcStats.GetBytesAllocatedPerOperation(report.BenchmarkCase);
+				var name = report.BenchmarkCase.Descriptor.WorkloadMethod.Name;
+				var suffix = name.LastIndexOf('_') is var cut and >= 0 ? name[(cut + 1)..] : name;
+				Console.WriteLine($"{group.Key,-44} {suffix,-16} {FormatNs(mean),12} {ratio} {FormatBytes(alloc),8}");
+			}
+		}
 	}
-	else if (args.Length > 0 && args[0].StartsWith("--trace")) {
-		var seconds = 60;
-		var eqIdx = args[0].IndexOf('=');
-		if (eqIdx > 0 && int.TryParse(args[0][(eqIdx + 1)..], out var s))
-			seconds = s;
-		RunTraceComparison(seconds);
-	}
-	else {
-		BenchmarkRunner.Run<ConcurrentReadWriteBenchmark>();
-	}
-}
 
-private static void RunMemoryComparison(int seconds) {
-	// Attach dotMemory profiler
-	DotMemory.Init();
+	private static string FormatNs(double? ns) => ns switch {
+		null => "-",
+		>= 1_000_000 => $"{ns.Value / 1_000_000:F2} ms",
+		>= 1_000 => $"{ns.Value / 1_000:F2} us",
+		_ => $"{ns.Value:F1} ns",
+	};
 
-	var config = new DotMemory.Config();
-	config.SaveToDir("./snapshots");
-
-	var benchmark = new ProfileBenchmark();
-
-	Console.WriteLine("Setting up...");
-	benchmark.Setup();
-
-	DotMemory.Attach(config);
-
-	// Force GC before starting
-	GC.Collect();
-	GC.WaitForPendingFinalizers();
-	GC.Collect();
-
-	// --- NOT POOLED ---
-	var gen0Before = GC.CollectionCount(0);
-	var gen1Before = GC.CollectionCount(1);
-	var gen2Before = GC.CollectionCount(2);
-	var memBefore = GC.GetTotalMemory(false);
-
-	Console.WriteLine($"Running NOT POOLED benchmark ({seconds} seconds)...");
-	DotMemory.GetSnapshot("Before NOT POOLED");
-	var notPooledResult = benchmark.ConcurrentReadsWithWriter_NotPooled(seconds);
-	DotMemory.GetSnapshot("After NOT POOLED");
-
-	var gen0After = GC.CollectionCount(0);
-	var gen1After = GC.CollectionCount(1);
-	var gen2After = GC.CollectionCount(2);
-	var memAfter = GC.GetTotalMemory(false);
-
-	Console.WriteLine("NOT POOLED Results:");
-	Console.WriteLine($"  Reads: {notPooledResult:N0}");
-	Console.WriteLine($"  Gen0 collections: {gen0After - gen0Before}");
-	Console.WriteLine($"  Gen1 collections: {gen1After - gen1Before}");
-	Console.WriteLine($"  Gen2 collections: {gen2After - gen2Before}");
-	Console.WriteLine($"  Memory delta: {(memAfter - memBefore) / 1024.0 / 1024.0:F2} MB");
-	Console.WriteLine();
-
-	// Force GC between tests
-	GC.Collect();
-	GC.WaitForPendingFinalizers();
-	GC.Collect();
-
-	// --- POOLED ---
-	gen0Before = GC.CollectionCount(0);
-	gen1Before = GC.CollectionCount(1);
-	gen2Before = GC.CollectionCount(2);
-	memBefore = GC.GetTotalMemory(false);
-
-	Console.WriteLine($"Running POOLED benchmark ({seconds} seconds)...");
-	DotMemory.GetSnapshot("Before POOLED");
-	var pooledResult = benchmark.ConcurrentReadsWithWriter_Pooled(seconds);
-	DotMemory.GetSnapshot("After POOLED");
-
-	gen0After = GC.CollectionCount(0);
-	gen1After = GC.CollectionCount(1);
-	gen2After = GC.CollectionCount(2);
-	memAfter = GC.GetTotalMemory(false);
-
-	Console.WriteLine("POOLED Results:");
-	Console.WriteLine($"  Reads: {pooledResult:N0}");
-	Console.WriteLine($"  Gen0 collections: {gen0After - gen0Before}");
-	Console.WriteLine($"  Gen1 collections: {gen1After - gen1Before}");
-	Console.WriteLine($"  Gen2 collections: {gen2After - gen2Before}");
-	Console.WriteLine($"  Memory delta: {(memAfter - memBefore) / 1024.0 / 1024.0:F2} MB");
-
-	DotMemory.Detach();
-	Console.WriteLine("\nDone! Snapshots saved to ./snapshots");
-}
-
-private static void RunTraceComparison(int seconds) {
-	// Attach dotTrace profiler
-	DotTrace.Init();
-
-	var config = new DotTrace.Config();
-	config.SaveToDir("./snapshots");
-
-	var benchmark = new ProfileBenchmark();
-
-	Console.WriteLine("Setting up...");
-	benchmark.Setup();
-
-	DotTrace.Attach(config);
-
-	// --- NOT POOLED ---
-	Console.WriteLine($"Running NOT POOLED benchmark ({seconds} seconds)...");
-	DotTrace.StartCollectingData();
-	var notPooledResult = benchmark.ConcurrentReadsWithWriter_NotPooled(seconds);
-	DotTrace.SaveData();
-
-	Console.WriteLine("NOT POOLED Results:");
-	Console.WriteLine($"  Reads: {notPooledResult:N0}");
-	Console.WriteLine();
-
-	// --- POOLED ---
-	Console.WriteLine($"Running POOLED benchmark ({seconds} seconds)...");
-	DotTrace.StartCollectingData();
-	var pooledResult = benchmark.ConcurrentReadsWithWriter_Pooled(seconds);
-	DotTrace.SaveData();
-
-	Console.WriteLine("POOLED Results:");
-	Console.WriteLine($"  Reads: {pooledResult:N0}");
-
-	DotTrace.Detach();
-	Console.WriteLine("\nDone! Trace snapshots saved to ./snapshots");
-}
-*/
+	private static string FormatBytes(long? bytes) => bytes switch {
+		null => "-",
+		0 => "0 B",
+		_ => $"{bytes.Value} B",
+	};
 }
