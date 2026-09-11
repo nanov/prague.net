@@ -323,8 +323,8 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 		frame.SeedStep = seed;
 		frame.Mode = mode;
 
-		// An Or that seeds walks its union when the order is free (Count, a classic Sort, the opt-ins)
-		// and the eager store walk kept to that union otherwise (design §5.1). Its signal is read for
+		// An Or that seeds walks its union by default, and the eager store walk kept to that union under
+		// PreserveEagerOrder (design §5.1) — never for Count or a classic Sort, whose order is free. Its signal is read for
 		// the record only — the walk it precedes is the store's. Gated on _hasOr (read once at build)
 		// so a plan with no Or step never pays the Kind virtual call to find that out.
 		var orSeed = _hasOr && seed >= 0 && steps[seed].Kind == NarrowerKind.Or;

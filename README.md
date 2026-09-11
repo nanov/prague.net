@@ -579,6 +579,64 @@ argument is bound into a per-thread pooled predicate box instead. Measured on th
 Design: `docs/superpowers/specs/2026-09-09-prepared-query-command-design.md`; engine notes in
 `context/query.md`, generated surface in `context/generated.md`.
 
+#### **`BuildFrozen()` — the same query, planned once**
+
+`BuildFrozen()` ends the chain where `Build()` does, but instead of replaying the description into a
+fresh eager core on every execution it plans the query once and binds it to an executor built for that
+shape: a point lookup for a unique-index equality, a **single-pass pipeline** for everything else it can
+take — one index step's keys are copied out and every other step becomes an O(1) probe on the key or on
+the fetched value, so there is no candidate set and no intersection — and the prepared replay for the
+rest. Joins fuse into that pass (one right lookup per row), `Sort` / `SortBounded` feed the eager
+top-k container directly, and `Count` skips the values it does not need.
+
+```csharp
+private readonly FrozenQuery<(int dept, int brand), JoinResult<Product, ProductInfo?>> _page =
+    products.Prepare<(int dept, int brand)>()
+        .WithDepartmentId(static a => a.dept)
+        .WithBrandId(static a => a.brand)
+        .SortBounded(new ByReleaseDateDesc())
+        .JoinWithProductInfo()
+        .BuildFrozen();                       // BuildFrozen(FrozenOptions) to tune; see below
+
+using var page = _page.ExecutePooled((dept, brand), skip: 0, take: 20);   // 0 B, any thread
+Console.WriteLine(_page.Explain());           // the plan, the live optimizations, the last seed chosen
+```
+
+**What a frozen result guarantees.** The same rows as the eager builder's, with the same `Count`,
+`TotalCount` and `Truncated`, the same clone timing, the same pooling and leak safety, 0 B per pooled
+execution, and pages that are slices of the same whole. **Order is not part of the contract unless you
+ask for it:** an unsorted result carries no row-order guarantee, and the **ties** of a sorted one are
+unspecified too — the comparer does not order them. A `Sort` / `SortBounded` with a **total** comparer
+is byte-identical to eager.
+
+That freedom is what pays: the pipeline seeds from whichever index step is narrowest *for this
+execution's arguments* rather than the one you happened to declare first, so `WithDepartmentId(...)`
+followed by a hundred-row `WithBrandId(...)` walks the hundred rows whichever way round you wrote it.
+If you need the eager sequence back — a snapshot diffed row by row, a golden test — set
+`new FrozenOptions { PreserveEagerOrder = true }`: it pins the seed to the first declared step, walks
+the store for an `Or`-first query and replays a chain containing an inner left-symmetric join, and
+costs what those choices cost.
+
+Measured on the raw cache (`benchmarks/Prague.Benchmarks/FrozenQueryBenchmarks.cs`, 100k rows, 1k-row
+list buckets, Apple M4 Pro, .NET 9, `--inProcess`, pooled + disposed; every frozen row 0 B per execution):
+
+| Shape | Eager | `Build()` | `BuildFrozen()` | Ratio |
+|---|---:|---:|---:|---:|
+| unique lookup, parameterized | 132 ns | 129 ns | **18.0 ns** | 7.3× |
+| list bucket + `Where` | 8.62 µs | 8.58 µs | **5.84 µs** | 1.5× |
+| list ∩ list (1k ∩ 100, largest declared first) | 9.26 µs | 9.11 µs | **1.29 µs** | 7.2× |
+| list ∩ list ∩ list (1k ∩ 333 ∩ 111) | 11.2 µs | 11.1 µs | **1.78 µs** | 6.3× |
+| list ∩ 60k-row range window | 398 µs | 396 µs | **11.2 µs** | 35× |
+| "everything since T" ∩ list | 216 µs | 216 µs | **9.66 µs** | 22× |
+| `Or` of two 1k buckets, first narrowing | 976 µs | 983 µs | **26.9 µs** | 36× |
+| `SortBounded` page of 20 over list ∩ list | 11.3 µs | 11.4 µs | **3.42 µs** | 3.3× |
+| 3 lists → `SortBounded(page)` → `JoinOne` | 17.1 µs | 16.9 µs | **4.56 µs** | 3.7× |
+| …the same shape's `Count` | 11.0 µs | 10.8 µs | **1.42 µs** | 7.7× |
+| `Sort` over a 1k bucket → `JoinMany` | 118 µs | 119 µs | **17.2 µs** | 6.9× |
+
+Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md`; engine notes in
+`context/query.md`; every measured table in `benchmarks/Prague.Benchmarks/RESULTS.MD`.
+
 ### **Conditional Updates**
 
 Prague detects when data hasn't changed and avoids unnecessary work:

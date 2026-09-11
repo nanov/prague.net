@@ -32,7 +32,6 @@ One lookup or one delegate call each; read by `QueryBuilders/Prepared/Pipeline/S
 
 | API | Purpose |
 |---|---|
-| `PooledSet.TryGetSlot(item, out slot)` | the slot the enumerator yields the item at (gate-pinned `Contains` variant); false for absent items and disposed sets — reproduces a set's enumeration order for a subset (small-probe seed) |
 | `CacheKeyValueListIndex.HasKeySelector` / `TryGetBucket(key, out bucket)` | scalar vs collection-backed; the live bucket (no `Empty` substitution) |
 | `CacheRangeIndex.KeyOf(key, value)` / `EstimateCount(in from, in to)` | the value-side range probe; a cardinality signal |
 | `CacheKeySetIndex.Matches(key, value)` / `Count` / `CopyKeysTo(ref sink)` | value-side key-set probe (no lock); live count; the locked key copy the eager `AddKeyTo` does, into an `IKeySink<TKey>` |

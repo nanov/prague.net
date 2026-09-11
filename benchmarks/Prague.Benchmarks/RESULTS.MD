@@ -1672,3 +1672,131 @@ alone is 2–3×; where the 1k-row fan-out is the cost (~90 µs of the 97), the 
 | `Count_InnerJoinMany` | 98.14 | 98.75 | 25.27 | 0.26 | bucket probe (unchanged) |
 | `Count_ListListListInnerJoinMany` | 23.16 | 23.79 | 2.792 | 0.12 | bucket probe (unchanged) |
 COUNT_ROWS_PLACEHOLDER
+
+
+# Frozen queries — the ordering relaxation: the free seed by default, one `PreserveEagerOrder` opt-out
+
+The contract decided 2026-09-11 — *order is not important if not specified* — and the plan changes it
+allows: the free seed is the default for every `Execute*` (`SortBounded` included), an `Or`-first plan
+seeds the union of its branches, and an inner left-symmetric `JoinOne` fuses into the pass instead of
+replaying. `ReorderIndexNarrowers`, `OrSeed` and `FuseSymmetricInnerJoins` collapse into one
+`FrozenOptions.PreserveEagerOrder` opt-out. Design: the supersession banner on
+`docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md`; contract in `context/query.md`.
+
+Apple M4 Pro, .NET 9.0 (osx-arm64), Release, `--inProcess`, default job, `[MemoryDiagnoser]`, **one
+category per run, all 54 in one sequential sweep** (17:10–17:52, ~2 min a category). The 1-minute load
+sat at 2.7–5 for the sweep — quieter than the 4–6 previous sessions ran at, which matters for reading the
+deltas below and is called out where it does. Every frozen row is **0 B** per pooled execution and per
+`Count` unless the table says otherwise.
+
+## The production shapes
+
+| Shape | Eager | Frozen | Ratio | Before the relaxation |
+|---|---:|---:|---:|---:|
+| A: 3 list indexes → `SortBounded(page)` → `JoinOne` | 17.089 us | 4.560 us | **3.70×** | 3.4× |
+| A `Count` | 10.999 us | 1.421 us | **7.69×** | 7.5× |
+| A with a `JoinMany` instead | 18.956 us | 5.149 us | **3.70×** | 3.4× |
+| A with an inner `JoinMany` | 23.605 us | 6.734 us | **3.45×** | 3.35× |
+| B: newer-than-T → 2 lists → `SortBounded` → 2 `JoinOne`s | 33.90 us | 18.51 us | **1.82×** | 1.9× |
+| B, range-on-timestamp variant | 36.98 us | 20.78 us | **1.79×** | 2.1× |
+| B `Count` | 21.18 us | 12.63 us | **1.67×** | — |
+
+**Shape A moved 3.4× → 3.7×, and so did its `JoinMany` twin.** That is deliverable C: a `SortBounded`
+plan used to keep the fixed seed because the bounded container breaks ties by encounter ordinal and those
+ordinals had to be eager's. Ties are now unspecified, so the pass seeds from the 111-row lane bucket
+instead of the 1k group bucket. **Shape B did not move** (1.9× → 1.82×, 2.1× → 1.79×, both within the
+~5–10% spread these rows carry) — correctly, because its narrowest step is the time window, which already
+seeded. Shape A's `Count` and every other `Count_*` row is likewise flat: `Count` seeded free before this
+change, and the relaxation must not have touched it. Nothing in the `Count_*` tail moved.
+
+## The rows the relaxation actually changed
+
+Against the step-3 / step-4 tables above, measured on the same shapes:
+
+| Row | Eager | Frozen before | Frozen now | Note |
+|---|---:|---:|---:|---|
+| `ListList` (1k ∩ 100, largest declared first) | 9.264 us | 1.721 us | **1.288 us** | the small-probe seed walked the 100 and slot-sorted them back; the free seed skips the sort |
+| `ListListList` (1k ∩ 333 ∩ 111, largest first) | 11.179 us | 2.249 us | **1.775 us** | same |
+| `SortBounded_ListList` | 11.332 us | — | **3.417 us** | deliverable C: `SortBounded` seeds free |
+| `ListList` under `PreserveEagerOrder` | 9.264 us | 1.721 us (small probe) | 7.630 us | **the opt-out is slower than the old default**: the slot sort is gone, so it walks the 1k bucket outright |
+| `Or` (two 1k buckets, Or first) | 976.18 us | — | **26.95 us** | the union seed, now the only default |
+| `Or` under `PreserveEagerOrder` | 976.18 us | — | 757.43 us | the eager store walk kept to the union — what the opt-out buys and costs |
+
+The last two rows are the price list for the opt-out, and it is steep by design: one flag now restores the
+fixed seed, the eager `Or` store walk and the left-symmetric replay together, and a caller who wants the
+eager sequence pays for all three. Nobody on the default path pays anything.
+
+## Every row in the sweep
+
+| Row | Eager | `Build()` | `BuildFrozen()` | Ratio |
+|---|---:|---:|---:|---:|
+| `Unique` | 130.97 ns | 126.61 ns | **25.15 ns** | 5.21× |
+| `Unique (bound int args)` | 130.97 ns | — | **17.94 ns** | 7.30× |
+| `UniqueArg` | 131.60 ns | 129.17 ns | **17.99 ns** | 7.32× |
+| `UniqueWhere` | 148.96 ns | 139.09 ns | **19.07 ns** | 7.81× |
+| `UniqueArgWhere` | 163.79 ns | 135.77 ns | **20.49 ns** | 7.99× |
+| `ListWhere` | 8.615 us | 8.578 us | **5.835 us** | 1.48× |
+| `ListTwoWheres` | 8.080 us | 9.649 us | **7.003 us** | 1.15× |
+| `ListThreeWheresSelectiveLast` | 9.822 us | 11.557 us | **7.242 us** | 1.36× |
+| `ListTwoArgWheres` | 10.89 us | 13.47 us | **11.42 us** | 0.95× |
+| `ListList` | 9.264 us | 9.109 us | **1.288 us** | 7.19× |
+| `ListListReversed` | 1.312 us | 1.321 us | **1.018 us** | 1.29× |
+| `ListListList` | 11.179 us | 11.100 us | **1.775 us** | 6.30× |
+| `ListRange` | 397.57 us | 396.34 us | **11.22 us** | 35.43× |
+| `ListKeySet` | 12.017 us | 11.995 us | **9.037 us** | 1.33× |
+| `ListLastUpdated` | 216.375 us | 216.127 us | **9.657 us** | 22.41× |
+| `Range` | 12.822 us | 12.651 us | **6.572 us** | 1.95× |
+| `OptionalRange` | 12.784 us | 12.761 us | **6.628 us** | 1.93× |
+| `Or` | 976.18 us | 982.91 us | **26.95 us** | 36.22× |
+| `OrAfterList` | 7,134.5 ns | 7,195.8 ns | **249.0 ns** | 28.65× |
+| `IfTaken` | 3,031.1 ns | 3,040.5 ns | **123.4 ns** | 24.56× |
+| `IfSkipped` | 10.092 us | 10.052 us | **8.777 us** | 1.15× |
+| `Match` | 8.431 us | 8.469 us | **7.104 us** | 1.19× |
+| `Sort_ListList` | 10.365 us | 10.181 us | **2.105 us** | 4.92× |
+| `SortBounded` | 16.08 us | 15.82 us | **14.47 us** | 1.11× |
+| `SortBounded_ListList` | 11.332 us | 11.419 us | **3.417 us** | 3.32× |
+| `TimeWindowListListSortBounded` | 24.76 us | — | **17.77 us** | 1.39× |
+| `JoinOne` | 31.04 us | 29.53 us | **19.90 us** | 1.56× |
+| `InnerJoinOne` | 33.86 us | 33.61 us | **17.55 us** | 1.93× |
+| `JoinOneChained` | 44.33 us | 44.81 us | **26.24 us** | 1.69× |
+| `JoinOneFiltered` | 21.22 us | 21.08 us | **19.70 us** | 1.08× |
+| `JoinMany` | 98.35 us | 95.76 us | **65.07 us** | 1.51× |
+| `InnerJoinMany` | 103.68 us | 102.99 us | **59.82 us** | 1.73× |
+| `JoinMany_LeftSym` | 85.37 us | 82.62 us | **47.20 us** | 1.81× |
+| `InnerJoinMany_LeftSym` | 104.16 us | 103.95 us | **47.55 us** | 2.19× |
+| `JoinMany_Collection` | 115.73 us | 116.88 us | **57.32 us** | 2.02× |
+| `InnerJoinMany_Collection` | 122.13 us | 122.16 us | **58.11 us** | 2.10× |
+| `Sort_JoinMany` | 117.88 us | 118.74 us | **17.19 us** | 6.86× |
+| `SortBounded_JoinMany` | 26.01 us | 25.84 us | **16.93 us** | 1.54× |
+| `Count_ListList` | 8,687.9 ns | 8,527.7 ns | **969.1 ns** | 8.96× |
+| `Count_ListRange` | 394.080 us | 394.455 us | **8.596 us** | 45.84× |
+| `Count_ListWhere` | 6.672 us | 6.623 us | **5.521 us** | 1.21× |
+| `Count_Or` | 950.47 us | — | **15.37 us** | 61.84× |
+| `Count_Match` | 6.701 us | — | **5.870 us** | 1.14× |
+| `Count_SortBounded` | 5.015 us | 4.892 us | **2.116 us** | 2.37× |
+| `Count_JoinMany` | 5.145 us | 4.973 us | **2.969 us** | 1.73× |
+| `Count_InnerJoinMany` | 93.49 us | 93.46 us | **24.86 us** | 3.76× |
+| `Count_TimeRangeListListSortBoundedJoinTwo` | 24.65 us | 24.35 us | **16.54 us** | 1.49× |
+
+The opt-out and option variants, for reference: `ListWhere_FrozenNoHints` 7.987 us (capacity hints are worth 1.37× on this row), `ListTwoWheres_FrozenFixedOrder` 9.638 us and `ListThreeWheresSelectiveLast_FrozenFixedOrder` 12.029 us (`AdaptiveFilterOrdering = false`: the adaptive order is the whole win on the three-filter row), `ListListReversed_FrozenEagerOrder` 1.003 us (the smallest step is already declared first, so the opt-out costs nothing there), and `TimeWindowListListSortBoundedJoinTwo_FrozenIndexSide` 19.06 us (1.02× over value-side probes — unchanged by this work).
+
+## Reading it
+
+**What this sweep is evidence for.** The relaxation moved exactly the rows it was supposed to move —
+`SortBounded` shapes (A, `SortBounded_ListList`), multi-list narrowings declared worst-first (`ListList`,
+`ListListList`) — and left everything else where it was: shape B, every `Count_*` row, every `JoinOne` /
+`JoinMany` row, the single-step plans. A relaxation that quietly changed a row it had no business
+touching would show up here as a moved `Count_*`; none did.
+
+**What it is not evidence for.** Two rows the previous session recorded as sitting below their bars now
+read differently: `ListWhere` ~1.10× → 1.47× and `IfSkipped` 1.29× → 1.15×.
+Neither plan changed — one list step and a filter; a skipped `If` arm over a list step. The likely cause is
+the machine: this sweep ran at a 1-minute load of 2.7–5 against the 4–6 the earlier numbers were taken at.
+These are single-run readings on rows whose fixed per-execution cost has almost no walk to amortise it, so
+**treat both as unresolved rather than as an improvement or a regression** — they were not re-measured.
+The `ListWhere` bar (1.5×) is met on this reading and was not on the last one; that is not a claim this
+change earned it.
+
+**Test and build state.** `Prague.Core.Tests` 1544 passed / 1 skipped and `Prague.Generated.Tests` 1224,
+both on net9.0 and net10.0; `dotnet build Prague.sln -c Release` 0 warnings, 0 errors. The Kafka
+integration tests need Docker and were not run.

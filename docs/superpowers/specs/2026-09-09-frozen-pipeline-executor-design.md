@@ -1,5 +1,18 @@
 # Frozen queries stage 3: the pipeline executor
 
+> **Superseded in part (2026-09-11, the ordering relaxation).** The repo owner decided the contract
+> *order is not important if not specified*: an unsorted frozen result has no row-order guarantee and
+> the ties of a sorted one are unspecified, while a `Sort` / `SortBounded` with a **total** comparer
+> stays byte-identical. Everything this design says about *preserving the eager encounter order* is
+> therefore history, not behaviour. What changed: the **free seed §3.3 is the default** for every
+> `Execute*` (`SortBounded` included), the **small-probe seed §3.4 is retired** along with
+> `PipelineCore.SortBySlot`, `IPipelineStep.SlotAddressable` / `TryGetSlot` and `PooledSet.TryGetSlot`,
+> an **`Or`-first plan seeds the union** and an **inner left-symmetric `JoinOne` fuses**. The three
+> opt-ins this design introduced — `ReorderIndexNarrowers`, `OrSeed`, `FuseSymmetricInnerJoins` — are
+> replaced by one `FrozenOptions.PreserveEagerOrder` opt-out that restores all three eager behaviours
+> together. Read §3.4 and every "byte-identical sequence" claim below as describing that opt-out.
+> Current behaviour: `context/query.md` → `BuildFrozen()`.
+
 > **Status:** design, branch `poc/prepared-query`, written against HEAD `a0b1ef4`. §13 steps 1–3 and 5–7 are
 > shipped (step 3: the small-probe seed §3.4, the free seed §3.3 for `Count` / classic `Sort` /
 > `ReorderIndexNarrowers`, the bulk `PooledSet.CopyKeysTo` seed copy, `IndexStepsExecutor` retired —
