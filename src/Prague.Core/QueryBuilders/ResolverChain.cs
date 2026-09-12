@@ -35,6 +35,36 @@ public interface IResolvers {
 	/// </summary>
 	int CompareLeftValues<TLeft>(TLeft a, TLeft b)
 		=> throw new InvalidOperationException("Resolver chain has no sorter");
+
+	/// <summary>
+	///   Hands the chain's sorter to <paramref name="visitor" /> as a struct type parameter, so the work
+	///   the visitor does per comparison calls the sorter directly instead of hopping the chain
+	///   (<see cref="CompareLeftValues{TLeft}" />) once per link per compare. Walked once per execution;
+	///   the frozen bounded joined page (pipeline design §8, step 7) is its only caller, and it must have
+	///   probed that the chain has exactly one sorter and that it orders by the left value.
+	/// </summary>
+	internal void WithSorter<TVisitor>(ref TVisitor visitor)
+		where TVisitor : struct, ISorterVisitor, allows ref struct
+		=> throw new InvalidOperationException("Resolver chain has no sorter");
+}
+
+/// <summary>
+///   Receives a resolver chain's sorter statically typed (<see cref="IResolvers.WithSorter{TVisitor}" />).
+///   The twin of <see cref="IResolverExecutor" />, which walks every link; this one stops at the sorter.
+/// </summary>
+internal interface ISorterVisitor {
+	void Visit<TSorter>(ref TSorter sorter) where TSorter : struct, IJoinResolver;
+}
+
+/// <summary>
+///   Receives a sorter's user comparer statically typed, with the type it orders
+///   (<see cref="IJoinResolver.WithLeftComparer{TVisitor}" />). One hop further in than
+///   <see cref="ISorterVisitor" />, which stops at the resolver: this one carries the comparer itself,
+///   so the work the visitor does per comparison calls it through a type parameter rather than through
+///   the resolver's generic <c>CompareLeftValues</c>.
+/// </summary>
+internal interface ILeftComparerVisitor {
+	void Visit<TResult, TComparer>(ref TComparer comparer) where TComparer : IComparer<TResult>;
 }
 
 public interface IResolverExecutor {
@@ -48,7 +78,12 @@ public interface IFlippedResolvers { }
 public struct Resolvers<TResolver> : IResolvers, IFlippedResolvers
 	where TResolver : struct, IJoinResolver {
 	private TResolver _resolver;
-	internal ref TResolver Resolver => ref Unsafe.AsRef(in _resolver);
+
+	// readonly: the chain is held in readonly fields (the frozen executors, the prepared query), and a
+	// non-readonly member read through one copies the whole chain to a temp before handing back the
+	// ref — so the ref would point at the copy, and the copy costs sizeof(chain) per execution. The
+	// Unsafe.AsRef is what makes the readonly modifier legal here; it was already doing the laundering.
+	internal readonly ref TResolver Resolver => ref Unsafe.AsRef(in _resolver);
 
 	public Resolvers(TResolver resolver) {
 		_resolver = resolver;
@@ -68,6 +103,9 @@ public struct Resolvers<TResolver> : IResolvers, IFlippedResolvers
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public int CompareLeftValues<TLeft>(TLeft a, TLeft b) => _resolver.CompareLeftValues(a, b);
+
+	// Chain base: position 0, the only place an innermost sorter can sit.
+	void IResolvers.WithSorter<TVisitor>(ref TVisitor visitor) => visitor.Visit(ref _resolver);
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -102,6 +140,15 @@ public struct Resolvers<TPrev, TResolver> : IResolvers, IFlippedResolvers
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public int CompareLeftValues<TLeft>(TLeft a, TLeft b)
 		=> TResolver.IsSorter ? _resolver.CompareLeftValues(a, b) : _prev.CompareLeftValues(a, b);
+
+	// The same JIT-folded per-link test CompareLeftValues uses, paid once per execution instead of once
+	// per link per comparison.
+	void IResolvers.WithSorter<TVisitor>(ref TVisitor visitor) {
+		if (TResolver.IsSorter)
+			visitor.Visit(ref _resolver);
+		else
+			_prev.WithSorter(ref visitor);
+	}
 }
 
 internal struct ResolveChainCloner<TResolvers, TLeftValue, TResult> : ICloner<TResult>
@@ -196,12 +243,32 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		return 0;
 	}
 
+	/// <summary>
+	///   The frozen pipeline's fused <c>JoinOne</c> fill (design §7.1): every resolver in
+	///   <paramref name="fusedMask" /> writes its right slot of every row with one point lookup per row
+	///   (<see cref="IJoinResolver.UnsafeFillFusedRows{TAccessor}" />); an inner one drops the rows without
+	///   a right. <paramref name="recount" />: the total becomes the surviving row count (the classic flow,
+	///   where the total is the rows added so far); the bounded flow keeps its narrowing's total.
+	///   A fused <c>JoinMany</c> in the mask fills through its frozen per-left fill (<paramref name="fillHints" />:
+	///   its buffer size hint per chain position, the executor's); <paramref name="innerMany" /> (design §7.2 as
+	///   implemented) makes the same walk also run every <i>unfused</i> inner <c>JoinMany</c>'s fan-out over the
+	///   rows and drop the rows whose slot stayed empty, in chain order with the fused inner fills; unfused
+	///   outer <c>JoinMany</c>s run in <see cref="ExecuteJoins" /> like any unfused resolver.
+	/// </summary>
+	internal void FillFused(int fusedMask, bool recount, int[] fillHints, bool innerMany = false) {
+		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(
+			ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: false, skipSorter: true, fusedMask, fillFused: true, fillInnerMany: innerMany, fillHints: fillHints);
+		_chainedResolvers.Execute(ref p);
+		if (p.Pruned && recount)
+			_totalCont = _results.Count;
+	}
+
 	public readonly ReadOnlySpan<TLeftKey> Keys => _results.Keys;
 
-	/// <summary>Execute joins for resolver 1 (reverse joins only — forward joins resolved in Add when active).</summary>
-	public void ExecuteJoins() {
+	/// <summary>Execute joins for resolver 1 (reverse joins only — forward joins resolved in Add when active). <paramref name="fusedMask" />: a bit per chain position whose slot the frozen pipeline filled in its pass — skipped here; the sorter always runs.</summary>
+	public void ExecuteJoins(int fusedMask = 0) {
 		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(
-			ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: false, skipSorter: false);
+			ref _results, _skip, _take, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: false, skipSorter: false, fusedMask);
 		_chainedResolvers.Execute(ref p);
 		if (!p.DidSort && (_skip > 0 || _take < int.MaxValue))
 			_results.Crop(_skip, _take);
@@ -253,9 +320,9 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 	///   Join fill for the bounded path: fills inner AND reverse slots, for the page rows only.
 	///   The sorter is skipped (rows are already ordered and cropped) and no fallback Crop runs.
 	/// </summary>
-	public void ExecuteJoinsBounded() {
+	public void ExecuteJoinsBounded(int fusedMask = 0) {
 		var p = new ExecuteWithAccessorProcessor<TLeftKey, TResult>(
-			ref _results, 0, int.MaxValue, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: true, skipSorter: true);
+			ref _results, 0, int.MaxValue, _cloneOnAdd, _shouldPool, ref _disposer, fillInner: true, skipSorter: true, fusedMask);
 		_chainedResolvers.Execute(ref p);
 	}
 
@@ -268,11 +335,13 @@ internal ref struct JoinedResultContaier<TLeftKey, TLeftValue, TResolverChain, T
 		var offset = _results.Offset;
 		var allResults = QueryResults<TResult>.FromArray(
 			_results.ValuesArray ?? [], offset, _results.Count, TotalCount, _shouldPool, in _disposer);
-		_handedOff = true;
 
-		// Clone after slicing if needed
+		// Clone after slicing if needed. Hand the buffer off only once nothing left here can throw: a
+		// user Clone() that throws leaves the values array (and the disposer's child buffers) with this
+		// container, whose Dispose returns them.
 		if (_clone)
 			allResults.CloneElements(new ResolveChainCloner<TResolverChain, TLeftValue, TResult>());
+		_handedOff = true;
 
 		return allResults;
 	}
@@ -347,14 +416,17 @@ internal ref struct SimpleResultContainer<TKey, TValue, TResolver>
 					_totalCount);
 
 		var allResults = _results;
-		_handedOff = true;
-
 		if (TResolver.IsSorter)
 			_chain.UnsafeSortResults(ref allResults, _skip, _take);
 		else if (_skip > 0 || _take < int.MaxValue)
 			allResults.SliceLeaveTotalCount(_skip, Math.Min(_take, _totalCount - _skip));
 
-		return _clone ? allResults.CloneInPlace() : allResults;
+		// Hand the buffer off only once nothing left here can throw: a user comparer or Clone() that
+		// throws above leaves the rented array with this container, whose Dispose returns it.
+		if (_clone)
+			allResults.CloneInPlace();
+		_handedOff = true;
+		return allResults;
 	}
 
 	public void Dispose() {

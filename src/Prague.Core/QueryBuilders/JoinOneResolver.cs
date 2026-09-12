@@ -14,6 +14,14 @@ using Utils;
 /// The JIT devirtualizes <see cref="Apply"/> per closed generic — no virtual dispatch overhead.
 /// </summary>
 public interface IJoinFilter<TBuilder> {
+	/// <summary>
+	/// <c>true</c> for the identity filter only: a resolver carrying it can answer a join with one point
+	/// read per left (the frozen pipeline's fused <c>JoinOne</c>, design §7.1) instead of a paired walk.
+	/// JIT-folded per closed generic; a filter callback is a builder lambda over the paired core and
+	/// cannot be turned into a point probe.
+	/// </summary>
+	static virtual bool IsNoOp => false;
+
 	TBuilder Apply(TBuilder q);
 }
 
@@ -22,6 +30,8 @@ public interface IJoinFilter<TBuilder> {
 /// the JIT elides the call entirely in release builds.
 /// </summary>
 public readonly struct NoFilter<TBuilder> : IJoinFilter<TBuilder> {
+	public static bool IsNoOp => true;
+
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public TBuilder Apply(TBuilder q) => q;
 }
@@ -155,6 +165,9 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	// ── Fields ───────────────────────────────────────────────────────────────
 
 	internal readonly TRightCache Cache;
+	// The right store, read once here: the fused per-left lookup runs per row and must not pay the
+	// Cache.Cache interface call (TRightCache is a reference type parameter — shared code) each time.
+	private readonly InMemoryDataCache<TRightKey, TRightValue> _rightStore;
 	internal TFilter Filter;
 	internal TSelector Selector;
 	private readonly bool _isInner;
@@ -162,6 +175,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 
 	internal JoinOneResolver(TRightCache cache, TFilter filter, TSelector selector, bool isInner = false) {
 		Cache = cache;
+		_rightStore = cache.Cache;
 		Filter = filter;
 		Selector = selector;
 		_isInner = isInner;
@@ -172,12 +186,87 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	public static bool IsSorter { get; } = false;
 	public bool Inner => _isInner;
 
+	// ── Fused per-left lookup (frozen pipeline, design §7.1) ─────────────────
+
+	static bool IJoinResolver.SupportsFusedLookup => true;
+
+	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
+	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
+
+	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
+
+	// Set once by CompileFusedFilter (frozen build only, never an execution). _fusedFilterOk says the
+	// callback is reproducible per right; the predicate is null when it configured nothing at all.
+	private Predicate<TRightValue>? _fusedFilter;
+	private bool _fusedFilterOk;
+
+	void IJoinResolver.CompileFusedFilter() {
+		if (TFilter.IsNoOp || _fusedFilterOk)
+			return;
+		_fusedFilterOk = FusedJoinFilterProbe.TryCompile<TLeftKey, TRightCache, TRightKey, TRightValue, TFilter>(Cache, Filter, out _fusedFilter);
+	}
+
+	/// <summary>The store read, then the compiled filter — folded away entirely for an unfiltered join.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LookupRightUnfiltered(leftKey, out right))
+			return false;
+		// TFilter.IsNoOp is JIT-folded: an unfiltered join keeps the bare read with no test per row.
+		if (TFilter.IsNoOp || _fusedFilter is null || _fusedFilter(right))
+			return true;
+		right = default;
+		return false;
+	}
+
+	// PK to PK: the selector (elided for the identity) then the right store — the paired core's own read.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		var rightKey = TSelector.IsIdentity ? Unsafe.As<TLeftKey, TRightKey>(ref leftKey) : Selector.Select(leftKey);
+		return _rightStore.TryGet(rightKey, out right);
+	}
+
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
+		var keys = accessor.GetKeys<TLeftKey>();
+		var misses = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			ref var slot = ref accessor.GetSlotAt<TRightValue>(i);
+			if (LookupRight(keys[i], out var right)) {
+				slot = cloneOnAdd ? right.Clone() : right;
+			} else {
+				slot = default!;
+				misses++;
+			}
+		}
+
+		if (!_isInner || misses == 0)
+			return false;
+		accessor.PruneNullSlots<TRightValue>();
+		return true;
+	}
+
+	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values) {
+		var n = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			if (!LookupRight(Unsafe.As<TKey, TLeftKey>(ref keys[i]), out _))
+				continue;
+			keys[n] = keys[i];
+			if (values.Length != 0)
+				values[n] = values[i];
+			n++;
+		}
+
+		return n;
+	}
+
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
 		ref var item = ref value.TUnsafeGetValAt<TRightValue>(index);
-		item = item.Clone();
+		// An outer join leaves a left without a right at its default: nothing to clone there.
+		if (item is not null)
+			item = item.Clone();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -348,9 +437,10 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0) {
-				// Empty intersect: no left has a right match — narrow candidates to empty so
-				// the outer base-execute drops everything (Inner semantic).
-				candidates.IntersectWith(ReadOnlySpan<TLeftKey>.Empty);
+				// Empty intersect: no left has a right match. The same post-walk as a non-empty one with no
+				// hits: drop the rows an earlier chained inner resolver created (their slot here stays null —
+				// left in place they would be rows without a left) and narrow the candidates to nothing.
+				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
 				return;
 			}
 
@@ -512,6 +602,8 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 	[SuppressMessage("Design", "CA1051")]
 	internal readonly CacheKeyValueIndex<TRightKey, TRightValue, TRightIndexKey>? RightIndex;
 
+	// The right store, read once here (see JoinOneResolver._rightStore).
+	private readonly InMemoryDataCache<TRightKey, TRightValue> _rightStore;
 	internal TFilter Filter;
 	internal TSelector Selector;
 	private readonly bool _isInner;
@@ -525,6 +617,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		bool isInner = false) {
 		LeftIndex = leftIndex;
 		RightCache = rightCache;
+		_rightStore = rightCache.Cache;
 		RightIndex = rightIndex;
 		Filter = filter;
 		Selector = selector;
@@ -536,12 +629,112 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 	public static bool IsSorter { get; } = false;
 	public bool Inner => _isInner;
 
+	// ── Fused per-left lookup (frozen pipeline, design §7.1) ─────────────────
+
+	static bool IJoinResolver.SupportsFusedLookup => true;
+
+	// The inner fan-out creates the rows grouped by right key, which the per-left fill cannot reproduce:
+	// an inner join of this family replays under FrozenOptions.PreserveEagerOrder and fuses otherwise.
+	static bool IJoinResolver.FusedInnerRegroups => true;
+
+	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
+	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
+
+	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
+
+	// Set once by CompileFusedFilter (frozen build only, never an execution). _fusedFilterOk says the
+	// callback is reproducible per right; the predicate is null when it configured nothing at all.
+	private Predicate<TRightValue>? _fusedFilter;
+	private bool _fusedFilterOk;
+
+	void IJoinResolver.CompileFusedFilter() {
+		if (TFilter.IsNoOp || _fusedFilterOk)
+			return;
+		_fusedFilterOk = FusedJoinFilterProbe.TryCompile<LeftKeySetView<TLeftKey>, TRightCache, TRightKey, TRightValue, TFilter>(RightCache, Filter, out _fusedFilter);
+	}
+
+	/// <summary>The store read, then the compiled filter — folded away entirely for an unfiltered join.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LookupRightUnfiltered(leftKey, out right))
+			return false;
+		// TFilter.IsNoOp is JIT-folded: an unfiltered join keeps the bare read with no test per row.
+		if (TFilter.IsNoOp || _fusedFilter is null || _fusedFilter(right))
+			return true;
+		right = default;
+		return false;
+	}
+
+	// The eager pair seeding's reads for one left: the index's reverse map (left key → lookup key), then
+	// for shape A the selector (elided for the identity) gives the right primary key, for shape B the
+	// right index translates the selected key; then the right store.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LeftIndex.Reverse.TryGetValue(leftKey, out var lookup)) {
+			right = default;
+			return false;
+		}
+
+		TRightKey rightKey;
+		if (RightIndex is null) {
+			if (TSelector.IsIdentity) {
+				rightKey = Unsafe.As<TLookupKey, TRightKey>(ref lookup);
+			} else {
+				var selected = Selector.Select(lookup);
+				rightKey = Unsafe.As<TRightIndexKey, TRightKey>(ref selected);
+			}
+		} else if (!RightIndex.TryGetValue(TSelector.IsIdentity ? Unsafe.As<TLookupKey, TRightIndexKey>(ref lookup) : Selector.Select(lookup), out var viaIndex)) {
+			right = default;
+			return false;
+		} else {
+			rightKey = viaIndex;
+		}
+
+		return _rightStore.TryGet(rightKey, out right);
+	}
+
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
+		var keys = accessor.GetKeys<TLeftKey>();
+		var misses = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			ref var slot = ref accessor.GetSlotAt<TRightValue>(i);
+			if (LookupRight(keys[i], out var right)) {
+				slot = cloneOnAdd ? right.Clone() : right;
+			} else {
+				slot = default!;
+				misses++;
+			}
+		}
+
+		if (!_isInner || misses == 0)
+			return false;
+		accessor.PruneNullSlots<TRightValue>();
+		return true;
+	}
+
+	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values) {
+		var n = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			if (!LookupRight(Unsafe.As<TKey, TLeftKey>(ref keys[i]), out _))
+				continue;
+			keys[n] = keys[i];
+			if (values.Length != 0)
+				values[n] = values[i];
+			n++;
+		}
+
+		return n;
+	}
+
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
 		ref var item = ref value.TUnsafeGetValAt<TRightValue>(index);
-		item = item.Clone();
+		// An outer join leaves a left without a right at its default: nothing to clone there.
+		if (item is not null)
+			item = item.Clone();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -761,7 +954,8 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		try {
 			SeedPairsFromSet(ref candidates, ref pairs);
 			if (pairs.Count == 0) {
-				candidates.IntersectWith(ReadOnlySpan<TLeftKey>.Empty);
+				// No left has a right: the post-walk of a walk with no hits (see JoinOneResolver).
+				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
 				return;
 			}
 
@@ -839,6 +1033,8 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 	/// </summary>
 	private readonly CacheKeyValueIndex<TRightKey, TRightValue, TIndexKey> _rightIndex;
 
+	// The right store, read once here (see JoinOneResolver._rightStore).
+	private readonly InMemoryDataCache<TRightKey, TRightValue> _rightStore;
 	private TFilter _filter;
 	private TSelector _selector;
 	private readonly bool _isInner;
@@ -850,6 +1046,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 		TSelector selector,
 		bool isInner = false) {
 		_rightCache = rightCache;
+		_rightStore = rightCache.Cache;
 		_rightIndex = rightIndex;
 		_filter = filter;
 		_selector = selector;
@@ -861,12 +1058,89 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 	public static bool IsSorter { get; } = false;
 	public bool Inner => _isInner;
 
+	// ── Fused per-left lookup (frozen pipeline, design §7.1) ─────────────────
+
+	static bool IJoinResolver.SupportsFusedLookup => true;
+
+	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
+	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
+
+	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
+
+	// Set once by CompileFusedFilter (frozen build only, never an execution). _fusedFilterOk says the
+	// callback is reproducible per right; the predicate is null when it configured nothing at all.
+	private Predicate<TRightValue>? _fusedFilter;
+	private bool _fusedFilterOk;
+
+	void IJoinResolver.CompileFusedFilter() {
+		if (TFilter.IsNoOp || _fusedFilterOk)
+			return;
+		_fusedFilterOk = FusedJoinFilterProbe.TryCompile<TLeftKey, TRightCache, TRightKey, TRightValue, TFilter>(_rightCache, _filter, out _fusedFilter);
+	}
+
+	/// <summary>The store read, then the compiled filter — folded away entirely for an unfiltered join.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LookupRightUnfiltered(leftKey, out right))
+			return false;
+		// TFilter.IsNoOp is JIT-folded: an unfiltered join keeps the bare read with no test per row.
+		if (TFilter.IsNoOp || _fusedFilter is null || _fusedFilter(right))
+			return true;
+		right = default;
+		return false;
+	}
+
+	// The right unique index (keyed by the selected left key; the identity is elided) then the right store.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (_rightIndex.TryGetValue(TSelector.IsIdentity ? Unsafe.As<TLeftKey, TIndexKey>(ref leftKey) : _selector.Select(leftKey), out var rightKey))
+			return _rightStore.TryGet(rightKey, out right);
+		right = default;
+		return false;
+	}
+
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
+		var keys = accessor.GetKeys<TLeftKey>();
+		var misses = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			ref var slot = ref accessor.GetSlotAt<TRightValue>(i);
+			if (LookupRight(keys[i], out var right)) {
+				slot = cloneOnAdd ? right.Clone() : right;
+			} else {
+				slot = default!;
+				misses++;
+			}
+		}
+
+		if (!_isInner || misses == 0)
+			return false;
+		accessor.PruneNullSlots<TRightValue>();
+		return true;
+	}
+
+	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values) {
+		var n = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			if (!LookupRight(Unsafe.As<TKey, TLeftKey>(ref keys[i]), out _))
+				continue;
+			keys[n] = keys[i];
+			if (values.Length != 0)
+				values[n] = values[i];
+			n++;
+		}
+
+		return n;
+	}
+
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
 		ref var item = ref value.TUnsafeGetValAt<TRightValue>(index);
-		item = item.Clone();
+		// An outer join leaves a left without a right at its default: nothing to clone there.
+		if (item is not null)
+			item = item.Clone();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1019,7 +1293,8 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0) {
-				candidates.IntersectWith(ReadOnlySpan<TLeftKey>.Empty);
+				// No left has a right: the post-walk of a walk with no hits (see JoinOneResolver).
+				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
 				return;
 			}
 
@@ -1099,6 +1374,8 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	/// </summary>
 	internal readonly CacheSymmetricUniqueIndex<TLeftKey, TLeftValue, TIndexKey> LeftIndex;
 
+	// The right store, read once here (see JoinOneResolver._rightStore).
+	private readonly InMemoryDataCache<TRightKey, TRightValue> _rightStore;
 	internal TFilter Filter;
 	internal TSelector Selector;
 	private readonly bool _isInner;
@@ -1111,6 +1388,7 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		bool isInner = false) {
 		LeftIndex = leftIndex;
 		RightCache = rightCache;
+		_rightStore = rightCache.Cache;
 		Filter = filter;
 		Selector = selector;
 		_isInner = isInner;
@@ -1121,12 +1399,89 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	public static bool IsSorter { get; } = false;
 	public bool Inner => _isInner;
 
+	// ── Fused per-left lookup (frozen pipeline, design §7.1) ─────────────────
+
+	static bool IJoinResolver.SupportsFusedLookup => true;
+
+	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
+	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
+
+	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
+
+	// Set once by CompileFusedFilter (frozen build only, never an execution). _fusedFilterOk says the
+	// callback is reproducible per right; the predicate is null when it configured nothing at all.
+	private Predicate<TRightValue>? _fusedFilter;
+	private bool _fusedFilterOk;
+
+	void IJoinResolver.CompileFusedFilter() {
+		if (TFilter.IsNoOp || _fusedFilterOk)
+			return;
+		_fusedFilterOk = FusedJoinFilterProbe.TryCompile<TLeftKey, TRightCache, TRightKey, TRightValue, TFilter>(RightCache, Filter, out _fusedFilter);
+	}
+
+	/// <summary>The store read, then the compiled filter — folded away entirely for an unfiltered join.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LookupRightUnfiltered(leftKey, out right))
+			return false;
+		// TFilter.IsNoOp is JIT-folded: an unfiltered join keeps the bare read with no test per row.
+		if (TFilter.IsNoOp || _fusedFilter is null || _fusedFilter(right))
+			return true;
+		right = default;
+		return false;
+	}
+
+	// The left index's reverse map (left key → index key, 1:1), the selector (elided for the identity), the right store.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (LeftIndex.Reverse.TryGetValue(leftKey, out var indexKey))
+			return _rightStore.TryGet(TSelector.IsIdentity ? Unsafe.As<TIndexKey, TRightKey>(ref indexKey) : Selector.Select(indexKey), out right);
+		right = default;
+		return false;
+	}
+
+	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
+		var keys = accessor.GetKeys<TLeftKey>();
+		var misses = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			ref var slot = ref accessor.GetSlotAt<TRightValue>(i);
+			if (LookupRight(keys[i], out var right)) {
+				slot = cloneOnAdd ? right.Clone() : right;
+			} else {
+				slot = default!;
+				misses++;
+			}
+		}
+
+		if (!_isInner || misses == 0)
+			return false;
+		accessor.PruneNullSlots<TRightValue>();
+		return true;
+	}
+
+	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values) {
+		var n = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			if (!LookupRight(Unsafe.As<TKey, TLeftKey>(ref keys[i]), out _))
+				continue;
+			keys[n] = keys[i];
+			if (values.Length != 0)
+				values[n] = values[i];
+			n++;
+		}
+
+		return n;
+	}
+
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult {
 		ref var item = ref value.TUnsafeGetValAt<TRightValue>(index);
-		item = item.Clone();
+		// An outer join leaves a left without a right at its default: nothing to clone there.
+		if (item is not null)
+			item = item.Clone();
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1266,7 +1621,8 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0) {
-				candidates.IntersectWith(ReadOnlySpan<TLeftKey>.Empty);
+				// No left has a right: the post-walk of a walk with no hits (see JoinOneResolver).
+				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
 				return;
 			}
 

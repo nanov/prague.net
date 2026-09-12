@@ -553,6 +553,22 @@ public sealed class CacheRangeIndex<TKey, TValue, TIndexKey> : ICacheIndex<TKey,
 		_index.Update(oldIndexKey, newIndexKey, key, keyHash);
 	}
 
+	/// <summary>The index key of a fetched value — the value-side twin of a tree walk: the frozen pipeline compares it to the range bounds instead of walking the window.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal TIndexKey KeyOf(TKey key, TValue value) => _keySelector(key, value);
+
+	/// <summary>
+	///   Estimated number of entries inside the window; exact when both bounds land in one leaf. A
+	///   cardinality signal for seed selection — never used to size a buffer. See
+	///   <see cref="PooledBTree{TIndex,TValue}.EstimateCount" />.
+	/// </summary>
+	internal int EstimateCount(in RangeValue<TIndexKey> from, in RangeValue<TIndexKey> to) => (from.Type, to.Type) switch {
+		(RangeValueType.None, RangeValueType.None) => _index.Length,
+		(RangeValueType.None, _) => _index.EstimateCountTo(to.Value, to.Type == RangeValueType.ThanOrEqual),
+		(_, RangeValueType.None) => _index.EstimateCountFrom(from.Value, from.Type == RangeValueType.ThanOrEqual),
+		_ => _index.EstimateCount(from.Value, from.Type == RangeValueType.ThanOrEqual, to.Value, to.Type == RangeValueType.ThanOrEqual),
+	};
+
 	public ulong GetCounters(out ulong vlaues) {
 		// Report the real B-tree size, not a logically-maintained counter: a divergence
 		// between the two is exactly how stale (leaked) index entries manifest.
@@ -684,6 +700,20 @@ public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, 
 	public bool Contains(TKey key) {
 		lock (_lock) {
 			return _keys.Contains(key);
+		}
+	}
+
+	/// <summary>The index's predicate on a fetched value — the value-side twin of <see cref="Contains" /> (no lock).</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool Matches(TKey key, TValue value) => _predicate(key, value);
+
+	/// <summary>Live key count — a plain counter an enumeration may exceed; a cardinality signal, not a buffer size.</summary>
+	internal int Count => _keys.Count;
+
+	/// <summary>Copies every key into <paramref name="sink" /> in the set's enumeration order (the bulk <see cref="PooledSet{T,TKeyComparer}.CopyKeysTo{TSink}" />), under the lock <see cref="AddKeyTo" /> takes.</summary>
+	internal void CopyKeysTo<TSink>(ref TSink sink) where TSink : struct, IKeySink<TKey>, allows ref struct {
+		lock (_lock) {
+			_keys.CopyKeysTo(ref sink);
 		}
 	}
 
@@ -865,6 +895,13 @@ public sealed class LastUpdatedIndex<TKey> where TKey : IEquatable<TKey> {
 			? entry.Count
 			: 0;
 	}
+
+	/// <summary>Estimated number of keys last updated in (<paramref name="after" />, <paramref name="untilInclusive" />]; see <see cref="CacheRangeIndex{TKey,TValue,TIndexKey}.EstimateCount" />.</summary>
+	internal int EstimateCount(long after, long untilInclusive)
+		=> _rangeIndex.EstimateCount(new RangeValue<long>(RangeValueType.Than, after), new RangeValue<long>(RangeValueType.ThanOrEqual, untilInclusive));
+
+	/// <summary>Estimated number of keys last updated after <paramref name="after" /> (exclusive).</summary>
+	internal int EstimateCount(long after) => _rangeIndex.EstimateCount(new RangeValue<long>(RangeValueType.Than, after), default);
 
 	public bool TryGetLastUpdated(TKey key, out long timestampMs) {
 		if (_cache.TryGetValue(key, out var entry)) {
@@ -1305,9 +1342,14 @@ public sealed class InMemoryDataCache<TKey, TValue>
 
 	internal DataCacheStatisticsCollector StatisticsCollector { get; }
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool TryGet(TKey key, [MaybeNullWhen(false)] out TValue value) {
 		return _cache.TryGetValue(key, out value);
 	}
+
+	/// <summary>How many of <paramref name="keys" /> the store holds — the eager <c>Count</c>'s own membership walk (<c>TryCountValues</c>) over a key span.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal int TryCount(ReadOnlySpan<TKey> keys) => _cache.TryCountValues(keys);
 
 	internal int TryCount(ref ValueSet<TKey, DefaultKeyComparer<TKey>> keys, Predicate<TValue>? predicate = null) {
 		return predicate is null
@@ -1484,6 +1526,14 @@ public sealed class InMemoryDataCache<TKey, TValue>
 		StatisticsCollector.Removed();
 
 		return true;
+	}
+
+	// Test hook: registers a caller-supplied index in maintenance order. The concurrency tests use it to
+	// park the writer between the store write and the following indexes' writes (design §14.1).
+	internal void AddIndexForTests(ICacheIndex<TKey, TValue> index) {
+		var len = _indeces.Length;
+		Array.Resize(ref _indeces, len + 1);
+		_indeces[len] = index;
 	}
 
 	public CacheUniqueIndex<TKey, TValue, TIndexKey> AddKeyValueIndex<TIndexKey>(Func<TKey, TValue, TIndexKey> indexer)

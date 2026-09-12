@@ -7,11 +7,13 @@ baseline; any metric that moves outside its tolerance band fails the run
 
 ## Configs
 
-Three configs, each measuring a progressively larger slice of the stack:
+Five configs, each measuring a progressively larger slice of the stack:
 
 - **core-only** — BenchmarkDotNet (`perf/Prague.Baseline.Bdn`). Per-op latency and
   allocation of the cache primitives in isolation: ingest `AddOrUpdate` and each
   query shape. No Kafka, no threading. Deterministic.
+- **core-sort** — the same BDN project, `*CoreSortBenchmarks*`, in its own process:
+  the `query.sort*` shapes. Deterministic.
 - **full-sim** — harness (`perf/Prague.Baseline.Harness`, `--config full-sim`).
   In-process replay of the **managed** Kafka ingest tail with **no broker and no
   librdkafka**: pre-encoded MessagePack value bytes pinned in native memory →
@@ -19,6 +21,9 @@ Three configs, each measuring a progressively larger slice of the stack:
   `AsyncValueBufferedWorker` ring → worker-thread `cache.AddOrUpdate`. It does
   **not** exercise the `RawConsumer` topic/poll loop or any librdkafka path —
   that boundary is deliberate, so full-sim stays deterministic and Docker-free.
+- **concurrent** — harness (`--config concurrent`). Read-under-write: N readers run the
+  pooled `multiJoin` while one writer applies updates; emits `read.throughput` and the
+  contended `multiJoin` percentiles. Included in `all`. Details under "Follow-ups".
 - **full-real** — harness (`--config full-real`). Same harness against a real
   Kafka broker via Testcontainers. **Opt-in**: needs Docker, is excluded from
   `all` and from CI, and must be invoked explicitly.
@@ -26,11 +31,16 @@ Three configs, each measuring a progressively larger slice of the stack:
 ## How to run
 
 ```bash
-perf/run.sh core|sim|real|all [--bless] [--machine <class>]
+perf/run.sh core|sort|sim|real|concurrent|all [--bless] [--machine <class>]
 ```
 
-- `core` — BDN core-only     `sim` — full-sim harness
-- `real` — full-real harness (Docker)     `all` — core + sim (real is **not** included; run it explicitly)
+- `core` — BDN core-only (`*CoreQueryBenchmarks*`, `*CoreIngestBenchmarks*`)
+- `sort` — BDN core-sort (`*CoreSortBenchmarks*`), the `query.sort*` shapes. A separate process from
+  `core` on purpose: BDN's in-process toolchain shares one `PragueArrayPool` across benchmark classes,
+  and a class must not inherit the pool state or the JIT/GC history another left behind.
+- `sim` — full-sim harness     `concurrent` — read-under-write harness
+- `real` — full-real harness (Docker), **opt-in**
+- `all` — `core` + `sort` + `sim` + `concurrent` (`real` is **not** included; run it explicitly)
 
 The machine class is required; supply it via `--machine <class>` or the
 `PRAGUE_PERF_MACHINE` env var (the flag wins). `PRAGUE_PERF_COMMIT` is set
@@ -40,7 +50,7 @@ is not auto-detected, set `PRAGUE_PERF_CPU` to label `env.cpu` in the output.
 Examples:
 
 ```bash
-perf/run.sh all --machine apple-m4pro-darwin        # core + sim, compare vs baseline
+perf/run.sh all --machine apple-m4pro-darwin        # core + sort + sim + concurrent, compare vs baseline
 perf/run.sh core --machine apple-m4pro-darwin        # just the BDN core config
 PRAGUE_PERF_MACHINE=linux-x64-ci perf/run.sh all     # machine class via env var
 perf/run.sh real --machine apple-m4pro-darwin        # full-real (requires Docker)
@@ -76,10 +86,26 @@ every buffer they touch inside that iteration. That re-warm read as ~204 B/op on
 `joinMany`/`multiJoin`, appearing and disappearing with the host's memory load
 (the 65 B ↔ 268 B flip; issue #74). With the threshold raised the pool stays warm
 and every pooled query shape reads a flat 0 B, which `compare.py` gates strictly:
-against a zero baseline any byte is a regression. If a pooled shape reads
-non-zero, it is a real per-query allocation — a `this`- or local-capturing lambda
-at the call site is the usual cause (use the `TArgs` overloads with a `static`
-lambda).
+against a zero baseline any byte is a regression.
+
+**Read the magnitude before you go hunting.** The smallest object on the .NET heap
+is 24 B, so a pooled shape reading **1–2 B/op cannot be a per-query allocation** —
+it is BDN dividing a handful of one-off bytes by the ops in the measurement
+iteration, and on the slowest shapes (~90–190 µs/op, so few ops per iteration) a
+couple of KB of pool re-warm lands as exactly that `1 B`. It is not deterministic:
+measured on `apple-m4pro-darwin` at `d781863` (i.e. on `main`, with no branch
+applied), `query.sortTiedJoined.alloc` and `query.sortTiedJoinedBoundedPage.alloc`
+read `0/0`, then `0/1`, `1/1`, `1/1` across four consecutive `run.sh sort` runs,
+and the same commit reads differently again when the process runs only those two
+benchmarks instead of all eight — the reading depends on what else shared the
+process and on host memory pressure, not on the code under test. `core`'s
+`joinMany` / `joinManyAll` / `multiJoin` behave the same way.
+
+So: a sub-24-B reading is this artefact — leave the baseline alone and do **not**
+bless it, because blessing writes 1 B into a ±2% gate whose whole value is that
+the baseline is 0. A reading of **24 B or more**, stable across runs, is a real
+per-query allocation — a `this`- or local-capturing lambda at the call site is the
+usual cause (use the `TArgs` overloads with a `static` lambda).
 
 ## Metrics
 
@@ -149,7 +175,7 @@ deliberate improvement you want to lock in). Never bless to silence a
 regression you have not explained.
 
 ```bash
-perf/run.sh all --machine apple-m4pro-darwin --bless   # re-record core + sim
+perf/run.sh all --machine apple-m4pro-darwin --bless   # re-record all four configs
 ```
 
 ## Machine-class convention

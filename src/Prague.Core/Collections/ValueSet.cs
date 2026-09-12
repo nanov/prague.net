@@ -93,6 +93,11 @@ internal struct ValueSet<T, TKeyComparer> : IDisposable
 
 	public int Count { get; private set; }
 
+	// Slots ever handed out (removals leave holes, so this is the set's high-water mark, not its
+	// live count). Read by the frozen replay after the chain ran to learn how large the seed was
+	// before later narrowers pruned it — the number the next execution's capacity hint should be.
+	internal int HighWaterMark => _lastIndex;
+
 	private readonly TKeyComparer _comparer;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

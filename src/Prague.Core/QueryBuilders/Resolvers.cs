@@ -67,6 +67,13 @@ public struct SortResolver<TLeftKey, TLeftValue, TResult, TComparer> : IJoinReso
 		return _comparer.Compare(Unsafe.As<TLeft, TResult>(ref a), Unsafe.As<TLeft, TResult>(ref b));
 	}
 
+	void IJoinResolver.WithLeftComparer<TVisitor>(ref TVisitor visitor) {
+		Debug.Assert(_isLeftValue, "WithLeftComparer on a sorter that does not order by the left value");
+		// The comparer is held in a readonly field and the visitor takes it by ref (a fat struct comparer
+		// travels once per execution, not once per copy); AsRef is the same laundering the chain does.
+		visitor.Visit<TResult, TComparer>(ref Unsafe.AsRef(in _comparer));
+	}
+
 	private struct LeftSortComparerWrapper<TFullResult> : IComparer<TFullResult>
 		where TFullResult : struct, IJoinResult {
 		private TComparer _comparer;

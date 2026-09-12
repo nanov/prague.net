@@ -16,6 +16,8 @@
       href: articles/core-concepts/query-engine.md
     - name: Sorted Paging
       href: articles/core-concepts/sorted-paging.md
+    - name: Prepared and Frozen Queries
+      href: articles/core-concepts/prepared-queries.md
     - name: Conditional Updates
       href: articles/core-concepts/conditional-updates.md
     - name: Joins

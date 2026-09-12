@@ -1,5 +1,6 @@
 namespace Prague.Core;
 
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Collections;
@@ -272,6 +273,22 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey>
 	}
 
 	internal Func<TKey, TValue, TIndexKey> KeySelector { get; }
+
+	/// <summary>
+	///   True for scalar indexes, whose entity-to-key mapping is <see cref="KeySelector" /> and can be
+	///   evaluated on a fetched value; false for collection-backed ones (one entity under many keys) and
+	///   for the raw storages of a symmetric collection index, which are probed through their buckets.
+	/// </summary>
+	internal bool HasKeySelector => _collectionSelector is null && KeySelector is not null;
+
+	/// <summary>
+	///   The live bucket for <paramref name="key" /> — the set the eager list step walks — without the
+	///   <see cref="PooledSet{T,TKeyComparer}.Empty" /> substitution of <see cref="GetValuesUnsafe" />.
+	///   Reader-safe: the bucket may be disposed concurrently, after which its readers see an empty set.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal bool TryGetBucket(TIndexKey key, [MaybeNullWhen(false)] out PooledSet<TKey, DefaultKeyComparer<TKey>> bucket)
+		=> _cache.TryGetValue(key, out bucket);
 
 	/// <summary>
 	///   Gets the approximate count of items in this index. This is an O(1) operation.
@@ -700,6 +717,11 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey>
 		}
 	}
 
+
+	// Live bucket size for `key` (0 when the key is absent) — one probe, no enumeration. The frozen
+	// planner's smallest-bucket seeding reads it to pick which equality step seeds the candidates.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	internal int TryGetCount(TIndexKey key) => _cache.TryGetValue(key, out var values) ? values.Count : 0;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void IntersectValue(TIndexKey key, ref ValueSet<TKey, DefaultKeyComparer<TKey>>.IncrementalIntersecter target) {

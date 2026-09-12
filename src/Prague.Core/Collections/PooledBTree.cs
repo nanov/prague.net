@@ -1439,6 +1439,131 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 		return false;
 	}
 
+	// ───────────────────── Cardinality estimate ─────────────────────
+
+	// Where a bound falls: the leaf and position its descent ended at and the bound's fractional
+	// rank in the tree — Σ over the descent of childIndex / Π(childCounts so far), plus the leaf
+	// position scaled by the leaf's share.
+	private readonly struct BoundPosition(LeafNode leaf, int pos, int count, double rank) {
+		public readonly LeafNode Leaf = leaf;
+		public readonly int Pos = pos;
+		public readonly int Count = count;
+		public readonly double Rank = rank;
+	}
+
+	/// <summary>
+	///   Estimated number of entries with key in the window; exact when both bounds land in one leaf.
+	///   Two lock-free descents (the same restart-on-torn-child discipline as
+	///   <see cref="FindLeafForRange" />) record each bound's fractional rank; the estimate is
+	///   <c>Length × (rank(to) − rank(from))</c>. Nodes are between half and fully occupied after
+	///   splits, so the estimate is within a small constant factor of the truth — enough to decide
+	///   which step seeds a plan, never used to size a buffer. Gate-pinned for the two descents:
+	///   a retired node's arrays must not be reclaimed under the reads.
+	/// </summary>
+	public int EstimateCount(TIndex from, bool fromInclusive, TIndex to, bool toInclusive) {
+		if (Length == 0)
+			return 0;
+		var slot = ReaderGate.Enter();
+		try {
+			var lo = LocateLower(from, fromInclusive);
+			var hi = LocateUpper(to, toInclusive);
+			return Estimate(in lo, in hi);
+		} finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	/// <summary>Estimated number of entries with key in <c>[from, +∞)</c> (or <c>(from, +∞)</c>).</summary>
+	public int EstimateCountFrom(TIndex from, bool inclusive) {
+		var length = Length;
+		if (length == 0)
+			return 0;
+		var slot = ReaderGate.Enter();
+		try {
+			var lo = LocateLower(from, inclusive);
+			var last = _lastLeaf;
+			var count = Volatile.Read(ref last.Count);
+			return Estimate(in lo, new BoundPosition(last, count, count, 1.0));
+		} finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	/// <summary>Estimated number of entries with key in <c>(−∞, to]</c> (or <c>(−∞, to)</c>).</summary>
+	public int EstimateCountTo(TIndex to, bool inclusive) {
+		var length = Length;
+		if (length == 0)
+			return 0;
+		var slot = ReaderGate.Enter();
+		try {
+			var hi = LocateUpper(to, inclusive);
+			var first = _firstLeaf;
+			return Estimate(new BoundPosition(first, 0, Volatile.Read(ref first.Count), 0.0), in hi);
+		} finally {
+			ReaderGate.Exit(slot);
+		}
+	}
+
+	// The first position >= from (inclusive) or > from (exclusive): equal keys route LEFT for the
+	// inclusive bound so the run's first leaf is found, RIGHT for the exclusive one so its last is.
+	private BoundPosition LocateLower(TIndex from, bool inclusive) => Locate(from, routeLeft: inclusive, lowerBoundInLeaf: inclusive);
+
+	// The first position > to (inclusive) or >= to (exclusive): the mirror image.
+	private BoundPosition LocateUpper(TIndex to, bool inclusive) => Locate(to, routeLeft: !inclusive, lowerBoundInLeaf: !inclusive);
+
+	private BoundPosition Locate(TIndex bound, bool routeLeft, bool lowerBoundInLeaf) {
+		restart:
+		var node = _root;
+		var rank = 0.0;
+		var scale = 1.0;
+		while (node is InternalNode intern) {
+			var children = intern.KeyCount + 1;
+			var idx = routeLeft ? FindChildIndexLeft(intern, bound) : FindChildIndex(intern, bound);
+			var child = intern.Children[idx];
+			if (child == null)
+				goto restart; // raced an in-place structural shift — see FindLeafForRange
+			scale /= children;
+			rank += idx * scale;
+			node = child;
+		}
+
+		var leaf = Unsafe.As<LeafNode>(node);
+		var count = Volatile.Read(ref leaf.Count); // acquire: pairs with InsertIntoLeaf's release
+		var pos = lowerBoundInLeaf ? LeafLowerBound(leaf, bound, count) : LeafUpperBound(leaf, bound, count);
+		if (count > 0)
+			rank += scale * pos / count;
+		return new BoundPosition(leaf, pos, count, rank);
+	}
+
+	// Leaves walked exactly before the fractional rank takes over: a window inside a few leaves is
+	// counted, not estimated — the right spine of a sequentially filled tree is half empty at every
+	// level, which is exactly where a rank-based estimate is worst and small windows are common.
+	private const int ExactLeafWalk = 8;
+
+	private int Estimate(in BoundPosition lo, in BoundPosition hi) {
+		// Same leaf and neither bound spilled past its end (a run of equal keys can continue into the
+		// next leaf; the last leaf has no next): the window is exactly the positions between them.
+		var loSpilled = lo.Pos == lo.Count && lo.Leaf.Next != null;
+		var hiSpilled = hi.Pos == hi.Count && hi.Leaf.Next != null;
+		if (ReferenceEquals(lo.Leaf, hi.Leaf) && !loSpilled && !hiSpilled)
+			return Math.Max(0, hi.Pos - lo.Pos);
+		if (!hiSpilled && hi.Rank >= lo.Rank) {
+			// A short chain from lo's leaf to hi's leaf is summed exactly (the acquire-read counts
+			// bound each leaf, as in the range walks).
+			var exact = lo.Count - lo.Pos;
+			var leaf = lo.Leaf.Next;
+			for (var hops = 0; leaf != null && hops < ExactLeafWalk; hops++) {
+				if (ReferenceEquals(leaf, hi.Leaf))
+					return Math.Max(0, exact + hi.Pos);
+				exact += Volatile.Read(ref leaf.Count);
+				leaf = leaf.Next;
+			}
+		}
+
+		var estimate = (int)Math.Round(Length * (hi.Rank - lo.Rank));
+		return Math.Clamp(estimate, 0, Length);
+	}
+
 	// ───────────────────── Range queries ─────────────────────
 
 	internal interface IResultAggregator : IDisposable {

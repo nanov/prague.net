@@ -120,7 +120,10 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		return false;
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	// AggressiveInlining (added with AggressiveOptimization, the store's pattern for its hot helpers): the
+	// frozen pipeline's pass calls this once per seed key from a loop; inlined, that loop is the same body
+	// as the store's own bulk walks (TryGetValues / TryCountValues).
+	[MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
 	public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value) {
 		var tables = _tables;
 		var hashCode = GetHashCode(key);
@@ -239,6 +242,36 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 		var tables = _tables;
 		var count = 0;
 		foreach (var key in keys) {
+			var hashCode = GetHashCode(key);
+			var bucket = GetBucket(tables, hashCode);
+			if (bucket is not null) {
+				if (hashCode == bucket.Hashcode && KeyEquals(bucket.Key, key)) {
+					++count;
+				} else {
+					for (var next = bucket.Next; next is not null; next = next.Next) {
+						if (hashCode == next.Hashcode && KeyEquals(next.Key, key)) {
+							++count;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		return count;
+	}
+
+	/// <summary>
+	///   The span twin of <see cref="TryCountValues(ref ValueSet{TKey,DefaultKeyComparer{TKey}})" /> — the same
+	///   tables walk, the same membership (a key the tables hold), no value copied out and no call per key —
+	///   for the frozen pipeline's count of a plan whose pass needs no value (design §8 / step 8).
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	internal int TryCountValues(ReadOnlySpan<TKey> keys) {
+		var tables = _tables;
+		var count = 0;
+		for (var i = 0; i < keys.Length; i++) {
+			var key = keys[i];
 			var hashCode = GetHashCode(key);
 			var bucket = GetBucket(tables, hashCode);
 			if (bucket is not null) {

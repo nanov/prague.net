@@ -26,6 +26,18 @@ Bulk-intersect primitives on the index types feed joins directly (avoid temp `Va
 - `CacheSymmetricKeyValueListIndex` exposes 8 bulk primitives (`IntersectValues`/`IntersectValuesVia` × identity/selector × `ref ValueSet`/`ReadOnlySpan`) that emit `JoinedKeyPair<LeftKeySetView<TKey>, TRightKey>` from borrowed sets.
 - `CacheKeySetIndex.IntersectWithPaired<TLeft>(ref ValueSet<JoinedKeyPair<TLeft,TKey>>)` — lock-protected in-place paired intersect.
 
+### Probe and cardinality APIs (frozen pipeline, internal)
+
+One lookup or one delegate call each; read by `QueryBuilders/Prepared/Pipeline/Steps/*` and by seed selection. Reader-safe like the calls eager makes.
+
+| API | Purpose |
+|---|---|
+| `CacheKeyValueListIndex.HasKeySelector` / `TryGetBucket(key, out bucket)` | scalar vs collection-backed; the live bucket (no `Empty` substitution) |
+| `CacheRangeIndex.KeyOf(key, value)` / `EstimateCount(in from, in to)` | the value-side range probe; a cardinality signal |
+| `CacheKeySetIndex.Matches(key, value)` / `Count` / `CopyKeysTo(ref sink)` | value-side key-set probe (no lock); live count; the locked key copy the eager `AddKeyTo` does, into an `IKeySink<TKey>` |
+| `LastUpdatedIndex.EstimateCount(after[, untilInclusive])` | cardinality of `(after, until]` / `(after, +∞)` |
+| `PooledBTree.EstimateCount(from, fromIncl, to, toIncl)` / `EstimateCountFrom` / `EstimateCountTo` | two gate-pinned descents record each bound's fractional rank (`Σ childIndex / Π childCounts` + leaf position); exact within one leaf and across a chain of ≤ 8 leaves, else `Length × Δrank` — within a small constant factor, never used to size a buffer (`PooledBTreeEstimateCountTests`) |
+
 ## Symmetric (`.Reverse`)
 
 `Symmetric = true` adds a reverse map enabling O(1) lookup from primary key back to index value. This is what makes **left-index-driven joins** possible (the left entity carries an index value, not the right's PK). Which symmetric variant drives which join family:

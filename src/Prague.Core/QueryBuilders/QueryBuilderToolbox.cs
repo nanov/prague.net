@@ -53,6 +53,19 @@ public interface IJoinResolver {
 	/// </summary>
 	int CompareLeftValues<TLeft>(TLeft a, TLeft b) => throw new InvalidOperationException("Join resolver is not sortable");
 
+	/// <summary>
+	/// Sorter-only: hands the user comparer to <paramref name="visitor" /> as a struct type parameter,
+	/// together with the type it orders. The twin of <see cref="CompareLeftValues{TLeft}" /> for callers
+	/// that compare in a loop: that one is a generic method, so its instantiation over a reference-type
+	/// left value is the shared-canonical one — a runtime generic-dictionary lookup and an indirect call
+	/// per comparison, which no amount of inlining hints removes. Walked once per execution instead, the
+	/// comparer then reaches every comparison as a type parameter and the constrained call folds.
+	/// Callers must have gated on <see cref="OrdersByLeftValues{TLeft}" />.
+	/// </summary>
+	internal void WithLeftComparer<TVisitor>(ref TVisitor visitor)
+		where TVisitor : struct, ILeftComparerVisitor, allows ref struct
+		=> throw new InvalidOperationException("Join resolver is not sortable");
+
 	internal void UnsafeExecuteWithAccessor<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool,
 		ref QueryResultsDisposer disposer)
 		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct;
@@ -113,6 +126,96 @@ public interface IJoinResolver {
 		ref QueryResultsDisposer disposer) where TExecutor : struct, IUnsafeCandidatesExecutor;
 
 	static abstract void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult;
+
+	/// <summary>
+	/// Does this resolver family answer its join with one point lookup per left (the four <c>JoinOne</c>
+	/// families)? The eager resolvers build a pair set over every left and run one paired bulk read; the
+	/// pipeline instead looks the right up for each row right after the row is added, so a join costs 1–3
+	/// hashes per left and no scratch set. The lookups are the eager resolver's own reads in the same order
+	/// — PK to PK: the selector then the right store; right-unique: the right index then the store;
+	/// left-unique: the left index's reverse map, the selector, the store; left-symmetric: the reverse map,
+	/// the optional right index, the store — so the staleness window is the eager one. JIT-folded per
+	/// instantiation; the frozen pipeline's chain walkers skip everything else.
+	/// </summary>
+	static virtual bool SupportsFusedLookup => false;
+
+	/// <summary>
+	/// Decided once at build: can this resolver's right be looked up per left? False while a filter callback
+	/// is still a builder lambda over the paired core — that cannot become a point probe — and true once
+	/// <see cref="CompileFusedFilter" /> has turned it into a per-right check. Default: no.
+	/// </summary>
+	bool CanFuse => false;
+
+	/// <summary>
+	///   Frozen build only, once per plan: turn a filter callback into the per-right check the fused fill
+	///   can run (<see cref="FusedJoinFilterProbe" />), which is what makes <see cref="CanFuse" /> true for a
+	///   filtered <c>JoinOne</c>. The four <c>JoinOne</c> families implement it; everything else, a
+	///   <c>JoinMany</c> included, keeps its paired read and does nothing here. Never called on an
+	///   execution path, so the callback still runs exactly once per execution.
+	/// </summary>
+	internal void CompileFusedFilter() { }
+
+	/// <summary>
+	/// Does this family's <b>inner</b> execution emit its rows in an order the fused per-left fill cannot
+	/// reproduce? True for the left-symmetric join alone: its pair set is keyed by the lookup key, so the
+	/// fan-out creates the rows grouped by right — several lefts of one bucket together — while the fused
+	/// pass keeps the seed's order. The two agree as sets, never as sequences, so the planner leaves such a
+	/// chain to the replay under <see cref="FrozenOptions.PreserveEagerOrder" /> and fuses it otherwise. An
+	/// <i>outer</i> left-symmetric join is unaffected: its rows already exist, the fan-out only fills them.
+	/// JIT-folded per instantiation.
+	/// </summary>
+	static virtual bool FusedInnerRegroups => false;
+
+	/// <summary>
+	/// Is this a <c>JoinMany</c> family (right-list, left-symmetric, collection)? The frozen pipeline admits
+	/// such a chain (design §7.2 as implemented): without a filter callback (<see cref="CanFuse" />) and with
+	/// no classic sorter before it, the resolver fills its slots in the pass's fill walk through
+	/// <see cref="UnsafeFillFusedRows{TAccessor}" /> — the frozen per-left fill of <c>JoinManyFusedFill</c>,
+	/// one append-only buffer, no pair set — and narrows through <see cref="UnsafeNarrowFused{TKey,TValue}" />;
+	/// otherwise its own two-pass fan-out runs after the pass over the rows the pass formed
+	/// (<see cref="UnsafeExecuteWithAccessor{TAccessor}" />), an inner one then dropping the rows whose
+	/// slot stayed empty (<see cref="UnsafePruneEmptyManySlots{TAccessor}" />). JIT-folded per instantiation;
+	/// decided at build, never per row.
+	/// </summary>
+	static virtual bool IsMany => false;
+
+	/// <summary>
+	/// The inner <c>JoinMany</c> narrowing of the frozen pipeline: after <see cref="UnsafeExecuteWithAccessor{TAccessor}" />
+	/// filled this resolver's slots, drop the rows whose slot holds no right — the eager
+	/// <c>RetainNonEmptyManySlots</c> rule (a left without a right, or whose rights the filter rejected, is
+	/// neither emitted nor counted). Only invoked on inner resolvers whose <see cref="IsMany" /> is true.
+	/// </summary>
+	internal void UnsafePruneEmptyManySlots<TAccessor>(ref TAccessor accessor)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct
+		=> throw new InvalidOperationException("Resolver is not a JoinMany");
+
+	/// <summary>
+	/// The frozen pipeline's fused fill (design §7.1): writes this resolver's right slot of every row in
+	/// <paramref name="accessor" /> with one point lookup per row — the right on a hit (cloned when
+	/// <paramref name="cloneOnAdd" />, as the paired walk's add would), the slot's default on a miss — and,
+	/// for an inner join, drops the rows without a right (<see cref="IUnsafeValueAccessor.PruneNullSlots{TRightValue}" />).
+	/// Returns true when rows were dropped. One call per resolver per execution: the per-row work is the
+	/// resolver's own lookups and the slot write, no chain dispatch. Only invoked on resolvers whose
+	/// <see cref="SupportsFusedLookup" /> is true — and, for a fused <c>JoinMany</c> (<see cref="IsMany" />,
+	/// <see cref="CanFuse" />), the frozen per-left fill: it rents the slots' buffer (pooled when the
+	/// <paramref name="disposer" /> is active, and registered with it) sized by <paramref name="sizeHint" />,
+	/// the previous execution's total, which it writes back. A <c>JoinOne</c> ignores those three.
+	/// </summary>
+	internal bool UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct
+		=> throw new InvalidOperationException("Resolver has no fused lookup");
+
+	/// <summary>
+	/// The inner narrowing of the frozen pipeline (design §7.1, the eager <c>CountCoreJoined</c> rule):
+	/// keeps, in order, the keys that have a right — moving <paramref name="values" /> in lockstep when
+	/// given (empty for a count) — and returns the survivor count. <typeparamref name="TKey" /> is the
+	/// chain's left key type; the resolver reinterprets it to its own. Only invoked on inner resolvers
+	/// whose <see cref="SupportsFusedLookup" /> is true, or fused <c>JoinMany</c>s (a left keeps its row when
+	/// its bucket holds a right the store has).
+	/// </summary>
+	internal int UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values)
+		where TKey : notnull, IEquatable<TKey>
+		=> throw new InvalidOperationException("Resolver has no fused lookup");
 }
 public interface IJoinResolver<TLeftKey, TLeftValue> : IJoinResolver
 	where TLeftKey : notnull, IEquatable<TLeftKey> {
@@ -165,6 +268,15 @@ public interface IUnsafeValueAccessor {
 	/// <paramref name="candidates"/> to surviving keys. Used by InnerJoinMany.
 	/// </summary>
 	internal void RetainNonEmptyManySlots<TKey, TInnerValue>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) where TKey : IEquatable<TKey>;
+
+	/// <summary>This accessor's slot of the row at <paramref name="index" /> — the rows in <see cref="GetKeys{TKey}" />'s order. The fused JoinOne fill's per-row write.</summary>
+	internal ref TRightValue GetSlotAt<TRightValue>(int index);
+
+	/// <summary>Drops the rows whose slot here is null / default (an inner fused join's misses), keeping the order of the rest.</summary>
+	internal void PruneNullSlots<TRightValue>();
+
+	/// <summary>Drops the rows whose slot here is an empty <see cref="QueryResults{TInnerValue}" /> (an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill), keeping the order of the rest.</summary>
+	internal void PruneEmptyManySlots<TInnerValue>();
 }
 public interface IUnsafeValueAccessor<TLeftKey> : IUnsafeValueAccessor
 	where TLeftKey : IEquatable<TLeftKey> {

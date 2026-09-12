@@ -317,6 +317,13 @@ public readonly struct QueryResults<T> : IList<T>, IReadOnlyList<T>, IDisposable
 		Unsafe.AsRef(in _capacity) = capacity;
 	}
 
+	/// <summary>A slot filled as one contiguous run by the frozen <c>JoinMany</c> fill: capacity, count and total are the run's length; <see cref="AssignSharedBuffer" /> then gives it the buffer.</summary>
+	internal void SetFilled(int count) {
+		Unsafe.AsRef(in _capacity) = count;
+		Unsafe.AsRef(in _count) = count;
+		Unsafe.AsRef(in _totalCount) = count;
+	}
+
 	internal int AssignSharedBuffer(T[] sharedArray, int offset) {
 		if (_capacity is 0) {
 			Unsafe.AsRef(in _array) = Array.Empty<T>();

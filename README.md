@@ -510,6 +510,183 @@ Sort (classic)                 8066µs             449µs             7.8ms     
                             8.6× faster       2.3× faster    1.3× slower    2.1× slower
 ```
 
+### **Prepared Queries — build once, execute on demand**
+
+A prepared query is the command form of a query: you describe it once — optionally with a
+parameter struct — store it in a field, and execute it any number of times, from any thread. Every
+execution replays the description into the same engine the eager builder uses, so the results are
+byte-identical (same rows, same order, same `Truncated`/`TotalCount`), and the pooled paths allocate
+nothing per execution. The one allocation is `Build()`.
+
+```csharp
+public sealed class ProductSearch {
+    // Unnameable closed builder type behind a storable name; one object, immutable, thread-safe.
+    private readonly PreparedQuery<(int dept, int brand, long since, decimal minPrice, bool inStockOnly),
+                                   JoinResult<Product, ProductInfo?>> _search;
+
+    public ProductSearch(ProductCache products) {
+        _search = products.Prepare<(int dept, int brand, long since, decimal minPrice, bool inStockOnly)>()
+            .Or(
+                b => b.WithDepartmentId(static a => a.dept),    // parameterized WithXxx
+                b => b.WithBrandId(static a => a.brand))
+            .WithReleaseDate(static (rb, a) => rb.Gte(a.since)) // parameterized range
+            .Where(static (p, in a) => p.Price >= a.minPrice)   // parameterized Where — no closure
+            .If(static a => a.inStockOnly,                      // narrowing that applies only when the arg says so
+                b => b.Where(static p => p.Stock > 0))
+            .SortBounded(new ByReleaseDateDesc())               // struct comparer, paged
+            .JoinWithProductInfo()                              // FK-generated join, unchanged
+            .Build();                                           // the only allocation
+    }
+
+    public int CountPage((int dept, int brand, long since, decimal minPrice, bool inStockOnly) args) {
+        using var page = _search.ExecutePooled(args, skip: 0, take: 20);   // 0 B, any thread
+        return page.Count;
+    }
+}
+```
+
+`Prepare()` (no arguments) and `Prepare<TArgs>()` exist on every generated cache and on the raw
+`InMemoryDataCache` (`UseIndex(index, static a => …)` instead of `WithXxx`). Each `WithXxx` /
+`WithoutXxx` / `WithKey` / `UpdatedAfter` overload has a prepared twin taking a `Func<TArgs, T>` next
+to the bound form; write the selectors as `static` lambdas so the delegate is created once at build.
+`Execute`, `ExecutePooled`, `Count` and the `*Cloned` variants take `in TArgs` plus the usual
+`skip`/`take`.
+
+**`TArgs` must be a struct** — a tuple, a `readonly record struct`, a primitive like `int`, or
+`NoArgs` for the parameterless `Prepare()`. A class or record class is a compile error: the whole
+prepared path is constrained `where TArgs : struct`, which keeps every generic over it
+JIT-specialized and gives the `in TArgs` passing below something to avoid copying.
+
+**The arg `Where` predicate takes `TArgs` by `in`** — it is the one callback that runs once per
+candidate row rather than once per execution, so a by-value `TArgs` would copy the whole struct per
+row. Its type is `ArgFilter<TValue, TArgs>`, not `Func<TValue, TArgs, bool>`, and the lambda has to
+spell the modifier: **`static (v, in a) => …`**. A plain `(v, a) => …` does not convert (CS1676);
+the parameter type is still inferred, and a stored delegate must be typed `ArgFilter<…>`. Prefer a
+`readonly struct` / `readonly record struct` for `TArgs`: `in` removes the copy at the call, but
+reading a *property* of a non-readonly struct through an `in` reference copies it again inside the
+lambda. Field access on a `ValueTuple` is free.
+
+Every other callback is an ordinary `Func<…>` and needs no change — the `WithXxx` / `UseIndex`
+selectors, `If` / `IfElse` conditions, `Match` tag selectors, `UpdatedAfter` instants and the
+`(rb, a) => …` range builder all run once per execution, where the copy is 1–2 ns and not worth an
+API break.
+
+**`Match` — the multi-way branch**, in two forms. Both are the prepared twin of a C# statement over
+type-preserving reassignments, with the arms *recorded* rather than run, so `Explain()` and the frozen
+planner can see every one of them:
+
+```csharp
+// Tag form: a switch. The selector runs once per execution; the first equal tag wins.
+.Match(static a => a.Mode, m => m
+    .Case(Mode.ByDepartment, b => b.WithDepartmentId(static a => a.dept))
+    .Case(Mode.ByBrand,      b => b.WithBrandId(static a => a.brand))
+    .Default(b => b.Where(static p => p.Featured)))
+
+// Guard form: an if / else if / else. No selector; the first true guard wins, later guards never run.
+// A guard is a plain Func<TArgs, bool> — only the arg Where predicate takes TArgs by `in`.
+.Match(m => m
+    .Case(static a => a.minPrice > 0, b => b.Where(static (p, in a) => p.Price >= a.minPrice))
+    .Case(static a => a.inStockOnly,  b => b.Where(static p => p.Stock > 0))
+    .Default())
+```
+
+**Every `Match` ends in a `Default`** — the arm chain is type-state (`IOpenMatchArms` →
+`IClosedMatchArms`), so an open chain, a chain with no arm, or a `Case` after `Default` is a compile
+error (CS0315), and exactly one arm always runs. Write the parameterless `Default()` for the explicit
+"nothing matched, narrow nothing" arm: it is the same execution a silent fall-through used to give,
+now stated in the query instead of implied by its absence.
+
+**`If` / `IfElse` are sugar over a one-`Case` guard `Match`** — `If(c, b)` *is*
+`Match(m => m.Case(c, b).Default())` and `IfElse(c, t, e)` *is* `Match(m => m.Case(c, t).Default(e))`.
+Their parameter lists are unchanged, so existing call sites are untouched; what changed is what you see
+in `Explain()`, which now prints an `If` as `match#0 {guard#0: [...]; default: []}` and its per-execution
+choice as `select#0 → arm 1` (the empty `Default`) when the condition is false.
+
+**What a branch may contain:**
+- `Or(b1, b2)` branches: `WithXxx` / `UseIndex` (bound or parameterized), nested `Or`, narrow-only `If` / `Match`.
+- `If(cond, b)` / `IfElse(cond, then, else)` branches and `Match` arms: everything an `Or` branch may, plus `Where` and nested `Or`/`If`/`Match`.
+- Never inside a branch: joins, `Sort`/`SortBounded`, `Build()` — these are top-level only and a
+  compile error otherwise, exactly like the eager `Or`.
+- Prepared builders have no `Execute*`; `Build()` is the only terminal and is reachable only once the
+  chain is executable.
+
+**Parity and cost.** A prepared execution copies the stored struct to the stack, replays the
+recorded narrowers into a fresh eager core (one delegate call per parameterized narrower) and runs the
+eager execution code — there is no second engine. The prepared side only *saves* where the eager
+spelling needs a closure to carry the per-call argument (`Where(v => v.X >= arg)`), because the
+argument is bound into a per-thread pooled predicate box instead. Measured on the raw cache
+(`benchmarks/Prague.Benchmarks/PreparedQueryBenchmarks.cs`, 100k rows, 1k-row list buckets, Apple M4 Pro,
+.NET 9, pooled + disposed):
+
+| Shape | Eager | Prepared | Ratio |
+|---|---:|---:|---:|
+| list index + `Where(v => v.Id >= a.min)` (argument captured) | 8.99 µs / **89 B** | 9.16 µs / **≈0 B** | 1.02 |
+| unique lookup, parameterized | 134 ns / 0 B | 133 ns / 0 B | 0.99 |
+| range, parameterized | 13.4 µs / 0 B | 13.5 µs / 0 B | 1.01 |
+| `SortBounded` page of 20 over a 1k bucket, struct comparer | 16.2 µs / 0 B | 16.4 µs / 0 B | 1.01 |
+| `JoinOne`, parameterized (1k left rows) | 32.2 µs / 5 B | 31.7 µs / 5 B | 0.98 |
+
+Design: `docs/superpowers/specs/2026-09-09-prepared-query-command-design.md`; engine notes in
+`context/query.md`, generated surface in `context/generated.md`.
+
+#### **`BuildFrozen()` — the same query, planned once**
+
+`BuildFrozen()` ends the chain where `Build()` does, but instead of replaying the description into a
+fresh eager core on every execution it plans the query once and binds it to an executor built for that
+shape: a point lookup for a unique-index equality, a **single-pass pipeline** for everything else it can
+take — one index step's keys are copied out and every other step becomes an O(1) probe on the key or on
+the fetched value, so there is no candidate set and no intersection — and the prepared replay for the
+rest. Joins fuse into that pass (one right lookup per row), `Sort` / `SortBounded` feed the eager
+top-k container directly, and `Count` skips the values it does not need.
+
+```csharp
+private readonly FrozenQuery<(int dept, int brand), JoinResult<Product, ProductInfo?>> _page =
+    products.Prepare<(int dept, int brand)>()
+        .WithDepartmentId(static a => a.dept)
+        .WithBrandId(static a => a.brand)
+        .SortBounded(new ByReleaseDateDesc())
+        .JoinWithProductInfo()
+        .BuildFrozen();                       // BuildFrozen(FrozenOptions) to tune; see below
+
+using var page = _page.ExecutePooled((dept, brand), skip: 0, take: 20);   // 0 B, any thread
+Console.WriteLine(_page.Explain());           // the plan, the live optimizations, the last seed chosen
+```
+
+**What a frozen result guarantees.** The same rows as the eager builder's, with the same `Count`,
+`TotalCount` and `Truncated`, the same clone timing, the same pooling and leak safety, 0 B per pooled
+execution, and pages that are slices of the same whole. **Order is not part of the contract unless you
+ask for it:** an unsorted result carries no row-order guarantee, and the **ties** of a sorted one are
+unspecified too — the comparer does not order them. A `Sort` / `SortBounded` with a **total** comparer
+is byte-identical to eager.
+
+That freedom is what pays: the pipeline seeds from whichever index step is narrowest *for this
+execution's arguments* rather than the one you happened to declare first, so `WithDepartmentId(...)`
+followed by a hundred-row `WithBrandId(...)` walks the hundred rows whichever way round you wrote it.
+If you need the eager sequence back — a snapshot diffed row by row, a golden test — set
+`new FrozenOptions { PreserveEagerOrder = true }`: it pins the seed to the first declared step, walks
+the store for an `Or`-first query and replays a chain containing an inner left-symmetric join, and
+costs what those choices cost.
+
+Measured on the raw cache (`benchmarks/Prague.Benchmarks/FrozenQueryBenchmarks.cs`, 100k rows, 1k-row
+list buckets, Apple M4 Pro, .NET 9, `--inProcess`, pooled + disposed; every frozen row 0 B per execution):
+
+| Shape | Eager | `Build()` | `BuildFrozen()` | Ratio |
+|---|---:|---:|---:|---:|
+| unique lookup, parameterized | 132 ns | 129 ns | **18.0 ns** | 7.3× |
+| list bucket + `Where` | 8.62 µs | 8.58 µs | **5.84 µs** | 1.5× |
+| list ∩ list (1k ∩ 100, largest declared first) | 9.26 µs | 9.11 µs | **1.29 µs** | 7.2× |
+| list ∩ list ∩ list (1k ∩ 333 ∩ 111) | 11.2 µs | 11.1 µs | **1.78 µs** | 6.3× |
+| list ∩ 60k-row range window | 398 µs | 396 µs | **11.2 µs** | 35× |
+| "everything since T" ∩ list | 216 µs | 216 µs | **9.66 µs** | 22× |
+| `Or` of two 1k buckets, first narrowing | 976 µs | 983 µs | **26.9 µs** | 36× |
+| `SortBounded` page of 20 over list ∩ list | 11.3 µs | 11.4 µs | **3.42 µs** | 3.3× |
+| 3 lists → `SortBounded(page)` → `JoinOne` | 17.1 µs | 16.9 µs | **3.77 µs** | 4.5× |
+| …the same shape's `Count` | 11.0 µs | 10.8 µs | **1.42 µs** | 7.7× |
+| `Sort` over a 1k bucket → `JoinMany` | 118 µs | 119 µs | **14.3 µs** | 8.3× |
+
+Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md`; engine notes in
+`context/query.md`; every measured table in `benchmarks/Prague.Benchmarks/RESULTS.MD`.
+
 ### **Conditional Updates**
 
 Prague detects when data hasn't changed and avoids unnecessary work:

@@ -32,6 +32,17 @@ using Prague.Core.Utils;
 	}
 #>
 
+/// <summary>
+///   The join arity this file was generated for (<c>MaxJoinResults</c> in <c>T4Constants.ttinclude</c>).
+///   <c>FillFused</c> below indexes its fill-hint array by chain position up to this value, so anything
+///   sizing that array reads the bound from here instead of repeating the number — the two drifted once,
+///   and an 8-entry array under a 15-position walk is an out-of-range read per execution.
+/// </summary>
+internal static class JoinResultLimits {
+	/// <summary>The highest chain position a join can occupy; positions are 1-based, 0 being the left slot.</summary>
+	internal const int MaxJoinResults = <#= MaxJoinResults #>;
+}
+
 #region Generated IJoinResult Interfaces
 
 public interface IJoinResult {
@@ -269,6 +280,21 @@ internal ref struct <#= accessorName #><TKey, TJoinResult>
 		return Unsafe.As<ReadOnlySpan<TKey>, ReadOnlySpan<TKey1>>(ref keys);
 	}
 
+	/// <summary>THIS accessor's slot (<c><#= propName #></c>) of the row at <paramref name="index" /> — the row order is <see cref="GetKeys{TKey1}" />'s. The fused JoinOne fill's per-row write (frozen pipeline design §7.1).</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public ref TRightValue GetSlotAt<TRightValue>(int index)
+		=> ref Unsafe.AsRef(in _results.ValuesMutable[index].UnsafeGet<#= propName #><TRightValue>())!;
+
+	/// <summary>Drops the rows whose slot <c><#= propName #></c> is <see langword="null"/> / <c>default</c> — an inner fused join's misses — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneNullSlots<TRightValue>()
+		=> _results.Filter(new <#= propName #>NonNullFilter<TKey, TJoinResult, TRightValue>());
+
+	/// <summary>Drops the rows whose slot <c><#= propName #></c> is an empty <see cref="QueryResults{TInnerValue}"/> — an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill (design §7.2 as implemented) — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneEmptyManySlots<TInnerValue>()
+		=> _results.Filter(new <#= propName #>NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c><#= propName #></c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -396,10 +422,25 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 	private readonly bool _skipSorter;
 	private readonly int _skip;
 	private readonly int _take;
+	// A bit per chain position the frozen pipeline fuses (a fusable JoinOne, design §7.1). In the fill
+	// walk (_fillFused) exactly those resolvers run — one point lookup per row into their slot — and the
+	// sorter and the rest are skipped; in the ordinary walk they are skipped and the rest runs. With
+	// _fillInnerMany the fill walk also runs every INNER JoinMany (design §7.2 as implemented): its fan-out
+	// over the rows formed so far, then the rows whose slot stayed empty are dropped — in chain order with
+	// the fused inner fills, as the eager indexed-inner phase orders its narrowings. Outer JoinManys keep
+	// their place in the ordinary walk.
+	private readonly int _fusedMask;
+	private readonly bool _fillFused;
+	private readonly bool _fillInnerMany;
+	// Per chain position, a fused JoinMany's buffer size hint (the executor's; null outside the fill walk).
+	private readonly int[]? _fillHints;
 	private ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> _results;
 	private ref QueryResultsDisposer _disposer;
 
 	internal bool DidSort = false;
+
+	/// <summary>Set by a fill walk when an inner fused join dropped rows without a right.</summary>
+	internal bool Pruned = false;
 
 	public ExecuteWithAccessorProcessor(
 		ref ValueDictionary<TLeftKey, TResult, DefaultKeyComparer<TLeftKey>> results,
@@ -409,19 +450,29 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		bool shouldPool,
 		ref QueryResultsDisposer disposer,
 		bool fillInner,
-		bool skipSorter) {
+		bool skipSorter,
+		int fusedMask = 0,
+		bool fillFused = false,
+		bool fillInnerMany = false,
+		int[]? fillHints = null) {
 		_skip = skip;
 		_take = take;
 		_cloneOnAdd = cloneOnAdd;
 		_shouldPool = shouldPool;
 		_fillInner = fillInner;
 		_skipSorter = skipSorter;
+		_fusedMask = fusedMask;
+		_fillFused = fillFused;
+		_fillInnerMany = fillInnerMany;
+		_fillHints = fillHints;
 		_disposer = ref disposer;
 		_results = ref results;
 	}
 
 	public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver {
 		if (TResolver.IsSorter) {
+			if (_fillFused)
+				return;
 			if (_skipSorter) {
 				// Bounded top-K path: rows arrive pre-sorted and pre-cropped; mark DidSort so the
 				// container's fallback Crop stays off, and do not sort or slice again.
@@ -445,6 +496,30 @@ internal ref struct ExecuteWithAccessorProcessor<TLeftKey, TResult> : IResolverE
 		var accessorName = $"Unsafe{propName}Accessor";
 #>
 			case <#= i #>: {
+				if ((_fusedMask & (1 << <#= i #>)) != 0) {
+					if (_fillFused) {
+						var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
+						Pruned |= resolver.UnsafeFillFusedRows(ref a, _cloneOnAdd, _shouldPool, ref _disposer, ref _fillHints![<#= i #>]);
+					}
+
+					break;
+				}
+
+				if (_fillFused) {
+					// The frozen pipeline's inner JoinMany: the resolver's own fan-out over the rows the pass formed
+					// (the same call the ordinary walk makes for an outer one), then the eager
+					// RetainNonEmptyManySlots narrowing without a candidate set. TResolver.IsMany folds per
+					// instantiation, so a chain without a JoinMany compiles this away.
+					if (_fillInnerMany && TResolver.IsMany && resolver.Inner) {
+						var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
+						resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
+						resolver.UnsafePruneEmptyManySlots(ref a);
+						Pruned = true;
+					}
+
+					break;
+				}
+
 				if (!resolver.Inner) {
 					var a = new <#= accessorName #><TLeftKey, TResult>(ref _results);
 					resolver.UnsafeExecuteWithAccessor(ref a, _cloneOnAdd, _shouldPool, ref _disposer);
