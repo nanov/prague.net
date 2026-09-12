@@ -211,6 +211,19 @@ and `Build()` is only reachable on `IExecutableQuery`.
 > **Progress — shipped on `poc/prepared-query`.** Steps 1–6 below are done; nothing in the eager
 > builder changed behavior. What landed, in order:
 >
+> **Superseded in part by four later commits on the same branch; the entries below are as-landed, not
+> as-is.** (1) `fa60800` — a `Match`'s **`Default` arm is mandatory**, not an "optional `DefaultArm`
+> tail": the arm lambda must return a chain closed by one (`IClosedMatchArms`), so "else the default,
+> else no-op" is unreachable and an unmatched tag is a compile error; write `Default()` for the explicit
+> narrow-nothing arm. (2) `1a29961` — **`If` / `IfElse` are sugar over a one-`Case` guard `Match`**;
+> `IfNarrower`, `IfElseNarrower`, `IfSelector`, `NarrowerKind.If` / `IfElse` and the pipeline's
+> bind-nothing (`-1`) path are gone, and `e79d0f0` added the **guard form** `Match(m => m.Case(predicate,
+> arm)…Default())`. Public parameter lists are unchanged. (3) `a8c6166` — the parameterized `Where` takes
+> `ArgFilter<TValue,TArgs>`, i.e. **`TArgs` by `in`**, not `Func<TValue,TArgs,bool>`; callers must spell
+> `static (v, in a) => …` (CS1676 otherwise). (4) `769c410` — **`where TArgs : struct`** on every
+> declaration on this path, so a class or record class is CS0453 at the call site. Current behaviour:
+> `context/query.md` → "Prepared queries".
+>
 > - **Steps 1–3 (recorder, narrowers, joined path):** `src/Prague.Core/QueryBuilders/Prepared/` —
 >   `PreparedNarrowers<TKey,TValue,TArgs,TChain>` recorder in the left-query slot of the ordinary
 >   `CacheQueryBuilderCombined`, `NarrowerLink` type chain, narrowers for unique / list / symmetric

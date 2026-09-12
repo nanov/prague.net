@@ -467,6 +467,22 @@ What falls out for free, step for step with eager:
 
 ### 7.1 Fusing `JoinOne` (outer and inner)
 
+> **Superseded in part (`fda6e9c`).** Two claims below are no longer behaviour. (1) **"`NoFilter` only"**
+> and the replay fallback for "any `JoinOneFilter` / `JoinOneFilterWithArg`": a filtered `JoinOne` now
+> **fuses** when the callback is a pure value predicate. `IJoinResolver.CompileFusedFilter` runs the
+> callback once at build through `FusedJoinFilterProbe` against a probe paired core that narrows nothing
+> and counts every narrowing attempt; a run that narrowed nothing hands back the composed
+> `Predicate<TRightValue>`, which the fused lookup applies to the right it just fetched — the same
+> delegate on the same value the paired read would have tested. A callback that narrows by index or `Or`
+> is a set operation over the pair set and still keeps its paired read. `CanFuse` is therefore
+> `TFilter.IsNoOp || _fusedFilterOk`, not `TFilter.IsNoOp`. (2) The `IFusableJoinOne` interface sketched
+> below was never called: the landing put the contract on `IJoinResolver`
+> (`SupportsFusedLookup` / `CanFuse` / `UnsafeFillFusedRows`, the fill driven per resolver rather than
+> per row) and the interface was removed as dead surface. See also the ordering banner at the top for the
+> inner left-symmetric paragraph: that join now fuses by default and replays only under
+> `FrozenOptions.PreserveEagerOrder`. Current behaviour: `context/joins.md` → "Fused `JoinOne` in the
+> frozen pipeline".
+
 A `JoinOne` right lookup is a point read per left; fusing it means writing the right slot of the row
 in the same pass, right after `container.Add(key, value)`. `JoinedResultContaier.Add` creates the row
 (`ResolverChain.cs:187-192`, `GetValueRefOrAddDefault`); the row type exposes its slots through

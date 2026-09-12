@@ -571,9 +571,40 @@ selectors, `If` / `IfElse` conditions, `Match` tag selectors, `UpdatedAfter` ins
 `(rb, a) => …` range builder all run once per execution, where the copy is 1–2 ns and not worth an
 API break.
 
+**`Match` — the multi-way branch**, in two forms. Both are the prepared twin of a C# statement over
+type-preserving reassignments, with the arms *recorded* rather than run, so `Explain()` and the frozen
+planner can see every one of them:
+
+```csharp
+// Tag form: a switch. The selector runs once per execution; the first equal tag wins.
+.Match(static a => a.Mode, m => m
+    .Case(Mode.ByDepartment, b => b.WithDepartmentId(static a => a.dept))
+    .Case(Mode.ByBrand,      b => b.WithBrandId(static a => a.brand))
+    .Default(b => b.Where(static p => p.Featured)))
+
+// Guard form: an if / else if / else. No selector; the first true guard wins, later guards never run.
+// A guard is a plain Func<TArgs, bool> — only the arg Where predicate takes TArgs by `in`.
+.Match(m => m
+    .Case(static a => a.minPrice > 0, b => b.Where(static (p, in a) => p.Price >= a.minPrice))
+    .Case(static a => a.inStockOnly,  b => b.Where(static p => p.Stock > 0))
+    .Default())
+```
+
+**Every `Match` ends in a `Default`** — the arm chain is type-state (`IOpenMatchArms` →
+`IClosedMatchArms`), so an open chain, a chain with no arm, or a `Case` after `Default` is a compile
+error (CS0315), and exactly one arm always runs. Write the parameterless `Default()` for the explicit
+"nothing matched, narrow nothing" arm: it is the same execution a silent fall-through used to give,
+now stated in the query instead of implied by its absence.
+
+**`If` / `IfElse` are sugar over a one-`Case` guard `Match`** — `If(c, b)` *is*
+`Match(m => m.Case(c, b).Default())` and `IfElse(c, t, e)` *is* `Match(m => m.Case(c, t).Default(e))`.
+Their parameter lists are unchanged, so existing call sites are untouched; what changed is what you see
+in `Explain()`, which now prints an `If` as `match#0 {guard#0: [...]; default: []}` and its per-execution
+choice as `select#0 → arm 1` (the empty `Default`) when the condition is false.
+
 **What a branch may contain:**
-- `Or(b1, b2)` branches: `WithXxx` / `UseIndex` (bound or parameterized), nested `Or`, narrow-only `If`.
-- `If(cond, b)` / `IfElse(cond, then, else)` branches: everything an `Or` branch may, plus `Where` and nested `Or`/`If`.
+- `Or(b1, b2)` branches: `WithXxx` / `UseIndex` (bound or parameterized), nested `Or`, narrow-only `If` / `Match`.
+- `If(cond, b)` / `IfElse(cond, then, else)` branches and `Match` arms: everything an `Or` branch may, plus `Where` and nested `Or`/`If`/`Match`.
 - Never inside a branch: joins, `Sort`/`SortBounded`, `Build()` — these are top-level only and a
   compile error otherwise, exactly like the eager `Or`.
 - Prepared builders have no `Execute*`; `Build()` is the only terminal and is reachable only once the
