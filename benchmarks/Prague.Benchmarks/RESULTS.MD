@@ -1966,3 +1966,41 @@ through `TopKSorterPairComparer` — the selection as the runtime runs it. Open 
 the comparer hop at 1.87 µs on a heap plan with roughly A's compare count, while R1a's visitor-callback
 form removed nothing on A; the spec's missing probe — the real container with a direct struct comparer —
 decides whether the hop simply never inlined in R1a (→ R1b) or the cost is the triple moves (→ R4a).
+
+### R2 — struct key selectors on the indexes: built, measured, killed (and why the ceiling's premise was wrong)
+
+Branch `r2-struct-selectors-killed` (kept, unmerged): `IIndexKeySelector<TKey,TValue,TIndexKey>` (static
+abstract `Select`), `CacheKeyValueListIndex<…,TSelector>` subclassing the three-parameter index so field
+types and the raw `Func` constructors compile unchanged, codegen emitting a private `readonly struct
+{Prop}IndexSelector` per scalar `Many` index, the planner recovering `TSelector` once per build through a
+visitor and binding `ListEqStructStep<…,TSelector,…>`. 1,605 Core + 1,229 Generated tests green, 0 B.
+
+Same-session, `--inProcess`, load 2–5 (tables in the lane's report on #82):
+
+| Row (frozen) | before | after | Δ |
+|---|---:|---:|---:|
+| `ListList` | 1.257 µs | 1.426 | **+13.4%** |
+| `ListList_FrozenEagerOrder` | 6.820 | 9.596 | **+40.7%** |
+| `ListListList` | 1.750 | 2.091 | **+19.5%** |
+| `Count_ListListListSortBoundedJoinOne` | 1.429 | 1.766 | **+23.6%** |
+| shape A | 4.555 | 4.924 | **+8.1%** |
+| shape B | 18.74 | 19.04 | +1.6% |
+| `ListRange`, `ListKeySet`, `Fk_ManyToOne`, `JoinOne`, `Sort_JoinMany` | | | flat (no list value probe on their path) |
+
+An isolation run (Core + codegen changed, benchmark fixture back on delegate indexes) read 1.261 / 6.957 /
+1.787 — **the plumbing is free; the struct-selector step is the whole regression.**
+
+**Mechanism.** `PipelineCore.PassesValueProbes` calls `steps[s].ProbeValue(…)` from one body generic over
+`TKey/TValue/TArgs`. Before, every list-eq step in the process was the *same* closed class
+`ListEqStep<TKey,TValue,TIndexKey,TArgs>`, so the call site was monomorphic and **dynamic PGO devirtualized
+and inlined the entire probe — including the `KeySelector` delegate** (one static lambda per index). A
+selector type parameter gives every index its own closed step type; a two- or three-list plan makes the
+site polymorphic and the guess is lost. The delegate cost less than its removal cost.
+
+**What this means.** The ceiling's level 2 premise — that the per-row delegate and the erased
+`StepBinding.Read` are removable costs — is wrong on a warm process; they are already inlined. The ~1.1 µs
+walk overhead is the shared, type-erased walk itself (one call site, an `IPipelineStep[]`, a `StepBinding`
+per step) and goes away only with the call site, i.e. with a straight-line executor per plan — which is
+#93, not a runtime change. Together with R1a (comparer hop: none on A/B), R3 (dictionary: < 100 ns) and
+the killed loop items, the frozen pipeline is at the practical floor of its type-erased design on shapes A
+and B. The one open item is the page selection itself (the direct-comparer probe, next).
