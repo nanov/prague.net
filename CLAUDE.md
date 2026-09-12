@@ -42,7 +42,10 @@ src/
   Prague.Kafka/        Raw zero-copy consumer/producer, SerDe,
                        filters, health, OTel, background worker → context/kafka.md
   Prague.Api/ Prague.Api.UI/  HTTP inspection surface + UI
-tests/        NUnit projects per layer (Core, DI, Generated, Kafka, Kafka.IntegrationTests); Tests.Models = fixtures lib
+tests/        NUnit projects per layer (Core, Generated, Kafka, Kafka.IntegrationTests); Tests.Models = fixtures lib
+              Prague.DI.Tests is an empty shell — no test file has ever lived in it, and it is in no
+              solution filter. The generated DI surface (AddKafkaCaches) is covered by
+              Kafka.IntegrationTests. Fill it or delete it; do not re-add it to Tests.slnf empty.
 benchmarks/   Prague.Benchmarks (BenchmarkDotNet) + RESULTS.MD
 www/ docs/    Public docs site + superpowers specs/plans
 perf/         Regression tripwire: Prague.Baseline.{Bdn,Harness,Scenario}, compare.py diffs

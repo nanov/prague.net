@@ -10,7 +10,6 @@
       "src\\Prague.Core\\Prague.Core.csproj",
       "src\\Prague.Kafka\\Prague.Kafka.csproj",
       "tests\\Prague.Core.Tests\\Prague.Core.Tests.csproj",
-      "tests\\Prague.DI.Tests\\Prague.DI.Tests.csproj",
       "tests\\Prague.Generated.Tests\\Prague.Generated.Tests.csproj",
       "tests\\Prague.Tests.Models\\Prague.Tests.Models.csproj",
       "tests\\Prague.Kafka.IntegrationTests\\Prague.Kafka.IntegrationTests.csproj",
