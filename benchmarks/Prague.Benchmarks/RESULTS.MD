@@ -1800,3 +1800,134 @@ change earned it.
 **Test and build state.** `Prague.Core.Tests` 1544 passed / 1 skipped and `Prague.Generated.Tests` 1224,
 both on net9.0 and net10.0; `dotnet build Prague.sln -c Release` 0 warnings, 0 errors. The Kafka
 integration tests need Docker and were not run.
+
+# Frozen queries — closing the branch: `in` on the row predicate, `Match`/`If` unified, the generated joins measured, filtered `JoinOne` fused
+
+Apple M4 Pro, .NET 9 (`-f net9.0`), `--inProcess`, one category per run, nothing else running unless
+noted; every table carries the 1-minute load read before it. Every frozen row 0 B per pooled
+execution before and after. 2026-09-12; commits `7ef34ab` → `d3ed565` on `poc/prepared-query`. There was
+**no closing sweep**: each change below was measured at its own step and the production shapes were
+re-run at every merge. Rows not listed keep the numbers of "the ordering relaxation" above; their path
+did not change.
+
+## The quick check
+
+`--quick [--target <cat>]` (`Program.cs`) runs a BDN short job (3 warmup, 5 iterations, in-process) over
+shapes A and B plus the target and prints one line per method. 1:43 wall; it read A 3.67× / B 1.74×
+against the full run's 3.70× / 1.82× on a quiet box, and 3.74× / 1.70× at load 5 with two agents
+compiling. It steers; every keep-or-kill row below is a full run.
+
+## `TArgs` by `in` on the arg `Where` predicate (`a8c6166`)
+
+The one user callback invoked per candidate row took `TArgs` by value through `Func<TValue,TArgs,bool>`;
+`ArgFilter<TValue,TArgs>(TValue, in TArgs)` replaces it. Selectors stay `Func` (once per execution,
+1–2 ns, and a plain lambda does not convert to an `in` delegate — CS1676 — so the wide version cost
+~900 respelled call sites for nothing measurable and was reverted to this).
+
+| Method | Mean | Ratio | Allocated | load |
+|---|---:|---:|---:|---|
+| ListTwoArgWheres_Eager | 10.858 us | 1.00 | 256 B | 3.56 |
+| ListTwoArgWheres_Prepared | 13.098 us | 1.21 | 96 B | |
+| ListTwoArgWheres_Frozen | **9.788 us** | **0.90** | – | |
+
+Was 13.59 us / 1.25× of eager (the relaxation sweep). A first reading on the wide-API version gave
+10.29 us / 0.94× (load 3.18); `context/query.md` records that one. Prepared/replay did not move: its cost
+is the eager core's composed-filter closure, not the tuple copy.
+
+No-tax rows on the same tree (`ListWhere` 8.380 / 8.321 / 5.697 us → 1.47×, load 2.62 — this also settles
+the "unresolved" 1.47× above as real; shape B 34.10 / 33.75 / 18.66 us, load 4.83; `Sort_JoinMany`
+122.10 / 122.74 / 16.87 us, load 4.85).
+
+## Guard-form `Match`; `If` / `IfElse` as sugar over it (`e79d0f0`, `1a29961`)
+
+`Match(m => m.Case(guard, arm)…Default())` joins the tag form; `If`/`IfElse` are now a one-`Case` guard
+`Match`, so `IfNarrower`, `IfElseNarrower`, `IfSelector` and the pipeline's bind-nothing (`-1`) path are
+gone. A one-guard `Match` keeps a sealed `SingleGuardSelector` that `SelectNode` devirtualizes.
+
+| Method | before (769c410) | after (1a29961) | load before / after |
+|---|---:|---:|---|
+| IfTaken_Eager | 3,073.2 ns | 3,036.5 ns | 10.31→5.48 / 4.33→3.13 |
+| IfTaken_Frozen | 108.7 ns | 123.5 ns | |
+| IfSkipped_Eager | 10.597 us | 10.158 us | |
+| IfSkipped_Frozen | 9.002 us (0.85) | **8.465 us (0.83)** | |
+
+`IfTaken_Frozen` is **bimodal on this box** — ~103 or ~124 ns per process, each mode with tight error bars.
+An alternating three-round A/B over the base and both commits (load 2.0–4.2) put the base at 124 twice
+and the sugar commit at 103 twice; the row did not change. Shapes A / B flat on `--quick` (4.58→4.67,
+20.28→19.86 us).
+
+## The generated `JoinWith…` path under `BuildFrozen()` (`2ccc76a`, `ad38e86`) — first measurement
+
+`FrozenFkJoinBenchmarks`: `[DataCache]` + `[DataCacheForeignKey]` models, 100k customers / orders,
+10k docs, ~1k-row buckets. Every row is Pipeline `fused: 1` except the filtered one (Replay at this
+commit). Forward and inner `JoinWith{T}` cannot follow a `SortBounded` (no `ICacheCarrier` on the sorted
+discriminator, eager too — #92), so the bounded row is the reverse one-to-one.
+
+| Method | Eager | Frozen | Ratio | load |
+|---|---:|---:|---:|---|
+| Fk_ManyToOne (forward, LeftSym) | 51.43 us | **25.47 us** | 2.02× | 4.95 |
+| Fk_InnerManyToOne | 52.36 us | **31.15 us** | 1.68× | 3.99 |
+| Fk_OneToOneReverse (RightUnique) | 30.47 us | **22.12 us** | 1.38× | 2.93 |
+| Fk_OneToManyReverse (RightList JoinMany) | 79.35 us | **56.95 us** | 1.39× | 2.81 |
+| Fk_Collection (M:N) | 96.55 us | **53.70 us** | 1.80× | 2.34 |
+| Fk_SortBounded_OneToOneReverse | 30.95 us | **19.23 us** | 1.61× | 2.36 |
+| Fk_ManyToOne_Filtered (Replay) | 43.28 us | 40.90 us | 1.06× | 3.80 |
+
+(`2ccc76a`'s first filtered reading, 30.14 / 28.98, was a degenerate fixture — `i % 4` is constant within a
+bucket of stride 100 — fixed in `ad38e86`.)
+
+## Filtered `JoinOne` fuses (`fda6e9c`)
+
+`FusedJoinFilterProbe` runs the filter callback once at build against a probe core; a callback with
+zero narrowings hands back the composed `Where`, which the fused fill evaluates on the right it just
+fetched. Behind `TFilter.IsNoOp`, so unfiltered joins pay nothing.
+
+| Method | Mean | Ratio | load | vs before |
+|---|---:|---:|---|---|
+| Fk_ManyToOne_Filtered_Eager | 41.67 us | 1.00 | 2.88 | |
+| Fk_ManyToOne_Filtered_Frozen | **27.84 us** | **0.67** | | 40.90 us on the replay → **1.47×**; 1.06× → 1.50× on eager |
+| JoinOneFiltered_Eager | 21.34 us | 1.00 | 2.80 | |
+| JoinOneFiltered_Prepared | 21.25 us | 1.00 | | |
+| JoinOneFiltered_Frozen | 21.64 us | 1.01 | | 19.70 us on the replay → **1.10× slower** |
+
+The split is the data, not the shape: `JoinOneFiltered`'s bucket has a thousand lefts sharing **one**
+right that the filter rejects, so the paired read did one lookup where the fused fill does one per row;
+`Fk_ManyToOne_Filtered` has a thousand distinct rights and the filter keeps half. Kept: parity with eager
+on the degenerate end, 1.47× on the realistic one — the same trade the unfiltered fusion made. The review
+added `JoinOneFilteredDistinct` as the distinct-rights sibling row.
+
+| Method | Mean | Ratio | load |
+|---|---:|---:|---:|---|
+| ListListListSortBoundedJoinOne_Frozen (shape A) | **4.611 us** | 0.27 (3.70×) | 2.30 |
+| TimeWindowListListSortBoundedJoinTwo_Frozen (shape B) | **18.59 us** | 0.54 (1.86×) | 1.80 |
+
+Both flat against 4.56 / 18.5.
+
+## Killed, with the evidence (do not re-open without new evidence)
+
+- **Inner `JoinOne` "single pass"** — the classic flow already does one lookup per row; only the bounded
+  flow is two-pass, by design (dropped lefts must never reach the heap).
+- **Results-slot `ref` walk** instead of `ValuesMutable[index]` — coded, T4-regenerated, measured:
+  `Fk_ManyToOne_Frozen` 25.47 → 26.55 (26.28 on repeat), `JoinOne_Frozen` 21.30 → 21.11; the span index
+  gives the JIT a hoistable length the raw ref defeats. Reverted.
+- **`JoinMany` dedupe skip on a "stable generation"** — the safety argument fails (`ReaderGate` pins
+  reclamation, not mutation; per-slot versions are compiled away for atomically-copyable keys;
+  `_count`/`LastIndex` do not witness remove + re-add). Not coded.
+- **Software prefetch** — no Arm64 prefetch intrinsic in .NET; `Sse.IsSupported` is false here.
+- **Materialized join** — the ceiling (`FrozenCodegenCeilingBenchmarks`, own section in
+  `docs/superpowers/specs/2026-09-12-frozen-codegen-ceiling.md`): replacing 20 store hashes with an array
+  read is −21 ns, inside the noise floor. The join is 76 ns of shape A's 1,697 ns straight line.
+
+## Reading it
+
+- **The only two rows that moved by intent** are `ListTwoArgWheres` (1.25× → 0.90×, the per-row copy) and
+  `Fk_ManyToOne_Filtered` (Replay → 1.47×); `IfSkipped` moved a little with the bind-nothing path. Every
+  other change on the branch is correctness, API or cleanliness and was measured only to prove it cost
+  nothing: the production shapes read 4.56–4.61 and 18.5–18.7 us on every merge.
+- **The `perf/` alloc readings of 1–2 B/op are not allocations.** The smallest object is 24 B; those are
+  pool re-warm bytes amortised over few ops, and `main` trips them too (4 of 4 runs on `sort`). Baseline
+  not blessed; `perf/README.md` now says so.
+- **What is left on the table** is in the ceiling section: shape A's straight line runs at 1.70 us
+  against the pipeline's 4.49, and the attribution names the comparer hop, the two interface probes per
+  row, the page's dictionary materialization and the 24-byte-triple page selection. The runtime-reshaping
+  section below takes those in order.
