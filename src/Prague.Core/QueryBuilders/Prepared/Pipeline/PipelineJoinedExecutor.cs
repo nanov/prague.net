@@ -246,7 +246,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 	///   container is a ref struct, so it travels as a laundered pointer (the codebase's ref-struct-in-a-
 	///   ref-struct pattern); the frame's spans travel by value, so nothing stack-bound escapes.
 	/// </summary>
-	private unsafe ref struct BoundedFeeder : ISorterVisitor {
+	private unsafe ref struct BoundedFeeder : ISorterVisitor, ILeftComparerVisitor {
 		private readonly PipelineCore<TKey, TValue, TArgs> _core;
 		private readonly ref readonly TArgs _args;
 		private readonly ref TResolverChain _chain;
@@ -279,8 +279,17 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 			_take = take;
 		}
 
-		public void Visit<TSorter>(ref TSorter sorter) where TSorter : struct, IJoinResolver {
-			var topK = new FrozenTopKJoinedContainer<TKey, TValue, TopKSorterPairComparer<TKey, TValue, TSorter>>(new(sorter), _skip, _take);
+		// The first hop: the chain hands over its sorter. The second hop goes one further, to the user
+		// comparer itself — IJoinResolver.CompareLeftValues is a generic method, so over a reference-type
+		// left value it is the shared-canonical instantiation, a generic-dictionary lookup and an indirect
+		// call on every comparison. Both walks are per execution, not per comparison.
+		public void Visit<TSorter>(ref TSorter sorter) where TSorter : struct, IJoinResolver
+			=> sorter.WithLeftComparer(ref this);
+
+		public void Visit<TSortResult, TComparer>(ref TComparer comparer) where TComparer : IComparer<TSortResult> {
+			// TValue == TSortResult: the bounded gate is JoinChainShape.BoundedCapable, whose
+			// SorterOrdersByLeftValues is the sorter's own OrdersByLeftValues<TValue>.
+			var topK = new FrozenTopKJoinedContainer<TKey, TValue, TopKLeftPairComparer<TKey, TValue, TSortResult, TComparer>>(new(comparer), _skip, _take);
 			try {
 				topK.Init(_keys.Length);
 				if (_hasInner) {

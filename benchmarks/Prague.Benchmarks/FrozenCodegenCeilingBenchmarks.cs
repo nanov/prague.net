@@ -8,7 +8,6 @@ using Prague.Core.Collections;
 using Args = (int group, int band, int lane);
 using Row = Prague.Core.JoinResult<PqbItem, PqbCustomer?>;
 using Pair = (int Key, PqbItem Left, int Ordinal);
-using Sorter = Prague.Core.SortResolver<int, PqbItem, PqbItem, PqbByScoreTies>;
 
 /// <summary>
 ///   The codegen ceiling for production shape A (<c>ListListListSortBoundedJoinOne</c>: three list-index
@@ -54,9 +53,8 @@ public class FrozenCodegenCeilingBenchmarks {
 	private PqbCustomer?[] _rightSlots = null!;
 
 	private FrozenQuery<Args, Row> _frozen = null!;
-	// Level 2's step objects and sorter: what the generator would emit per UseIndex / SortBounded call.
+	// Level 2's step objects and comparer: what the generator would emit per UseIndex / SortBounded call.
 	private ICeilingStep[] _steps = null!;
-	private Sorter _sorter;
 	private PqbByScoreTies _ties;
 
 	// A field, not a constant, so no side gets a constant folded into the query.
@@ -86,7 +84,6 @@ public class FrozenCodegenCeilingBenchmarks {
 		_frozen = _items.Prepare<int, PqbItem, Args>().UseIndex(_byGroup, static a => a.group).UseIndex(_byBand, static a => a.band).UseIndex(_byLane, static a => a.lane)
 			.SortBounded(new PqbByScoreTies()).JoinOne(_details).BuildFrozen();
 		_steps = [new GroupStep(_byGroup), new BandStep(_byBand), new LaneStep(_byLane)];
-		_sorter = new(new PqbByScoreTies(), allowBounded: true);
 		_ties = new();
 
 		AssertParity();
@@ -117,13 +114,14 @@ public class FrozenCodegenCeilingBenchmarks {
 
 	[BenchmarkCategory("FrozenCodegenCeiling"), Benchmark]
 	public int ShapeA_Level2() {
-		using var r = PipelinePieces(in _args, Skip, Take, new TopKSorterPairComparer<int, PqbItem, Sorter>(_sorter));
+		using var r = PipelinePieces(in _args, Skip, Take, new TopKLeftPairComparer<int, PqbItem, PqbItem, PqbByScoreTies>(_ties));
 		return r.Count;
 	}
 
-	// The probe the ceiling's §3 left open: level 2 with the container's pair comparer calling the user
-	// comparer directly instead of hopping IJoinResolver.CompareLeftValues on the sorter. Level2 minus this
-	// row is the comparer hop on shape A's real page path.
+	// The probe the ceiling's §3 left open, kept as the residual control: level 2 with a pair comparer that
+	// holds the user comparer by value and needs no reinterpret. Against ShapeA_Level2 it read the comparer
+	// hop (1,359 ns) while the container went through the sorter; now that the container carries the
+	// comparer itself, the pair is what is left of it — the Unsafe.As<TValue, TResult> and nothing else.
 	[BenchmarkCategory("FrozenCodegenCeiling"), Benchmark]
 	public int ShapeA_Level2_DirectComparer() {
 		using var r = PipelinePieces(in _args, Skip, Take, new TiesThenOrdinal(_ties));
@@ -471,7 +469,7 @@ public class FrozenCodegenCeilingBenchmarks {
 	private void AssertParity() {
 		using var reference = _frozen.ExecutePooled(_args, Skip, Take);
 		AssertSameRows(in reference, StraightLine(in _args, Skip, Take, new StoreLookup(_details)), "level 1");
-		AssertSameRows(in reference, PipelinePieces(in _args, Skip, Take, new TopKSorterPairComparer<int, PqbItem, Sorter>(_sorter)), "level 2");
+		AssertSameRows(in reference, PipelinePieces(in _args, Skip, Take, new TopKLeftPairComparer<int, PqbItem, PqbItem, PqbByScoreTies>(_ties)), "level 2");
 		AssertSameRows(in reference, PipelinePieces(in _args, Skip, Take, new TiesThenOrdinal(_ties)), "level 2, direct comparer");
 		AssertSameRows(in reference, StraightLine(in _args, Skip, Take, new SlotLookup(_rightSlots)), "level 3b");
 		var expectedCount = _frozen.Count(_args);

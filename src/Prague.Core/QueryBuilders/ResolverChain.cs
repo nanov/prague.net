@@ -56,6 +56,17 @@ internal interface ISorterVisitor {
 	void Visit<TSorter>(ref TSorter sorter) where TSorter : struct, IJoinResolver;
 }
 
+/// <summary>
+///   Receives a sorter's user comparer statically typed, with the type it orders
+///   (<see cref="IJoinResolver.WithLeftComparer{TVisitor}" />). One hop further in than
+///   <see cref="ISorterVisitor" />, which stops at the resolver: this one carries the comparer itself,
+///   so the work the visitor does per comparison calls it through a type parameter rather than through
+///   the resolver's generic <c>CompareLeftValues</c>.
+/// </summary>
+internal interface ILeftComparerVisitor {
+	void Visit<TResult, TComparer>(ref TComparer comparer) where TComparer : IComparer<TResult>;
+}
+
 public interface IResolverExecutor {
 	void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver;
 }

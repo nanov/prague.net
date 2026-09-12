@@ -53,6 +53,19 @@ public interface IJoinResolver {
 	/// </summary>
 	int CompareLeftValues<TLeft>(TLeft a, TLeft b) => throw new InvalidOperationException("Join resolver is not sortable");
 
+	/// <summary>
+	/// Sorter-only: hands the user comparer to <paramref name="visitor" /> as a struct type parameter,
+	/// together with the type it orders. The twin of <see cref="CompareLeftValues{TLeft}" /> for callers
+	/// that compare in a loop: that one is a generic method, so its instantiation over a reference-type
+	/// left value is the shared-canonical one — a runtime generic-dictionary lookup and an indirect call
+	/// per comparison, which no amount of inlining hints removes. Walked once per execution instead, the
+	/// comparer then reaches every comparison as a type parameter and the constrained call folds.
+	/// Callers must have gated on <see cref="OrdersByLeftValues{TLeft}" />.
+	/// </summary>
+	internal void WithLeftComparer<TVisitor>(ref TVisitor visitor)
+		where TVisitor : struct, ILeftComparerVisitor, allows ref struct
+		=> throw new InvalidOperationException("Join resolver is not sortable");
+
 	internal void UnsafeExecuteWithAccessor<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool,
 		ref QueryResultsDisposer disposer)
 		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct;

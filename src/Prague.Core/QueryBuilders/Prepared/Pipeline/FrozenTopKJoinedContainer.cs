@@ -1,31 +1,45 @@
 namespace Prague.Core;
 
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Collections;
 
 /// <summary>
 ///   The frozen twin of <see cref="TopKPairComparer{TKey,TValue,TChain}" />: orders
-///   <c>(key, left, ordinal)</c> triples by the left value, then by encounter order, comparing through
-///   the sorter <b>itself</b> as a struct type parameter instead of through the resolver chain.
+///   <c>(key, left, ordinal)</c> triples by the left value, then by encounter order, calling the
+///   <b>user comparer</b> as a struct type parameter instead of reaching it through the resolver chain.
 ///   <para>
-///   The chain hop is not free. <c>IResolvers.CompareLeftValues</c> is a generic method reached once
-///   per link — a shared (<c>__Canon</c>) instantiation over the left value, so each link costs a
-///   runtime generic lookup and blocks the inline chain down to the user comparer. Measured on the very
-///   workload the production shapes run (100 candidates into a heap of 40, then the ascending drain,
-///   `BoundedComparerProbeBenchmarks`): 3.86 µs through the sorter, 4.99 µs through a one-link chain,
-///   7.44 µs through two links (shape A) and 9.61 µs through three (shape B). That difference is
-///   essentially the whole gap between the frozen joined bounded page and its join-free twin.
+///   Neither hop is free, and the deeper one is not the chain. <c>IResolvers.CompareLeftValues</c> costs
+///   a JIT-folded <c>IsSorter</c> test per link; <c>IJoinResolver.CompareLeftValues</c>, at the end of
+///   it, is a <b>generic method</b>, so over a reference-type left value it compiles once as
+///   <c>CompareLeftValues[__Canon]</c> — reached through a runtime generic dictionary, never inlined,
+///   an indirect call per comparison. Measured on shape A's real page path (the ceiling benchmark's
+///   level 2, the real container and the real steps): 3,735 ns through the sorter against 2,377 ns with
+///   a direct struct comparer, <b>1,359 ns</b> — a third of level 2. The disassembly of
+///   <c>TopKSelect.Partition</c> is the proof: five indirect <c>blr</c> calls and four
+///   <c>CORINFO_HELP_RUNTIMEHANDLE_METHOD</c> helpers on the sorter instantiation, none at all on the
+///   direct one, where the user comparer is inlined into the partition body.
+///   </para>
+///   <para>
+///   <typeparamref name="TResult" /> is what the comparer orders and <typeparamref name="TValue" /> is
+///   the left value; the bounded gate (<c>JoinChainShape.BoundedCapable</c> over
+///   <c>OrdersByLeftValues</c>) admits this container only when they are the same type, which is what
+///   makes the reinterpret sound. A class comparer takes the same path — one interface call, still no
+///   generic-dictionary lookup; a struct comparer folds all the way down.
 ///   </para>
 /// </summary>
-internal readonly struct TopKSorterPairComparer<TKey, TValue, TSorter> : IComparer<(TKey Key, TValue Left, int Ordinal)>
-	where TSorter : struct, IJoinResolver {
-	private readonly TSorter _sorter;
+internal readonly struct TopKLeftPairComparer<TKey, TValue, TResult, TComparer> : IComparer<(TKey Key, TValue Left, int Ordinal)>
+	where TComparer : IComparer<TResult> {
+	private readonly TComparer _comparer;
 
-	public TopKSorterPairComparer(TSorter sorter) => _sorter = sorter;
+	public TopKLeftPairComparer(TComparer comparer) {
+		Debug.Assert(typeof(TValue) == typeof(TResult), "the bounded gate admits this container only when the sorter orders the left value");
+		_comparer = comparer;
+	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public int Compare((TKey Key, TValue Left, int Ordinal) x, (TKey Key, TValue Left, int Ordinal) y) {
-		var order = _sorter.CompareLeftValues(x.Left, y.Left);
+		var order = _comparer.Compare(Unsafe.As<TValue, TResult>(ref x.Left), Unsafe.As<TValue, TResult>(ref y.Left));
 		return order != 0 ? order : x.Ordinal.CompareTo(y.Ordinal);
 	}
 }
@@ -37,10 +51,11 @@ internal readonly struct TopKSorterPairComparer<TKey, TValue, TSorter> : ICompar
 ///   encounter ordinals stamped by <see cref="Add" />, the same <c>Seal</c> total, the same
 ///   <see cref="Drain" /> contract and the same "the heap buffer never transfers ownership" rule — with
 ///   the pair comparer carried as a struct type parameter — in production
-///   <see cref="TopKSorterPairComparer{TKey,TValue,TSorter}" /> over the chain's sorter — rather than
-///   reached through the resolver chain.
+///   <see cref="TopKLeftPairComparer{TKey,TValue,TResult,TComparer}" /> over the sorter's own user
+///   comparer — rather than reached through the resolver chain.
 ///   Reached only from <see cref="PipelineJoinedExecutor{TKey,TValue,TArgs,TResolverChain,TResult}" />,
-///   which obtains the sorter through <c>IResolvers.WithSorter</c>; the eager container is untouched and
+///   which obtains the comparer through <c>IResolvers.WithSorter</c> then
+///   <c>IJoinResolver.WithLeftComparer</c>; the eager container is untouched and
 ///   still serves <c>ExecuteCoreJoinedTop</c>.
 /// </summary>
 internal ref struct FrozenTopKJoinedContainer<TKey, TValue, TPairComparer>
