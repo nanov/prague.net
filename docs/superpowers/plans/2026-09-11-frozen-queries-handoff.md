@@ -36,6 +36,8 @@ sorted**; ties unspecified; `Sort`/`SortBounded` with a total comparer byte-iden
 | `9de3656` … `f56a3a5` | docs-site page for prepared/frozen; `sweep.sh`; RESULTS.MD closing section | — |
 | `553f8af`, `e09a90a`, `9c6fbb7`, `285004d` | the reshaping lanes' **negative results** written up (below) | — |
 | `0d16689`, `33b5442` | the direct-comparer probe; **R1b: the sorter's comparer carried into the bounded container** | shape A 4.575 → 3.766 µs; `Fk_SortBounded` −15%; `Sort_JoinMany` −14% |
+| `6cbeb70` | the #83 TimeRange spike: the ring rejected by measurement | dedupe 3.30 ns/key; ingestion +16% |
+| `8080c12` | **#97: symmetric seed chooser** — declaration order no longer decides the seed | time-first 1 s window 9,299 → 141 ns (66×) |
 
 ### The negative results, and what they establish
 
@@ -66,7 +68,11 @@ alone (their rows sit inside ±2%); a candidate for its own sweep.
 ## 2. What to do next
 
 1. **Open the PR** `poc/prepared-query` → `main`, history kept (this session's last step).
-2. **#83 — TimeRange index**, the next branch. Groundwork is on the plan file and summarised on #83;
+2. ~~**#83 — TimeRange index**~~ — **resolved by measurement** (`6cbeb70`, spike spec): the ring is 3–12× slower on
+   recent windows because of the unavoidable dedupe, and +16% on ascending ingestion; closed. The ≥5× it
+   promised came from **#97** instead: the seed chooser let an exact signal displace an estimate
+   unconditionally, so a time window declared first never seeded — symmetric rule (`8080c12`), 66× on a
+   1 s window. Original plan for reference: Groundwork is on the plan file and summarised on #83;
    the design question to settle first is whether a bucket ring is needed at all or the win is the bulk
    `CopyKeysTo` seed vs the tree walk — measure the seed before choosing the structure. Probe side needs
    zero change. The `perf/` baseline models carry no last-updated index, so the ingestion bar needs a

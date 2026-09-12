@@ -2051,3 +2051,27 @@ still reaches its `Compare` through one dictionary lookup, while a non-generic c
 Removing that needs a concrete comparer per call site — the generator (#93), not a runtime reshape. The
 eager top-k comparers (`TopKValueComparer`, `TopKPairComparer`) carry the same construct; their rows sit
 inside ±2% of 16–37 µs executions, so they were left alone — a candidate for its own sweep.
+
+### #97 — the symmetric seed chooser (found by the #83 spike; `8080c12`)
+
+`ChooseSmallest` let the first **exact** signal displace an inexact incumbent unconditionally, so a
+`LastUpdatedAfter` step declared before a list step never seeded, at an estimate of 2 against a bucket of
+2,000. The rule is now symmetric (an exact count displaces an estimate only when it is under twice the
+estimate; an exact 0 always seeds), and `exact` tracks the incumbent instead of latching.
+
+`TimeRangeSeedOrder` — the same three narrowings in the two declaration orders (`--inProcess`, loads
+1.7–2.4 before / 2.4–2.9 after):
+
+| Window | time-first before | time-first after | list-first |
+|---|---:|---:|---:|
+| 1 s | 9,298.6 ns | **140.6 ns** (66×) | 141.3 ns |
+| 1 min | 10,385.9 ns | **1,380.3 ns** (7.5×) | 1,400.8 ns |
+| production (~15%) | 14,628.4 ns | 15,068.9 ns | 15,055.0 ns |
+| whole range | 24,947.1 ns | 26,141.9 ns | 26,177.5 ns |
+
+Declaration order no longer decides the seed. No-regression rows at comparable load: shape A 3.862 →
+3.896 µs, shape B 17.63 → 17.47, its `Count` 12.25 → 12.41, `TimeRange` B 20.15 → 19.97, `ListLastUpdated`
+9.72 → 9.55, `ListRange` 11.06 → 11.32, `ListKeySet` 8.63 → 8.86, `Or` 27.91 → 28.17 — nothing above 3%,
+no direction. `Fixed`/`PreserveEagerOrder` never reach the chooser; every existing `Explain()` assertion
+outside the probe test is unchanged. This is the ≥5× on recent windows that #83's bucket ring was meant to
+buy, without a new index (the ring itself measured 3–12× *slower* on those windows: spike spec).
