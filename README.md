@@ -680,9 +680,9 @@ list buckets, Apple M4 Pro, .NET 9, `--inProcess`, pooled + disposed; every froz
 | "everything since T" ∩ list | 216 µs | 216 µs | **9.66 µs** | 22× |
 | `Or` of two 1k buckets, first narrowing | 976 µs | 983 µs | **26.9 µs** | 36× |
 | `SortBounded` page of 20 over list ∩ list | 11.3 µs | 11.4 µs | **3.42 µs** | 3.3× |
-| 3 lists → `SortBounded(page)` → `JoinOne` | 17.1 µs | 16.9 µs | **4.56 µs** | 3.7× |
+| 3 lists → `SortBounded(page)` → `JoinOne` | 17.1 µs | 16.9 µs | **3.77 µs** | 4.5× |
 | …the same shape's `Count` | 11.0 µs | 10.8 µs | **1.42 µs** | 7.7× |
-| `Sort` over a 1k bucket → `JoinMany` | 118 µs | 119 µs | **17.2 µs** | 6.9× |
+| `Sort` over a 1k bucket → `JoinMany` | 118 µs | 119 µs | **14.3 µs** | 8.3× |
 
 Design: `docs/superpowers/specs/2026-09-09-frozen-pipeline-executor-design.md`; engine notes in
 `context/query.md`; every measured table in `benchmarks/Prague.Benchmarks/RESULTS.MD`.

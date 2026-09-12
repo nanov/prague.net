@@ -159,10 +159,11 @@ every frozen row 0 B per execution (`benchmarks/Prague.Benchmarks/FrozenQueryBen
 | "everything since T" ∩ list | 216 µs | 216 µs | **9.66 µs** | 22× |
 | `Or` of two 1k buckets, first narrowing | 976 µs | 983 µs | **26.9 µs** | 36× |
 | `SortBounded` page of 20 over list ∩ list | 11.3 µs | 11.4 µs | **3.42 µs** | 3.3× |
-| 3 lists → `SortBounded(page)` → `JoinOne` | 17.1 µs | 16.9 µs | **4.56 µs** | 3.7× |
+| 3 lists → `SortBounded(page)` → `JoinOne` | 17.1 µs | 16.9 µs | **3.77 µs** | 4.5× |
 | …the same shape's `Count` | 11.0 µs | 10.8 µs | **1.42 µs** | 7.7× |
-| `Sort` over a 1k bucket → `JoinMany` | 118 µs | 119 µs | **17.2 µs** | 6.9× |
+| `Sort` over a 1k bucket → `JoinMany` | 118 µs | 119 µs | **14.3 µs** | 8.3× |
 | generated `JoinWith{Ref}` (forward many-to-one) | 51.4 µs | — | **25.5 µs** | 2.0× |
+| generated reverse one-to-one after `SortBounded(page)` | 31.0 µs | — | **16.5 µs** | 1.9× |
 
 ## Rules of thumb
 

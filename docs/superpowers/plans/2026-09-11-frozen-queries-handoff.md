@@ -35,6 +35,7 @@ sorted**; ties unspecified; `Sort`/`SortBounded` with a total comparer byte-iden
 | `f3a7764` … `d3ed565` | the two-axis review: 778 dead codegen lines, empty `Prague.DI.Tests` out of the filter, `IFusableJoinOne` retired, docs drift, the T4 command in CLAUDE.md fixed, `FusedFilter.Reorder` guard order, `perf/` alloc artefact explained | A/B flat |
 | `9de3656` … `f56a3a5` | docs-site page for prepared/frozen; `sweep.sh`; RESULTS.MD closing section | — |
 | `553f8af`, `e09a90a`, `9c6fbb7`, `285004d` | the reshaping lanes' **negative results** written up (below) | — |
+| `0d16689`, `33b5442` | the direct-comparer probe; **R1b: the sorter's comparer carried into the bounded container** | shape A 4.575 → 3.766 µs; `Fk_SortBounded` −15%; `Sort_JoinMany` −14% |
 
 ### The negative results, and what they establish
 
@@ -49,11 +50,18 @@ same-session baseline with untouched control rows:
   inlines the monomorphic probe call site, delegate included; per-index step types made it polymorphic.
   Branch `r2-struct-selectors-killed`.
 - **Four join-loop items:** killed with evidence (RESULTS.MD "Killed").
-- **Page selection (direct-comparer probe, R1b/R4a):** _[filled in when the probe lane reports]_
+- **Page selection (R1b, `33b5442`) — the one that paid.** The direct-comparer probe on the real container
+  measured the hop at 1,359 ns on shape A, and the disassembly proved it: `CompareLeftValues<TLeft>` compiled
+  once as a `__Canon` generic method behind a runtime dictionary in every `Partition` call (R1a had kept that
+  method, one callback further away). Carrying the sorter's `TComparer` into the container as a type
+  parameter: **shape A 4.575 → 3.766 µs (−17.7%, 4.5× eager)**, `Fk_SortBounded_OneToOneReverse` −15.4%,
+  `SortBounded_JoinMany` −12.7%, `Sort_JoinMany` −13.6%, B −3%, eager rows flat.
 
-Conclusion: on shapes A and B the frozen pipeline is at the practical floor of its type-erased design.
-The remaining 2.6× is the shared call site and the type-erased steps, removable only by a generated
-straight-line executor per plan — #93, deferred until further notice.
+Conclusion: after R1b the frozen pipeline on shapes A and B is at the practical floor of its type-erased
+design. The remaining 2.2× on A (3.77 vs 1.70 µs) is the shared probe call site, the type-erased steps and
+one residual shared-generic comparer instantiation, removable only by a generated straight-line executor
+per plan — #93, deferred until further notice. The eager top-k comparers carry the same hop and were left
+alone (their rows sit inside ±2%); a candidate for its own sweep.
 
 ## 2. What to do next
 

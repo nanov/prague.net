@@ -2004,3 +2004,50 @@ per step) and goes away only with the call site, i.e. with a straight-line execu
 #93, not a runtime change. Together with R1a (comparer hop: none on A/B), R3 (dictionary: < 100 ns) and
 the killed loop items, the frozen pipeline is at the practical floor of its type-erased design on shapes A
 and B. The one open item is the page selection itself (the direct-comparer probe, next).
+
+### R1b — the comparer carried into the bounded container: the probe, the proof, the win (`0d16689`, `33b5442`)
+
+**The probe** (`FrozenCodegenCeilingBenchmarks.ShapeA_Level2_DirectComparer`: the real pipeline steps,
+the real `FrozenTopKJoinedContainer`, the real materialize and fill, only the pair comparer swapped for a
+direct struct comparer). `--inProcess`, one category, load 5.61 → 1.82:
+
+| Method | Mean | | 
+|---|---:|---|
+| ShapeA_Frozen | 4,557.7 ns | |
+| ShapeA_Level2 (real container, sorter comparer) | 3,735.3 ns | |
+| **ShapeA_Level2_DirectComparer** | **2,376.7 ns** | **hop = 1,359 ns** on shape A's real path |
+| ShapeA_Level1 | 1,672.0 ns | |
+
+**The proof.** `DOTNET_JitDisasm=*Partition*`, tiered compilation off: the sorter instantiation of
+`TopKSelect.Partition` holds five indirect `blr` calls and four `CORINFO_HELP_RUNTIMEHANDLE_METHOD`
+helpers — `IJoinResolver.CompareLeftValues<TLeft>` compiles once as `CompareLeftValues[__Canon]`, a
+shared-canonical generic method reached through a runtime dictionary, never inlined. The direct
+instantiation has neither; `PqbByScoreTies.Compare` is inlined into the partition body. R1a's null result
+above was not "no hop on A/B": R1a kept the same `__Canon` generic method, one callback further away.
+
+**The fix.** `IJoinResolver.WithLeftComparer<TVisitor>` (a twin of `WithSorter`, once per execution) hands
+the sorter's own `TComparer` to `BoundedFeeder`, which closes `FrozenTopKJoinedContainer<TKey,TValue,
+TPairComparer>` over `TopKLeftPairComparer<TKey,TValue,TResult,TComparer>` calling `comparer.Compare`
+directly. The `Unsafe.As<TValue,TResult>` sits where `BoundedCapable` already guarantees the identity.
+Class comparers take the same path (one interface call, no dictionary lookup).
+
+Same-session before → after (`_Frozen` rows; loads 2–6; every `_Eager` row within ±2%; 0 B):
+
+| Row | before | after | Δ |
+|---|---:|---:|---:|
+| ListListListSortBoundedJoinOne (shape A) | 4.575 µs | **3.766 µs** | **−17.7%** — now 4.54× eager (was 3.75×) |
+| TimeWindowListListSortBoundedJoinTwo (shape B) | 18.62 µs | 18.07 µs | −3.0% |
+| …_FrozenIndexSide | 19.47 µs | 18.30 µs | −6.0% |
+| Fk_SortBounded_OneToOneReverse | 19.55 µs | **16.53 µs** | **−15.4%** — 1.86× eager (was 1.59×) |
+| TimeRangeListListSortBoundedJoinTwo | 21.02 µs | 20.31 µs | −3.4% |
+| SortBounded_ListList (join-free, eager container) | 3.436 µs | 3.421 µs | flat |
+| SortBounded (heap plan, join-free) | 15.05 µs | 14.98 µs | flat |
+| SortBounded_JoinMany | 16.87 µs | **14.72 µs** | −12.7% (shares the container) |
+| Sort_JoinMany | 16.57 µs | **14.32 µs** | −13.6% (shares the container) |
+
+**What is left.** Level 2 − direct is now 639 ns (was 1,359): `TopKLeftPairComparer<int,__Canon,__Canon,
+PqbByScoreTies>` is itself a shared instantiation over the reference-type left value, so `Partition`
+still reaches its `Compare` through one dictionary lookup, while a non-generic comparer inlines outright.
+Removing that needs a concrete comparer per call site — the generator (#93), not a runtime reshape. The
+eager top-k comparers (`TopKValueComparer`, `TopKPairComparer`) carry the same construct; their rows sit
+inside ±2% of 16–37 µs executions, so they were left alone — a candidate for its own sweep.
