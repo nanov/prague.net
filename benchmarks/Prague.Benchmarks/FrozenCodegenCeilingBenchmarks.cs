@@ -8,6 +8,7 @@ using Prague.Core.Collections;
 using Args = (int group, int band, int lane);
 using Row = Prague.Core.JoinResult<PqbItem, PqbCustomer?>;
 using Pair = (int Key, PqbItem Left, int Ordinal);
+using Sorter = Prague.Core.SortResolver<int, PqbItem, PqbItem, PqbByScoreTies>;
 
 /// <summary>
 ///   The codegen ceiling for production shape A (<c>ListListListSortBoundedJoinOne</c>: three list-index
@@ -55,7 +56,7 @@ public class FrozenCodegenCeilingBenchmarks {
 	private FrozenQuery<Args, Row> _frozen = null!;
 	// Level 2's step objects and sorter: what the generator would emit per UseIndex / SortBounded call.
 	private ICeilingStep[] _steps = null!;
-	private SortResolver<int, PqbItem, PqbItem, PqbByScoreTies> _sorter;
+	private Sorter _sorter;
 	private PqbByScoreTies _ties;
 
 	// A field, not a constant, so no side gets a constant folded into the query.
@@ -116,7 +117,16 @@ public class FrozenCodegenCeilingBenchmarks {
 
 	[BenchmarkCategory("FrozenCodegenCeiling"), Benchmark]
 	public int ShapeA_Level2() {
-		using var r = PipelinePieces(in _args, Skip, Take);
+		using var r = PipelinePieces(in _args, Skip, Take, new TopKSorterPairComparer<int, PqbItem, Sorter>(_sorter));
+		return r.Count;
+	}
+
+	// The probe the ceiling's §3 left open: level 2 with the container's pair comparer calling the user
+	// comparer directly instead of hopping IJoinResolver.CompareLeftValues on the sorter. Level2 minus this
+	// row is the comparer hop on shape A's real page path.
+	[BenchmarkCategory("FrozenCodegenCeiling"), Benchmark]
+	public int ShapeA_Level2_DirectComparer() {
+		using var r = PipelinePieces(in _args, Skip, Take, new TiesThenOrdinal(_ties));
 		return r.Count;
 	}
 
@@ -369,7 +379,8 @@ public class FrozenCodegenCeilingBenchmarks {
 	// steps are generated: their probe is a field compare against the argument (no KeySelector delegate,
 	// no type-erased binding read), and their bind reads the argument field (no selector delegate).
 	[SkipLocalsInit]
-	private QueryResults<Row> PipelinePieces(in Args args, int skip, int take) {
+	private QueryResults<Row> PipelinePieces<TPairComparer>(in Args args, int skip, int take, TPairComparer comparer)
+		where TPairComparer : struct, IComparer<Pair> {
 		var steps = _steps;
 		var buckets = default(BucketBindings);
 		var seed = -1;
@@ -395,7 +406,7 @@ public class FrozenCodegenCeilingBenchmarks {
 
 		Span<long> stack = stackalloc long[PipelineLimits.SeedStackLongs];
 		var keys = SeedKeys<int>.Over(stack);
-		var topK = new FrozenTopKJoinedContainer<int, PqbItem, SortResolver<int, PqbItem, PqbItem, PqbByScoreTies>>(_sorter, skip, take);
+		var topK = new FrozenTopKJoinedContainer<int, PqbItem, TPairComparer>(comparer, skip, take);
 		var rows = default(ValueDictionary<int, Row, DefaultKeyComparer<int>>);
 		var handedOff = false;
 		try {
@@ -460,7 +471,8 @@ public class FrozenCodegenCeilingBenchmarks {
 	private void AssertParity() {
 		using var reference = _frozen.ExecutePooled(_args, Skip, Take);
 		AssertSameRows(in reference, StraightLine(in _args, Skip, Take, new StoreLookup(_details)), "level 1");
-		AssertSameRows(in reference, PipelinePieces(in _args, Skip, Take), "level 2");
+		AssertSameRows(in reference, PipelinePieces(in _args, Skip, Take, new TopKSorterPairComparer<int, PqbItem, Sorter>(_sorter)), "level 2");
+		AssertSameRows(in reference, PipelinePieces(in _args, Skip, Take, new TiesThenOrdinal(_ties)), "level 2, direct comparer");
 		AssertSameRows(in reference, StraightLine(in _args, Skip, Take, new SlotLookup(_rightSlots)), "level 3b");
 		var expectedCount = _frozen.Count(_args);
 		var actualCount = CountStraightLine(in _args);
@@ -472,6 +484,7 @@ public class FrozenCodegenCeilingBenchmarks {
 		// Every ceiling body is 0 B per operation once the pools are warm.
 		AssertZeroAlloc(() => ShapeA_Level1(), "level 1");
 		AssertZeroAlloc(() => ShapeA_Level2(), "level 2");
+		AssertZeroAlloc(() => ShapeA_Level2_DirectComparer(), "level 2, direct comparer");
 		AssertZeroAlloc(() => ShapeA_Level3b(), "level 3b");
 		AssertZeroAlloc(() => Count_Level1(), "Count level 1");
 		AssertZeroAlloc(() => Probe_NarrowCollect(), "probe: narrow + collect");

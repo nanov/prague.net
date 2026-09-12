@@ -23,7 +23,7 @@ using Collections;
 ///   lefts, the fused resolvers write their slots and prune, then <c>ExecuteJoins(fusedMask)</c> runs the
 ///   sorter, the crop and any unfused resolver — the fill first, because an inner join's rows must be gone
 ///   before the sorter sees them. <b>Bounded flow</b> (an innermost <c>SortBounded</c> over the left value
-///   and a finite page, the eager gate): the pass feeds <see cref="FrozenTopKJoinedContainer{TKey,TValue,TSorter}" />
+///   and a finite page, the eager gate): the pass feeds <see cref="FrozenTopKJoinedContainer{TKey,TValue,TPairComparer}" />
 ///   — through a pooled <c>RowBuffer</c> that every inner fused resolver compacts first, so the dropped
 ///   lefts never reach the heap and the survivors keep eager's encounter ordinals — and the page rows are
 ///   materialized before the fused resolvers fill them, so only page rows are looked up (§7.3). That
@@ -240,7 +240,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 	/// <summary>
 	///   The bounded flow's heap feed, run once the chain has handed over its sorter as a struct type
 	///   parameter (<c>IResolvers.WithSorter</c>, design §13 step 7): fills
-	///   <see cref="FrozenTopKJoinedContainer{TKey,TValue,TSorter}" /> from the pass, drains the page and
+	///   <see cref="FrozenTopKJoinedContainer{TKey,TValue,TPairComparer}" /> from the pass, drains the page and
 	///   materializes it into the joined container — everything whose cost is a comparison. The chain walk
 	///   that finds the sorter is paid once per execution, not once per link per comparison. The joined
 	///   container is a ref struct, so it travels as a laundered pointer (the codebase's ref-struct-in-a-
@@ -280,7 +280,7 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 		}
 
 		public void Visit<TSorter>(ref TSorter sorter) where TSorter : struct, IJoinResolver {
-			var topK = new FrozenTopKJoinedContainer<TKey, TValue, TSorter>(sorter, _skip, _take);
+			var topK = new FrozenTopKJoinedContainer<TKey, TValue, TopKSorterPairComparer<TKey, TValue, TSorter>>(new(sorter), _skip, _take);
 			try {
 				topK.Init(_keys.Length);
 				if (_hasInner) {

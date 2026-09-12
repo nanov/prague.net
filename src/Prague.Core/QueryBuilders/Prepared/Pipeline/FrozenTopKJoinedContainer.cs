@@ -36,20 +36,21 @@ internal readonly struct TopKSorterPairComparer<TKey, TValue, TSorter> : ICompar
 ///   (a pooled heap of K for a small prefix, collect-and-select-in-place near the full size), the same
 ///   encounter ordinals stamped by <see cref="Add" />, the same <c>Seal</c> total, the same
 ///   <see cref="Drain" /> contract and the same "the heap buffer never transfers ownership" rule — with
-///   the sorter reaching every comparison as a struct type parameter
-///   (<see cref="TopKSorterPairComparer{TKey,TValue,TSorter}" />) rather than through the resolver chain.
+///   the pair comparer carried as a struct type parameter — in production
+///   <see cref="TopKSorterPairComparer{TKey,TValue,TSorter}" /> over the chain's sorter — rather than
+///   reached through the resolver chain.
 ///   Reached only from <see cref="PipelineJoinedExecutor{TKey,TValue,TArgs,TResolverChain,TResult}" />,
 ///   which obtains the sorter through <c>IResolvers.WithSorter</c>; the eager container is untouched and
 ///   still serves <c>ExecuteCoreJoinedTop</c>.
 /// </summary>
-internal ref struct FrozenTopKJoinedContainer<TKey, TValue, TSorter>
+internal ref struct FrozenTopKJoinedContainer<TKey, TValue, TPairComparer>
 	: IResultContainerInitializer<TKey, TValue>
 	where TKey : notnull, IEquatable<TKey>
-	where TSorter : struct, IJoinResolver {
+	where TPairComparer : struct, IComparer<(TKey Key, TValue Left, int Ordinal)> {
 	private readonly int _skip;
 	private readonly int _take;
 	private readonly int _k;
-	private readonly TopKSorterPairComparer<TKey, TValue, TSorter> _comparer;
+	private readonly TPairComparer _comparer;
 	private (TKey Key, TValue Left, int Ordinal)[]? _heap;
 	private int _seen;
 	private bool _collectAll;
@@ -59,8 +60,8 @@ internal ref struct FrozenTopKJoinedContainer<TKey, TValue, TSorter>
 
 	public int TotalCount => _totalCount;
 
-	public FrozenTopKJoinedContainer(TSorter sorter, int skip, int take) {
-		_comparer = new TopKSorterPairComparer<TKey, TValue, TSorter>(sorter);
+	public FrozenTopKJoinedContainer(TPairComparer comparer, int skip, int take) {
+		_comparer = comparer;
 		_skip = skip;
 		_take = take;
 		_k = skip + take;
