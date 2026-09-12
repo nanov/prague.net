@@ -1931,3 +1931,23 @@ Both flat against 4.56 / 18.5.
   against the pipeline's 4.49, and the attribution names the comparer hop, the two interface probes per
   row, the page's dictionary materialization and the 24-byte-triple page selection. The runtime-reshaping
   section below takes those in order.
+
+## The runtime-reshaping lane — a negative result, and the budget it leaves
+
+The ceiling's attribution named four suspects for the 2,796 ns between shape A's frozen executor
+(4,499 ns) and its straight line (1,697 ns). Same-session baselines (load 1.6–3.9, tables in the lane's
+report on #82) and one built-and-measured item:
+
+| Item | What was done | Verdict |
+|---|---|---|
+| R0 — isolate the comparer hop | `BoundedComparerProbeBenchmarks.PairComparer_DirectComparer` (kept, `fa6d5c1`): sorter arm 3.784 µs vs direct comparer 1.913 µs on the **heap** plan (K=40 over N=100) | the hop is real *on that plan* |
+| R1a — non-generic `CompareLeft` via `ISortingResolver`, sorter calling back into the visitor | built, 1,598 tests green; A 4.499 → 4.588 (+2.0%), B 18.75 → 18.70, `TimeRange…` 20.80 → 20.80, `Fk_SortBounded…` 19.80 → 20.03, with the untouched controls `SortBounded_ListList` +0.9% and `SortBounded` +0.6% in the same session | **no effect — reverted.** A `constrained.` call to a generic interface method on a struct receiver is resolved when the caller is jitted; and A/B take the collect-all plan (`k*4 >= N`: 160 ≥ 111), never the heap the probe drives |
+| R1b — carry `TComparer` into the container | not built: removes the same hop R1a proved absent from A/B's path | killed |
+| R4b — the `*4` collect-all threshold | not built: A (k=40, N=111) and B (~100) are already on the correct side; collect-all reads 1.18 µs over 111 vs 1.91 µs for the heap over 100·40 with the comparer inlined either way | killed |
+| R3 — page materialization | not attempted: the positional fill runs through 15 T4-generated `UnsafeRight{N}Accessor` structs over a `ValueDictionary`; a `TResult[]` single pass needs a parallel span-backed family from `JoinResults.tt`. Too large to half-land | **next** |
+| R4a — ordinal permutation instead of 24-byte triples | not attempted: ~490 compares / ~250 swaps on A; swaps save ~450 ns, the added dependent load per compare costs 300–500 ns; net uncertain | deferred behind R3 |
+| R2 — probe dispatch | not attempted: only four `ProbeValue` overrides, so a struct-specialised walk is tractable, but the gain depends on replacing `CacheKeyValueListIndex.KeySelector` (a `Func` property) with the static-abstract `IKeySelector<,>` — a type parameter through the index, the cache and codegen | **next, own lane** |
+
+**The budget as it stands** (shape A): frozen 4,499 ns; `Count` 1,431 ns = bind + seed + walk against the
+straight line's 314 → ~1,117 ns is **walk overhead** (R2's target); 4,499 − 1,431 − 1,697 + 314 ≈
+**1,685 ns is page-path overhead** (R3's target); the 1,178 ns selection is a floor both share.
