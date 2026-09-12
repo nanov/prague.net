@@ -128,6 +128,15 @@ public interface IJoinResolver {
 	bool CanFuse => false;
 
 	/// <summary>
+	///   Frozen build only, once per plan: turn a filter callback into the per-right check the fused fill
+	///   can run (<see cref="FusedJoinFilterProbe" />), which is what makes <see cref="CanFuse" /> true for a
+	///   filtered <c>JoinOne</c>. The four <c>JoinOne</c> families implement it; everything else, a
+	///   <c>JoinMany</c> included, keeps its paired read and does nothing here. Never called on an
+	///   execution path, so the callback still runs exactly once per execution.
+	/// </summary>
+	internal void CompileFusedFilter() { }
+
+	/// <summary>
 	/// Does this family's <b>inner</b> execution emit its rows in an order the fused per-left fill cannot
 	/// reproduce? True for the left-symmetric join alone: its pair set is keyed by the lookup key, so the
 	/// fan-out creates the rows grouped by right — several lefts of one bucket together — while the fused

@@ -90,6 +90,9 @@ public class FrozenPipelineJoinManyTests {
 	private CacheKeyValueListIndex<int, PqOrder, int> _byQty = null!;
 	private InMemoryDataCache<int, PqInvoice> _invoices = null!;
 	private InMemoryDataCache<int, PqCustomer> _customers = null!;
+	// A right-side index: a filter callback that narrows by index is the one kind the build probe refuses
+	// to compile into a per-right check, so it is what still sends a chain to the replay (step 3c).
+	private CacheKeyValueListIndex<int, PqCustomer, string> _customerByRegion = null!;
 	private InMemoryDataCache<int, PqLine> _lines = null!;
 	private CacheKeyValueListIndex<int, PqLine, int> _lineByOrder = null!;
 	private InMemoryDataCache<int, PqNote> _notes = null!;
@@ -128,6 +131,7 @@ public class FrozenPipelineJoinManyTests {
 		_byQty = _orders.CacheKeyValueListIndex<int>(static (_, v) => v.Qty);
 		_invoices = new InMemoryDataCache<int, PqInvoice>();
 		_customers = new InMemoryDataCache<int, PqCustomer>();
+		_customerByRegion = _customers.CacheKeyValueListIndex<string>(static (_, c) => c.Region);
 		_lines = new InMemoryDataCache<int, PqLine>();
 		_lineByOrder = _lines.CacheKeyValueListIndex<int>(static (_, v) => v.OrderId);
 		_notes = new InMemoryDataCache<int, PqNote>();
@@ -583,7 +587,8 @@ public class FrozenPipelineJoinManyTests {
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).Sort(new ByQtyThenId()).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "classic sort then many");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "bounded then many");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).JoinOne(_byCustomer, _customers).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "the step-6 shape with a many");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, static q => q.Where(static n => n.Id > 0)).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a filtered JoinOne outside the step-6 shape still replays");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, static q => q.Where(static n => n.Id > 0)).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a value-predicate filter on the JoinOne fuses (step 3c), many or not");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an index-narrowing filter outside the step-6 shape still replays");
 			Assert.That(_orders.Prepare().JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "no seed source");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinMany(_lines, _lineByOrder).BuildFrozen(NoPipeline).Plan.Executor, Is.EqualTo("Replay"), "pipeline off");
 			Assert.That(_orders.Prepare().Or(b => b.UseIndex(_byProduct, 1), b => b.UseIndex(_byProduct, 2)).InnerJoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a composite narrowing");

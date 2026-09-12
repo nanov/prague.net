@@ -411,6 +411,17 @@ internal readonly struct PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverCh
 }
 
 /// <summary>
+///   Runs every resolver's build-time filter compilation (<see cref="IJoinResolver.CompileFusedFilter" />)
+///   once over the chain the planner is about to freeze, so <see cref="IJoinResolver.CanFuse" /> can answer
+///   for a filtered <c>JoinOne</c> when the shape walk asks. It must run on the chain the executor stores:
+///   the shape walk takes a copy, and a copy's compiled check is lost.
+/// </summary>
+internal struct FusedFilterCompiler : IResolverExecutor {
+	public void Process<TResolver>(int position, ref TResolver resolver) where TResolver : struct, IJoinResolver
+		=> resolver.CompileFusedFilter();
+}
+
+/// <summary>
 ///   What a resolver chain looks like to the joined pipeline planner (design §7.1, §7.2, §9): the sorter's
 ///   place and kind (the eager <see cref="TopKProbeProcessor{TLeftValue}" /> questions), and per join
 ///   whether it fuses (<see cref="IJoinResolver.SupportsFusedLookup" /> and <see cref="IJoinResolver.CanFuse" />),

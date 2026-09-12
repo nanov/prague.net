@@ -60,6 +60,9 @@ public class FrozenPipelineJoinTests {
 	private CacheKeyValueListIndex<int, PqOrder, int> _byQty = null!;
 	private CacheSymmetricUniqueIndex<int, PqOrder, int> _orderShipKey = null!;
 	private InMemoryDataCache<int, PqCustomer> _customers = null!;
+	// A right-side index, so a filter callback can narrow by index instead of by value: the one shape the
+	// build probe refuses to compile into a per-right check, and therefore the one that still replays.
+	private CacheKeyValueListIndex<int, PqCustomer, string> _customerByRegion = null!;
 	private InMemoryDataCache<int, PqCustomer> _customerCodes = null!;
 	private CacheUniqueIndex<int, PqCustomer, int> _codeByCustomer = null!;
 	private InMemoryDataCache<int, PqProduct> _products = null!;
@@ -109,6 +112,7 @@ public class FrozenPipelineJoinTests {
 		_byQty = _orders.CacheKeyValueListIndex<int>(static (_, v) => v.Qty);
 		_orderShipKey = _orders.AddSymmetricKeyValueIndex<int>(static (_, v) => 5000 + v.Id);
 		_customers = new InMemoryDataCache<int, PqCustomer>();
+		_customerByRegion = _customers.CacheKeyValueListIndex<string>(static (_, c) => c.Region);
 		_customerCodes = new InMemoryDataCache<int, PqCustomer>();
 		_codeByCustomer = _customerCodes.AddKeyValueIndex<int>(static (_, c) => c.Id - 100);
 		_products = new InMemoryDataCache<int, PqProduct>();
@@ -620,7 +624,7 @@ public class FrozenPipelineJoinTests {
 		var one = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers);
 		var ties = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyClass()).JoinOne(_byCustomer, _customers);
 		var deep = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).JoinOne(_shipments, _shipmentByOrder);
-		var mixed = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU"));
+		var mixed = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU"));
 		var (oneP, oneF) = (one.Build(), one.BuildFrozen());
 		var (tiesP, tiesF) = (ties.Build(), ties.BuildFrozen());
 		var (deepP, deepF) = (deep.Build(), deep.BuildFrozen());
@@ -639,8 +643,8 @@ public class FrozenPipelineJoinTests {
 			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).JoinOne(_shipments, _shipmentByOrder), v, s, t),
 				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenIdClass()).JoinOne(_byCustomer, _customers).InnerJoinOne(_invoices).JoinOne(_shipments, _shipmentByOrder).Count(),
 				deepP, deepF, p, Three, "class comparer, three joins " + p);
-			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")), v, s, t),
-				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Count(),
+			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyClass()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).Count(),
 				mixedP, mixedF, p, InvoiceCustomer, "class tie comparer, fused + unfused " + p);
 
 			// Consecutive pages of the tying deep chain partition the eager whole — the bounded contract.
@@ -675,6 +679,107 @@ public class FrozenPipelineJoinTests {
 		});
 	}
 
+	// ── (d2) Filtered JoinOne: a value predicate compiles to a per-right check and fuses ─────────
+
+	/// <summary>
+	///   Step 3c. A right-side filter callback used to send the whole chain to the replay: it is a builder
+	///   lambda over the paired core, and no per-left probe could reproduce it. But the callback is known at
+	///   BUILD, and one that only filters by value configures exactly the predicate the paired read applies
+	///   to each right it fetched — so the build probe (<c>FusedJoinFilterProbe</c>) hands it to the fused
+	///   fill, which runs it on the right the point lookup just fetched: an outer join's rejected right
+	///   leaves the slot null, an inner join's drops the row, which is what "never Added" did.
+	///   <para>
+	///   Pinned: outer PK-to-PK and outer left-symmetric, inner PK-to-PK, the arg-carrying overload, a fused
+	///   join chained with a filtered one, a filter that rejects everything and one that rejects nothing —
+	///   each byte-identical to eager and to prepared over every variant × page, with the Count. The inner
+	///   left-symmetric shape is a set comparison for the usual reason (its eager fan-out groups by right).
+	///   </para>
+	/// </summary>
+	[Test]
+	public void Filtered_ValuePredicate_Fuses_ByteIdenticalToEagerAndPrepared() {
+		const string region = "EU";
+		var outerPk = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_invoices, static q => q.Where(static i => i.Id % 2 == 0));
+		var outerSym = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU"));
+		var outerArg = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers, static (q, r) => q.Where(c => c.Region == r), region);
+		var innerPk = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_invoices, static q => q.Where(static i => i.Id % 2 == 0));
+		var chained = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU"));
+		// The degenerate ends: nothing survives, and everything does.
+		var rejectAll = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_invoices, static q => q.Where(static _ => false));
+		var keepAll = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_invoices, static q => q.Where(static _ => true));
+		var (outerPkP, outerPkF) = (outerPk.Build(), outerPk.BuildFrozen());
+		var (outerSymP, outerSymF) = (outerSym.Build(), outerSym.BuildFrozen());
+		var (outerArgP, outerArgF) = (outerArg.Build(), outerArg.BuildFrozen());
+		var (innerPkP, innerPkF) = (innerPk.Build(), innerPk.BuildFrozen());
+		var (chainedP, chainedF) = (chained.Build(), chained.BuildFrozen());
+		var (rejectAllP, rejectAllF) = (rejectAll.Build(), rejectAll.BuildFrozen());
+		var (keepAllP, keepAllF) = (keepAll.Build(), keepAll.BuildFrozen());
+		Assert.That(outerPkF.Explain(), Does.Contain("joins: 1 (fused: 1, unfused: 0"), "the filtered join is in the mask");
+		Assert.That(chainedF.Explain(), Does.Contain("joins: 2 (fused: 2, unfused: 0"), "both of them");
+
+		foreach (var p in new[] { 0, 3, 5 }) {
+			AssertParity((v, s, t) => Eager(_orders.Query().UseIndex(_byProduct, p).JoinOne(_invoices, static q => q.Where(static i => i.Id % 2 == 0)), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).JoinOne(_invoices, static q => q.Where(static i => i.Id % 2 == 0)).Count(),
+				outerPkP, outerPkF, p, Invoice, "outer PK filtered " + p,
+				identity: (rows, clone, tag) => AssertIdentity(rows, clone, _invoices, static i => i.Id, tag));
+			AssertParity((v, s, t) => Eager(_orders.Query().UseIndex(_byProduct, p).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Count(),
+				outerSymP, outerSymF, p, Customer, "outer left-symmetric filtered " + p,
+				identity: (rows, clone, tag) => AssertIdentity(rows, clone, _customers, static c => c.Id, tag));
+			AssertParity((v, s, t) => Eager(_orders.Query().UseIndex(_byProduct, p).JoinOne(_byCustomer, _customers, static (q, r) => q.Where(c => c.Region == r), region), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).JoinOne(_byCustomer, _customers, static (q, r) => q.Where(c => c.Region == r), region).Count(),
+				outerArgP, outerArgF, p, Customer, "outer filtered with arg " + p);
+			AssertParity((v, s, t) => Eager(_orders.Query().UseIndex(_byProduct, p).InnerJoinOne(_invoices, static q => q.Where(static i => i.Id % 2 == 0)), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).InnerJoinOne(_invoices, static q => q.Where(static i => i.Id % 2 == 0)).Count(),
+				innerPkP, innerPkF, p, Invoice, "inner PK filtered " + p);
+			AssertParity((v, s, t) => Eager(_orders.Query().UseIndex(_byProduct, p).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Count(),
+				chainedP, chainedF, p, InvoiceCustomer, "fused then filtered " + p);
+			AssertParity((v, s, t) => Eager(_orders.Query().UseIndex(_byProduct, p).JoinOne(_invoices, static q => q.Where(static _ => false)), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).JoinOne(_invoices, static q => q.Where(static _ => false)).Count(),
+				rejectAllP, rejectAllF, p, Invoice, "outer filter rejects everything " + p);
+			AssertParity((v, s, t) => Eager(_orders.Query().UseIndex(_byProduct, p).InnerJoinOne(_invoices, static q => q.Where(static _ => true)), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).InnerJoinOne(_invoices, static q => q.Where(static _ => true)).Count(),
+				keepAllP, keepAllF, p, Invoice, "inner filter keeps everything " + p);
+		}
+	}
+
+	/// <summary>
+	///   The other half of the line the probe draws: a callback that narrows by INDEX is a set operation
+	///   over the pair set, not a test on one right, so the chain keeps its paired read and still gives
+	///   eager's answer. Pinned as a differential too, because the probe must not quietly compile away the
+	///   narrowing and keep only a predicate the callback never had.
+	/// </summary>
+	[Test]
+	public void Filtered_IndexNarrowing_DoesNotFuse_AndStillMatchesEager() {
+		var q = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU"));
+		var frozen = q.BuildFrozen();
+		var prepared = q.Build();
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"), "an index narrowing is not a per-right check");
+		foreach (var p in new[] { 0, 3, 5 })
+			foreach (var (skip, take) in Pages) {
+				AssertSameJoined(Eager(_orders.Query().UseIndex(_byProduct, p).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")), Variant.ExecutePooled, skip, take),
+					frozen.ExecutePooled(p, skip, take), Customer);
+				AssertSameJoined(prepared.ExecutePooled(p, skip, take), frozen.ExecutePooled(p, skip, take), Customer);
+			}
+	}
+
+	/// <summary>
+	///   A filter that mixes a value predicate with an index narrowing must not fuse EITHER half: the probe
+	///   sees the narrowing and refuses the whole callback, or the fused fill would apply the predicate and
+	///   silently drop the narrowing.
+	/// </summary>
+	[Test]
+	public void Filtered_PredicateAndIndexNarrowing_DoesNotFuse() {
+		var q = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p)
+			.JoinOne(_byCustomer, _customers, q => q.Where(static c => c.Id % 2 == 0).UseIndex(_customerByRegion, "EU"));
+		var frozen = q.BuildFrozen();
+		Assert.That(frozen.Plan.Executor, Is.EqualTo("Replay"), "one narrowing refuses the whole callback");
+		foreach (var p in new[] { 0, 3, 5 })
+			AssertSameJoined(
+				Eager(_orders.Query().UseIndex(_byProduct, p).JoinOne(_byCustomer, _customers, q => q.Where(static c => c.Id % 2 == 0).UseIndex(_customerByRegion, "EU")), Variant.ExecutePooled, 0, int.MaxValue),
+				frozen.ExecutePooled(p), Customer);
+	}
+
 	// ── (e) Executor selection and Explain ────────────────────────────────────────
 
 	[Test]
@@ -689,13 +794,16 @@ public class FrozenPipelineJoinTests {
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "an OUTER left-symmetric join fuses: the fan-out only fills existing rows");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers).BuildFrozen(NoPipeline).Plan.Executor, Is.EqualTo("Replay"), "pipeline off");
 			Assert.That(_orders.Prepare().JoinOne(_byCustomer, _customers).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "no seed source");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a filtered JoinOne cannot fuse (unsorted)");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, static (q, r) => q.Where(c => c.Region == r), region).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a filtered JoinOne with an arg cannot fuse");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "one unfusable join outside the step-6 shape replays the chain");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).Sort(new ByQtyThenId()).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a classic Sort over the left value is the step-6 shape too since step 8 (its finite pages take the bounded flow)");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).Sort(new ByRegionThenIdDescOverInvoice()).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a Sort over the joined row is not");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "the step-6 shape keeps its unfused paired read");
-			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an unfusable inner join replays");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a value-predicate filter compiles to a per-right check and fuses (step 3c)");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, static (q, r) => q.Where(c => c.Region == r), region).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "…the arg-carrying overload too: the arg is closed over at build");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a fused join chained with a filtered one, unsorted");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a filter that narrows by INDEX is not a per-right check and still replays");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "one unfusable join outside the step-6 shape replays the chain");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).Sort(new ByQtyThenId()).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a classic Sort over the left value is the step-6 shape too since step 8 (its finite pages take the bounded flow)");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).Sort(new ByRegionThenIdDescOverInvoice()).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "a Sort over the joined row is not");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "the step-6 shape keeps its unfused paired read");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).BuildFrozen().Plan.Executor, Is.EqualTo("Replay"), "an unfusable inner join replays");
+			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_invoices, static q => q.Where(static i => i.Id % 2 == 0)).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "…while a value-predicate inner filter fuses (step 3c)");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "JoinMany: admitted, its fan-out after the pass (step 8; FrozenPipelineJoinManyTests)");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).JoinOne(_invoices).JoinMany(_lines, _lineByOrder).BuildFrozen().Plan.Executor, Is.EqualTo("Pipeline"), "a JoinMany anywhere in the chain");
 			Assert.That(_orders.Prepare().UseIndex(_byProduct, 1).SortBounded(new ByQtyThenId()).InnerJoinOne(_byCustomer, _customers).JoinMany(_lines, _lineByOrder).BuildFrozen(EagerOrder).Plan.Executor, Is.EqualTo("Replay"), "an inner left-symmetric JoinOne still replays under the opt-out, JoinMany or not");
@@ -704,13 +812,13 @@ public class FrozenPipelineJoinTests {
 
 		// The mixed step-6 shape: the PK join is fused in the pass, the filtered left-symmetric join keeps
 		// its paired read over the page rows (the mask), on the bounded and the classic (unbounded) page.
-		var mixed = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenId()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen();
-		var mixedPrepared = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenId()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Build();
+		var mixed = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenId()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).BuildFrozen();
+		var mixedPrepared = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).SortBounded(new ByQtyThenId()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).Build();
 		Assert.That(mixed.Plan.Executor, Is.EqualTo("Pipeline"));
 		Assert.That(mixed.Explain(), Does.Contain("joins: 2 (fused: 1, unfused: 1"));
 		foreach (var p in new[] { 0, 3, 5 })
-			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenId()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")), v, s, t),
-				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenId()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Count(),
+			AssertParity((v, s, t) => EagerSorted(_orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenId()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")), v, s, t),
+				() => _orders.Query().UseIndex(_byProduct, p).SortBounded(new ByQtyThenId()).JoinOne(_invoices).JoinOne(_byCustomer, _customers, q => q.UseIndex(_customerByRegion, "EU")).Count(),
 				mixedPrepared, mixed, p, InvoiceCustomer, "mixed step-6 " + p);
 
 		var unsorted = _orders.Prepare<int, PqOrder, int>().UseIndex(_byProduct, static p => p).InnerJoinOne(_invoices).JoinOne(_byCustomer, _customers).BuildFrozen();

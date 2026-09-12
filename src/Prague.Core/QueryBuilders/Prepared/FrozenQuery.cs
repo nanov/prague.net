@@ -485,7 +485,17 @@ internal static class FrozenPlanner {
 		// keep their paired read. An unfusable JoinOne elsewhere, an inner left-symmetric JoinOne under
 		// FrozenOptions.PreserveEagerOrder (its fan-out regroups the rows) or a nested
 		// JoinMany replays.
-		if (options.Pipeline && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in resolvers, !options.PreserveEagerOrder, out var shape)
+		// The chain the pipeline would freeze, compiled first: a JoinOne's filter callback becomes a
+		// per-right check here (FusedJoinFilterProbe, run once per build) and that is what lets the shape
+		// walk below fuse it. It has to happen on this copy — the walk and the executor each take their own,
+		// and a copy's compiled check is lost. The replay fallbacks below ignore the field.
+		var chainResolvers = resolvers;
+		if (options.Pipeline) {
+			var compiler = new FusedFilterCompiler();
+			chainResolvers.Execute(ref compiler);
+		}
+
+		if (options.Pipeline && PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>.Accepts(in chainResolvers, !options.PreserveEagerOrder, out var shape)
 		    && PipelinePlanner<TKey, TValue, TArgs>.TryPlan(cache, narrowers, options, out var pipelineSteps, out var tree, out var branchFilters)) {
 			var filters = TopLevelFilterSteps<TValue, TArgs>(narrowers);
 			var pipelineFused = Fuse<TValue, TArgs>(narrowers, options, names, live);
@@ -498,7 +508,7 @@ internal static class FrozenPlanner {
 				tree, branchFilters.Length, !options.PreserveEagerOrder, shape.ManyJoins);
 			live.Insert(0, plan);
 			return new FrozenQuery<TArgs, TResult, PipelineJoinedExecutor<TKey, TValue, TArgs, TResolverChain, TResult>>(
-				new(cache, pipelineSteps, in resolvers, manyCount, filters, pipelineFused, plan, in shape, branchFilters), narrowers, true, isSorted, new(names, live));
+				new(cache, pipelineSteps, in chainResolvers, manyCount, filters, pipelineFused, plan, in shape, branchFilters), narrowers, true, isSorted, new(names, live));
 		}
 
 		var fused = Fuse<TValue, TArgs>(narrowers, options, names, live);

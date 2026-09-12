@@ -190,16 +190,43 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 
 	static bool IJoinResolver.SupportsFusedLookup => true;
 
-	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
+	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
+	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
 
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp;
+	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
 
 	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.TryLookupRight(TLeftKey leftKey, TLeftValue leftValue, [MaybeNullWhen(false)] out TRightValue right)
 		=> LookupRight(leftKey, out right);
 
-	// PK to PK: the selector (elided for the identity) then the right store — the paired core's own read.
+	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
+
+	// Set once by CompileFusedFilter (frozen build only, never an execution). _fusedFilterOk says the
+	// callback is reproducible per right; the predicate is null when it configured nothing at all.
+	private Predicate<TRightValue>? _fusedFilter;
+	private bool _fusedFilterOk;
+
+	void IJoinResolver.CompileFusedFilter() {
+		if (TFilter.IsNoOp || _fusedFilterOk)
+			return;
+		_fusedFilterOk = FusedJoinFilterProbe.TryCompile<TLeftKey, TRightCache, TRightKey, TRightValue, TFilter>(Cache, Filter, out _fusedFilter);
+	}
+
+	/// <summary>The store read, then the compiled filter — folded away entirely for an unfiltered join.</summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LookupRightUnfiltered(leftKey, out right))
+			return false;
+		// TFilter.IsNoOp is JIT-folded: an unfiltered join keeps the bare read with no test per row.
+		if (TFilter.IsNoOp || _fusedFilter is null || _fusedFilter(right))
+			return true;
+		right = default;
+		return false;
+	}
+
+	// PK to PK: the selector (elided for the identity) then the right store — the paired core's own read.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
 		var rightKey = TSelector.IsIdentity ? Unsafe.As<TLeftKey, TRightKey>(ref leftKey) : Selector.Select(leftKey);
 		return _rightStore.TryGet(rightKey, out right);
 	}
@@ -615,18 +642,45 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 	// an inner join of this family replays under FrozenOptions.PreserveEagerOrder and fuses otherwise.
 	static bool IJoinResolver.FusedInnerRegroups => true;
 
-	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
+	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
+	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
 
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp;
+	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
 
 	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.TryLookupRight(TLeftKey leftKey, TLeftValue leftValue, [MaybeNullWhen(false)] out TRightValue right)
 		=> LookupRight(leftKey, out right);
+
+	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
+
+	// Set once by CompileFusedFilter (frozen build only, never an execution). _fusedFilterOk says the
+	// callback is reproducible per right; the predicate is null when it configured nothing at all.
+	private Predicate<TRightValue>? _fusedFilter;
+	private bool _fusedFilterOk;
+
+	void IJoinResolver.CompileFusedFilter() {
+		if (TFilter.IsNoOp || _fusedFilterOk)
+			return;
+		_fusedFilterOk = FusedJoinFilterProbe.TryCompile<LeftKeySetView<TLeftKey>, TRightCache, TRightKey, TRightValue, TFilter>(RightCache, Filter, out _fusedFilter);
+	}
+
+	/// <summary>The store read, then the compiled filter — folded away entirely for an unfiltered join.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LookupRightUnfiltered(leftKey, out right))
+			return false;
+		// TFilter.IsNoOp is JIT-folded: an unfiltered join keeps the bare read with no test per row.
+		if (TFilter.IsNoOp || _fusedFilter is null || _fusedFilter(right))
+			return true;
+		right = default;
+		return false;
+	}
 
 	// The eager pair seeding's reads for one left: the index's reverse map (left key → lookup key), then
 	// for shape A the selector (elided for the identity) gives the right primary key, for shape B the
 	// right index translates the selected key; then the right store.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
 		if (!LeftIndex.Reverse.TryGetValue(leftKey, out var lookup)) {
 			right = default;
 			return false;
@@ -1018,16 +1072,43 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 
 	static bool IJoinResolver.SupportsFusedLookup => true;
 
-	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
+	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
+	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
 
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp;
+	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
 
 	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.TryLookupRight(TLeftKey leftKey, TLeftValue leftValue, [MaybeNullWhen(false)] out TRightValue right)
 		=> LookupRight(leftKey, out right);
 
-	// The right unique index (keyed by the selected left key; the identity is elided) then the right store.
+	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
+
+	// Set once by CompileFusedFilter (frozen build only, never an execution). _fusedFilterOk says the
+	// callback is reproducible per right; the predicate is null when it configured nothing at all.
+	private Predicate<TRightValue>? _fusedFilter;
+	private bool _fusedFilterOk;
+
+	void IJoinResolver.CompileFusedFilter() {
+		if (TFilter.IsNoOp || _fusedFilterOk)
+			return;
+		_fusedFilterOk = FusedJoinFilterProbe.TryCompile<TLeftKey, TRightCache, TRightKey, TRightValue, TFilter>(_rightCache, _filter, out _fusedFilter);
+	}
+
+	/// <summary>The store read, then the compiled filter — folded away entirely for an unfiltered join.</summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LookupRightUnfiltered(leftKey, out right))
+			return false;
+		// TFilter.IsNoOp is JIT-folded: an unfiltered join keeps the bare read with no test per row.
+		if (TFilter.IsNoOp || _fusedFilter is null || _fusedFilter(right))
+			return true;
+		right = default;
+		return false;
+	}
+
+	// The right unique index (keyed by the selected left key; the identity is elided) then the right store.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
 		if (_rightIndex.TryGetValue(TSelector.IsIdentity ? Unsafe.As<TLeftKey, TIndexKey>(ref leftKey) : _selector.Select(leftKey), out var rightKey))
 			return _rightStore.TryGet(rightKey, out right);
 		right = default;
@@ -1337,16 +1418,43 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 
 	static bool IJoinResolver.SupportsFusedLookup => true;
 
-	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
+	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
+	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
+	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
 
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp;
+	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
 
 	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.TryLookupRight(TLeftKey leftKey, TLeftValue leftValue, [MaybeNullWhen(false)] out TRightValue right)
 		=> LookupRight(leftKey, out right);
 
-	// The left index's reverse map (left key → index key, 1:1), the selector (elided for the identity), the right store.
+	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
+
+	// Set once by CompileFusedFilter (frozen build only, never an execution). _fusedFilterOk says the
+	// callback is reproducible per right; the predicate is null when it configured nothing at all.
+	private Predicate<TRightValue>? _fusedFilter;
+	private bool _fusedFilterOk;
+
+	void IJoinResolver.CompileFusedFilter() {
+		if (TFilter.IsNoOp || _fusedFilterOk)
+			return;
+		_fusedFilterOk = FusedJoinFilterProbe.TryCompile<TLeftKey, TRightCache, TRightKey, TRightValue, TFilter>(RightCache, Filter, out _fusedFilter);
+	}
+
+	/// <summary>The store read, then the compiled filter — folded away entirely for an unfiltered join.</summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private bool LookupRight(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (!LookupRightUnfiltered(leftKey, out right))
+			return false;
+		// TFilter.IsNoOp is JIT-folded: an unfiltered join keeps the bare read with no test per row.
+		if (TFilter.IsNoOp || _fusedFilter is null || _fusedFilter(right))
+			return true;
+		right = default;
+		return false;
+	}
+
+	// The left index's reverse map (left key → index key, 1:1), the selector (elided for the identity), the right store.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
 		if (LeftIndex.Reverse.TryGetValue(leftKey, out var indexKey))
 			return _rightStore.TryGet(TSelector.IsIdentity ? Unsafe.As<TIndexKey, TRightKey>(ref indexKey) : Selector.Select(indexKey), out right);
 		right = default;
