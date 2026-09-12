@@ -1951,3 +1951,18 @@ report on #82) and one built-and-measured item:
 **The budget as it stands** (shape A): frozen 4,499 ns; `Count` 1,431 ns = bind + seed + walk against the
 straight line's 314 → ~1,117 ns is **walk overhead** (R2's target); 4,499 − 1,431 − 1,697 + 314 ≈
 **1,685 ns is page-path overhead** (R3's target); the 1,178 ns selection is a floor both share.
+
+### R3 — single-pass page materialization: built, measured, killed
+
+Branch `r3-page-materialize-killed` (kept, unmerged) holds the implementation: on
+`BoundedCapable && _allFused && manyCount == 0 && !HasUnfusedInnerMany` the drained page goes into a rented
+`TResult[]` + key array through a second T4 accessor family (`UnsafeRight{N}PageAccessor`, +1,222
+generated lines) instead of the `ValueDictionary`; 1,598 Core + 1,224 Generated tests green. Same-session
+before → after (load 1.8–5.3): A 4.580 → 4.497 (−1.8%), B 18.36 → 18.58 (+1.2%), `Fk_SortBounded_OneToOneReverse`
+19.39 → 19.43; the untouched controls moved more (`Sort_JoinMany` −5.8%, `JoinOne_Eager` +3.8%). **The
+entire dictionary path is worth under ~100 ns of shape A's 4.5 µs.** By elimination the page-path budget sits
+in `FrozenTopKJoinedContainer.Init` + 111 `Add`s + `Drain → TopKSelect.SelectPage` over 24-byte triples
+through `TopKSorterPairComparer` — the selection as the runtime runs it. Open question this leaves: R0 put
+the comparer hop at 1.87 µs on a heap plan with roughly A's compare count, while R1a's visitor-callback
+form removed nothing on A; the spec's missing probe — the real container with a direct struct comparer —
+decides whether the hop simply never inlined in R1a (→ R1b) or the cost is the triple moves (→ R4a).
