@@ -109,14 +109,12 @@ At build time the planner classifies the chain and binds one of three executors:
 - **Replay** — the prepared behaviour, for shapes the pipeline does not take yet (nested `JoinMany`,
   two sorters, a marking step that is not first in an `Or` branch, filter-only plans, and a few more).
 
-`Explain()` prints the plan, the executor, the live optimizations and the seed chosen on the last
-execution:
-
-```
-executor: Pipeline · sort: bounded
-  step 0 ListEq (bound) · step 1 ListEq (arg) · step 2 ListEq (arg) → JoinOne fused
-  last seed: step 2 (signal 111), free
-```
+`Explain()` prints the plan and its live state: the executor (`executor: Pipeline`, `PointLookup` or
+`Replay`), each step with its kind and binding (`step 0 ListEq (bound)`, `step 1 ListEq (arg)`), the
+sort mode (`sort: bounded`), which joins fused, and the seed chosen on the last execution with the
+signal that chose it — for example `last seed: step 1 ListEq (signal 34), free: smallest signal`, or
+under `PreserveEagerOrder` `last seed: step 0 ListEq (signal 0), fixed: first active step`. Read it once
+after building; if it says `Replay`, the shape is not on the pipeline yet.
 
 ### The ordering contract
 
@@ -173,6 +171,5 @@ every frozen row 0 B per execution (`benchmarks/Prague.Benchmarks/FrozenQueryBen
 - Use `BuildFrozen()` unless you need the eager row sequence; then use `Build()` or `PreserveEagerOrder`.
 - Make `TArgs` a `readonly record struct`; spell arg `Where` predicates `static (v, in a) => …`.
 - Every `Match` ends in `Default(...)` or `Default()`.
-- Read `Explain()` once after building: if it says `Replay`, the shape is not on the pipeline yet.
 
 See also: [Query Engine](query-engine.md), [Sorted Paging](sorted-paging.md), [Joins](joins.md).
