@@ -76,6 +76,8 @@ public class FrozenQueryBenchmarks {
 	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?, PqbCustomer?>> _joinOneChainedFrozen = null!;
 	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredPrepared = null!;
 	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredFrozen = null!;
+	private PreparedQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredDistinctPrepared = null!;
+	private FrozenQuery<int, JoinResult<PqbOrder, PqbCustomer?>> _joinOneFilteredDistinctFrozen = null!;
 	// Step 8: JoinMany right sides.
 	private InMemoryDataCache<int, PqbLine> _lines = null!;
 	private CacheKeyValueListIndex<int, PqbLine, int> _lineByItem = null!;
@@ -281,6 +283,8 @@ public class FrozenQueryBenchmarks {
 		_joinOneChainedFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers).JoinOne(_orderDetails).BuildFrozen();
 		_joinOneFilteredPrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).Build();
 		_joinOneFilteredFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_byCustomer, _customers, static q => q.Where(static c => c.Region == "EU")).BuildFrozen();
+		_joinOneFilteredDistinctPrepared = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_orderDetails, static q => q.Where(static d => d.Region == "EU")).Build();
+		_joinOneFilteredDistinctFrozen = _orders.Prepare<int, PqbOrder, int>().UseIndex(_byCustomer, static c => c).JoinOne(_orderDetails, static q => q.Where(static d => d.Region == "EU")).BuildFrozen();
 		_joinManyPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).JoinMany(_lines, _lineByItem).Build();
 		_joinManyFrozen = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).JoinMany(_lines, _lineByItem).BuildFrozen();
 		_innerJoinManyPrepared = _items.Prepare<int, PqbItem, int>().UseIndex(_byGroup, static g => g).InnerJoinMany(_lines, _lineByItem).Build();
@@ -587,7 +591,11 @@ public class FrozenQueryBenchmarks {
 		return r.Count;
 	}
 
-	// ── 7d. JoinOneFiltered: a right-side filter callback cannot fuse — the replay fallback ──────────
+	// ── 7d. JoinOneFiltered: a right-side filter callback, fused since fda6e9c (the build probe reduces
+	// it to a value predicate). Degenerate on purpose and left that way: all ~1k lefts of bucket 7 resolve
+	// to the one customer 7, whose Region is "US", so the filter rejects every row and the right lookup
+	// hits one perfectly-cached key. It measures the filter and the lookup, not right-cache diversity —
+	// 7e is the sibling that does. ──────────
 
 	[BenchmarkCategory("JoinOneFiltered"), Benchmark(Baseline = true)]
 	public int JoinOneFiltered_Eager() {
@@ -604,6 +612,29 @@ public class FrozenQueryBenchmarks {
 	[BenchmarkCategory("JoinOneFiltered"), Benchmark]
 	public int JoinOneFiltered_Frozen() {
 		using var r = _joinOneFilteredFrozen.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	// ── 7e. JoinOneFilteredDistinct: the same filtered shape with the degeneracy removed — an outer
+	// PK-to-PK join instead, so each of the ~1k lefts looks up its own right (a quarter of them absent),
+	// and Region alternates by Id so the predicate accepts about half of the rest instead of none. This is
+	// the row that reads the fused filter's cost per accepted right and the lookup's cache behaviour. ──
+
+	[BenchmarkCategory("JoinOneFilteredDistinct"), Benchmark(Baseline = true)]
+	public int JoinOneFilteredDistinct_Eager() {
+		using var r = _orders.Query().UseIndex(_byCustomer, _customer).JoinOne(_orderDetails, static q => q.Where(static d => d.Region == "EU")).ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinOneFilteredDistinct"), Benchmark]
+	public int JoinOneFilteredDistinct_Prepared() {
+		using var r = _joinOneFilteredDistinctPrepared.ExecutePooled(_customer);
+		return r.Count;
+	}
+
+	[BenchmarkCategory("JoinOneFilteredDistinct"), Benchmark]
+	public int JoinOneFilteredDistinct_Frozen() {
+		using var r = _joinOneFilteredDistinctFrozen.ExecutePooled(_customer);
 		return r.Count;
 	}
 

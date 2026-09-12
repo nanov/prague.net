@@ -152,7 +152,7 @@ public readonly struct KeySelectorWithArg<TIn, TArg, TOut> : IKeySelector<TIn, T
 /// Indexed-inner semantics are Phase 2 and throw <see cref="NotSupportedException"/> if reached.
 /// </summary>
 public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRightValue, TFilter, TSelector>
-	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>, IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>
+	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>
 	where TLeftKey : notnull, IEquatable<TLeftKey>
 	where TRightKey : notnull, IEquatable<TRightKey>
 	where TLeftValue : ICacheEquatable<TLeftValue>, ICacheClonable<TLeftValue>
@@ -193,11 +193,6 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
 	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
 	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
-
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
-
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.TryLookupRight(TLeftKey leftKey, TLeftValue leftValue, [MaybeNullWhen(false)] out TRightValue right)
-		=> LookupRight(leftKey, out right);
 
 	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
 
@@ -583,7 +578,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 /// all receive the same right value (or <c>null</c> on miss/filter-out).
 /// </summary>
 public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupKey, TRightIndexKey, TRightKey, TRightValue, TFilter, TSelector>
-	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>, IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>
+	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>
 	where TLeftKey : notnull, IEquatable<TLeftKey>
 	where TRightKey : notnull, IEquatable<TRightKey>
 	where TLookupKey : notnull, IEquatable<TLookupKey>
@@ -645,11 +640,6 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
 	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
 	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
-
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
-
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.TryLookupRight(TLeftKey leftKey, TLeftValue leftValue, [MaybeNullWhen(false)] out TRightValue right)
-		=> LookupRight(leftKey, out right);
 
 	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
 
@@ -1020,7 +1010,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 /// Indexed-inner semantics are Phase 2 and throw <see cref="NotSupportedException"/> if reached.
 /// </summary>
 public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TIndexKey, TRightValue, TFilter, TSelector>
-	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>, IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>
+	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>
 	where TLeftKey : notnull, IEquatable<TLeftKey>
 	where TRightKey : notnull, IEquatable<TRightKey>
 	where TIndexKey : notnull, IEquatable<TIndexKey>
@@ -1075,11 +1065,6 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
 	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
 	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
-
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
-
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.TryLookupRight(TLeftKey leftKey, TLeftValue leftValue, [MaybeNullWhen(false)] out TRightValue right)
-		=> LookupRight(leftKey, out right);
 
 	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
 
@@ -1365,7 +1350,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 /// Indexed-inner semantics are Phase 2 and throw <see cref="NotSupportedException"/> if reached.
 /// </summary>
 public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, TIndexKey, TRightKey, TRightValue, TFilter, TSelector>
-	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>, IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>
+	: IJoinResolver<TLeftKey, TLeftValue, TRightValue>
 	where TLeftKey : notnull, IEquatable<TLeftKey>
 	where TRightKey : notnull, IEquatable<TRightKey>
 	where TIndexKey : notnull, IEquatable<TIndexKey>
@@ -1421,11 +1406,6 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	// A filter callback fuses when the build probe turned it into a per-right check (FusedJoinFilterProbe):
 	// a pure value predicate is the paired read's own filter, applied to the right the lookup just fetched.
 	bool IJoinResolver.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
-
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.CanFuse => TFilter.IsNoOp || _fusedFilterOk;
-
-	bool IFusableJoinOne<TLeftKey, TLeftValue, TRightValue>.TryLookupRight(TLeftKey leftKey, TLeftValue leftValue, [MaybeNullWhen(false)] out TRightValue right)
-		=> LookupRight(leftKey, out right);
 
 	// ── Fused filter: the callback compiled to a per-right check at build (design §7.1) ─────
 

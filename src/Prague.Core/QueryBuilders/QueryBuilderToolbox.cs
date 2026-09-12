@@ -115,15 +115,21 @@ public interface IJoinResolver {
 	static abstract void Clone<TFullResult>(int index, ref TFullResult value) where TFullResult : struct, IJoinResult;
 
 	/// <summary>
-	/// Does this resolver family implement the per-left point lookup of
-	/// <see cref="IFusableJoinOne{TLeftKey,TLeftValue,TRightValue}" /> (the four <c>JoinOne</c> families)?
-	/// JIT-folded per instantiation; the frozen pipeline's chain walkers skip everything else.
+	/// Does this resolver family answer its join with one point lookup per left (the four <c>JoinOne</c>
+	/// families)? The eager resolvers build a pair set over every left and run one paired bulk read; the
+	/// pipeline instead looks the right up for each row right after the row is added, so a join costs 1–3
+	/// hashes per left and no scratch set. The lookups are the eager resolver's own reads in the same order
+	/// — PK to PK: the selector then the right store; right-unique: the right index then the store;
+	/// left-unique: the left index's reverse map, the selector, the store; left-symmetric: the reverse map,
+	/// the optional right index, the store — so the staleness window is the eager one. JIT-folded per
+	/// instantiation; the frozen pipeline's chain walkers skip everything else.
 	/// </summary>
 	static virtual bool SupportsFusedLookup => false;
 
 	/// <summary>
-	/// Decided once at build: can this resolver's right be looked up per left with no filter callback
-	/// (<see cref="IFusableJoinOne{TLeftKey,TLeftValue,TRightValue}.CanFuse" />)? Default: no.
+	/// Decided once at build: can this resolver's right be looked up per left? False while a filter callback
+	/// is still a builder lambda over the paired core — that cannot become a point probe — and true once
+	/// <see cref="CompileFusedFilter" /> has turned it into a per-right check. Default: no.
 	/// </summary>
 	bool CanFuse => false;
 

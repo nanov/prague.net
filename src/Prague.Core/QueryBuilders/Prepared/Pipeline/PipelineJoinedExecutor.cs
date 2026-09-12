@@ -7,8 +7,9 @@ using Collections;
 ///   The stage-3 executor for joined plans whose narrowing is a pipeline plan (design §7, §8, steps 5 and
 ///   6). The <see cref="PipelineCore{TKey,TValue,TArgs}" /> pass replaces the eager base walk of
 ///   <c>ExecuteCoreJoined</c> / <c>ExecuteCoreJoinedTop</c> and drives the eager joined containers, and the
-///   <c>JoinOne</c> resolvers that can fuse (<see cref="IFusableJoinOne{TLeftKey,TLeftValue,TRightValue}" />:
-///   the four families, identity or selector, outer or inner, no filter callback) answer their join with
+///   <c>JoinOne</c> resolvers that can fuse (<see cref="IJoinResolver.SupportsFusedLookup" /> and
+///   <see cref="IJoinResolver.CanFuse" />: the four families, identity or selector, outer or inner, a
+///   filter callback only once the build probe reduced it to a per-right check) answer their join with
 ///   one point lookup per row instead of a pair-set build plus a paired bulk read. The fill is driven
 ///   <b>per resolver</b>, not per row (<c>JoinedResultContaier.FillFused</c> →
 ///   <see cref="IJoinResolver.UnsafeFillFusedRows{TAccessor}" /> over every row the container holds): a
