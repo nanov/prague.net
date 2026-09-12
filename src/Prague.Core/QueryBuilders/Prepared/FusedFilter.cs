@@ -55,6 +55,8 @@ internal sealed class FusedFilter<TValue, TArgs> : IPlanExplainable
 	internal const int MaxTimedCalls = 4096;
 	private const double PromoteMargin = 1.5;
 	private const int DecayAt = 1 << 24;
+	/// <summary>Most steps <see cref="Reorder" /> will sort on the stack; beyond it the order simply stays put.</summary>
+	private const int MaxReorderSteps = 64;
 
 	// Two back-to-back timestamps, averaged once per process; subtracted from every timed call.
 	private static readonly double TimerOverheadTicks = MeasureTimerOverhead();
@@ -216,9 +218,11 @@ internal sealed class FusedFilter<TValue, TArgs> : IPlanExplainable
 				_ticks[i] >>= 1;
 			}
 
-		Span<int> next = stackalloc int[Math.Min(n, 64)];
-		if (n > 64)
+		// Bail BEFORE the stackalloc, not after: the guard is what makes the fixed 64 safe, so allocating
+		// first and returning unused wasted the frame and read as though `next` could be too small.
+		if (n > MaxReorderSteps)
 			return;
+		Span<int> next = stackalloc int[n];
 		current.AsSpan().CopyTo(next);
 		var changed = false;
 		for (var p = 1; p < n; p++) {
