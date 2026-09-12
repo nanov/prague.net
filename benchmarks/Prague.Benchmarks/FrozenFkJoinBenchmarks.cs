@@ -82,7 +82,9 @@ public class FrozenFkJoinBenchmarks {
 			// The "every fourth" rows count WITHIN a bucket: i % 4 is constant inside a group of stride
 			// Buckets, so the misses have to key off the position in the bucket or no bucket ever sees one.
 			var slot = i / Buckets % 4;
-			_customers.AddOrUpdate(new FfkCustomer { Id = i, Segment = i % Buckets, Region = i % 2 == 0 ? "EU" : "US", Score = rng.Next(int.MaxValue) });
+			// Region splits a bucket in half for the filtered join — i % 2 is constant inside a bucket too,
+			// so keying the region off i rejected every right in the bucket and the join measured nothing.
+			_customers.AddOrUpdate(new FfkCustomer { Id = i, Segment = i % Buckets, Region = slot % 2 == 0 ? "EU" : "US", Score = rng.Next(int.MaxValue) });
 			// A quarter of the orders point at a customer id nobody holds: the inner join drops them.
 			_orders.AddOrUpdate(new FfkOrder { Id = i, Group = i % Buckets, CustomerId = slot == 3 ? i + N * 10 : i, Score = rng.Next(int.MaxValue) });
 			if (slot != 0)
