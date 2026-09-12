@@ -9,6 +9,7 @@ title: Prague Documentation
 - **Zero-reflection, compile-time-safe** fluent query API powered by Roslyn source generators.
 - **Three primary index types** — `Unique`, `Many`, `Range` — with automatic intersection and short-circuit planning.
 - **Compile-time joins** (1:1 and 1:N) with pooled, zero-allocation result sets.
+- **Prepared and frozen queries** — `BuildFrozen()` plans once and executes a single-pass pipeline at 0 B per execution, 3–36× over the eager builder on indexed shapes.
 - **Kafka integration** with header/key filters, change detection via deep structural equality, and split liveness/readiness health checks.
 - **Hot paths**: `Span<T>`, `stackalloc`, `ArrayPool<T>`, SIMD-friendly. ~15.9M reads/sec (concurrent), <100ns indexed lookup on a single core.
 
@@ -22,6 +23,7 @@ title: Prague Documentation
 
 - [**Index Types**](articles/core-concepts/index-types.md) — the menu of secondary indices and predicate-based key-set indices.
 - [**Query Engine**](articles/core-concepts/query-engine.md) — fluent API, intersection rules, pooled vs allocating execution.
+- [**Prepared and Frozen Queries**](articles/core-concepts/prepared-queries.md) — `Prepare()…Build()` / `BuildFrozen()`: describe once, plan once, execute at 0 B; the ordering contract.
 - [**Conditional Updates**](articles/core-concepts/conditional-updates.md) — how `CacheEquals` drives the `UpdateType` reported to downstream handlers.
 - [**Joins**](articles/core-concepts/joins.md) — `JoinWith{Other}` / `InnerJoinWith{Other}` across foreign keys.
 
