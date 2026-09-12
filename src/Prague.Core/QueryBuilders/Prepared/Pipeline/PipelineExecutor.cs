@@ -11,10 +11,10 @@ using Collections;
 ///   clone timing and pooling are the eager ones by construction. No candidate set, no bitmap, no
 ///   compaction; filters are called directly (no <see cref="ArgPredicatePool{TValue,TArgs}" />).
 ///   Seed selection (§3.3): free mode is the default — the smallest signal seeds, a unique step always
-///   wins, an exact count of zero is the empty result with no walk, a B+tree estimate replaces an exact
-///   count only when twice the estimate is still smaller — and the row order follows the seeding source,
-///   which the ordering contract leaves unspecified for an unsorted result and for the ties of a sorted
-///   one. <c>Count</c> always seeds free. Under <see cref="FrozenOptions.PreserveEagerOrder" /> an
+///   wins, an exact count of zero is the empty result with no walk, and an exact count and a B+tree
+///   estimate displace each other symmetrically, each only when it is under twice the other (#97) — and
+///   the row order follows the seeding source, which the ordering contract leaves unspecified for an
+///   unsorted result and for the ties of a sorted one. <c>Count</c> always seeds free. Under <see cref="FrozenOptions.PreserveEagerOrder" /> an
 ///   <c>Execute*</c> seeds fixed instead: the first active index step, the eager <c>_first</c> rule, so
 ///   the encounter order is eager's. Immutable after build; every execution's state is a stack
 ///   frame (design §10). A readonly struct held by value in the executors: every member is readonly,
@@ -366,10 +366,24 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 		return true;
 	}
 
-	// Free seed: the smallest exact signal (ties → the earliest, so a unique step's 0 / 1 always wins and
-	// the declared order breaks ties); an estimate (range, last-updated) replaces it only when twice the
-	// estimate is still smaller (§14.4: a skewed tree must not lose to a small bucket). An exact zero is
-	// the empty result; an estimate is never trusted for emptiness.
+	// Free seed: the smallest signal, with an exact count and an estimate (range, last-updated) weighed
+	// against each other the same way in **both** directions — an estimate displaces an exact incumbent
+	// only when twice the estimate is still smaller, and an exact count displaces an estimate incumbent
+	// only when it is smaller than twice that estimate (§14.4: a skewed tree must not lose to a small
+	// bucket, and the mirror of it). Exact-vs-exact and estimate-vs-estimate compare directly, so a
+	// unique step's 0 / 1 always wins and the declared order breaks ties (first declared wins on
+	// equality, which is what keeps a Fixed / PreserveEagerOrder plan's first step where it is).
+	//
+	// The rule used to be one-directional — `!exact || value < signal`, i.e. the first exact signal took
+	// the seed off any estimate however much better that estimate was — so which step seeded was decided
+	// by the order the narrowings were written in: a LastUpdatedAfter declared before a list step could
+	// never seed, at an estimate of 2 against a bucket of 2 000. #97 measured what that cost end to end
+	// on the same three narrowings in the two spellings: 9,352 ns against 137 on a one-second window, 68x
+	// (TimeRangeSeedOrder; docs/superpowers/specs/2026-09-12-timerange-index-spike.md §3).
+	//
+	// An exact zero is the empty result and always seeds — it is the one signal that proves emptiness, so
+	// it is not weighed against an estimate at all. An estimate is never trusted for emptiness: when one
+	// holds the seed the walk runs, whatever it reported. Decided once per execution; nothing per row.
 	private static bool ChooseSmallest(IPipelineStep<TKey, TValue, TArgs>[] steps, ReadOnlySpan<byte> active, scoped ReadOnlySpan<StepBinding> bindings, out int seed, out int signal) {
 		seed = -1;
 		signal = int.MaxValue;
@@ -378,16 +392,15 @@ internal readonly struct PipelineCore<TKey, TValue, TArgs>
 			var s = active[i];
 			var step = steps[s];
 			var value = step.Signal(in bindings[s]);
-			if (step.ExactSignal) {
-				if (!exact || value < signal) {
-					seed = s;
-					signal = value;
-					exact = true;
-				}
-			} else if (exact ? 2L * value < signal : value < signal) {
-				seed = s;
-				signal = value;
-			}
+			var wins = step.ExactSignal
+				? exact ? value < signal : value == 0 || value < 2L * signal
+				: exact ? 2L * value < signal : value < signal;
+			if (!wins)
+				continue;
+
+			seed = s;
+			signal = value;
+			exact = step.ExactSignal;
 		}
 
 		return !exact || signal > 0;

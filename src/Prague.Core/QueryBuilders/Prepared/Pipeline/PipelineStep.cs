@@ -544,7 +544,7 @@ internal sealed class PipelinePlan<TKey, TValue, TArgs> : IPlanExplainable
 	}
 
 	public void Explain(StringBuilder sb) {
-		sb.Append("pipeline: seed = ").Append(_freeSeed ? "free" : "fixed").Append(" for Execute, free for Count (free: the smallest signal, unique first, an estimate only when estimate × 2 < the best exact count; fixed: the first active index step, the eager encounter order), steps: [");
+		sb.Append("pipeline: seed = ").Append(_freeSeed ? "free" : "fixed").Append(" for Execute, free for Count (free: the smallest signal, unique first, an exact count and an estimate weighed symmetrically — each takes the seed off the other only when it is under twice the other; fixed: the first active index step, the eager encounter order), steps: [");
 		for (var i = 0; i < _steps.Length; i++) {
 			if (i > 0)
 				sb.Append(", ");

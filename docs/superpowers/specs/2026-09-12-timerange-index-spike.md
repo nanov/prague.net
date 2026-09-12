@@ -259,6 +259,26 @@ Load before `23:47 up 1 day, 9:33, 2 users, load averages: 3.56 3.10 2.97`; afte
 the wide windows the two orders agree to within 2 %, which is the control: the order only matters when
 the estimate deserved to win.
 
+**Fixed in #97** (`fix/97-seed-chooser`): the rule is symmetric now — an exact signal displaces an
+estimate only when `exact < 2 × estimate`, the mirror of the clause that was already there. The same
+benchmark, same box, load before `1:01 up 1 day, 10:47, load averages: 2.14 3.34 3.88`:
+
+| Method    | Window     | Mean        | Error     | StdDev    | Median      | Ratio |
+|---------- |----------- |------------:|----------:|----------:|------------:|------:|
+| TimeFirst | Second     |    140.6 ns |   1.45 ns |   1.36 ns |    141.1 ns |  1.00 |
+| ListFirst | Second     |    141.3 ns |   1.21 ns |   1.08 ns |    141.4 ns |  1.00 |
+| TimeFirst | Minute     |  1,380.3 ns |   6.31 ns |   5.90 ns |  1,380.5 ns |  1.00 |
+| ListFirst | Minute     |  1,400.8 ns |   6.34 ns |   5.93 ns |  1,400.7 ns |  1.01 |
+| TimeFirst | Production | 15,068.9 ns |  36.51 ns |  34.15 ns | 15,058.0 ns |  1.00 |
+| ListFirst | Production | 15,055.0 ns |  85.13 ns |  79.63 ns | 15,070.9 ns |  1.00 |
+| TimeFirst | All        | 26,141.9 ns | 401.53 ns | 375.60 ns | 25,849.0 ns |  1.00 |
+| ListFirst | All        | 26,177.5 ns |  52.36 ns |  48.98 ns | 26,184.0 ns |  1.00 |
+
+The two spellings now agree at every window — 9,299 → 141 ns on the one-second one — and every other
+frozen row measured (shapes A and B, their `Count`s, `ListLastUpdated`, `ListRange`, `ListKeySet`, `Or`)
+moved by less than 3 %, which is what this box's load does between runs on its own. Nothing in §4 below
+changes: the ring is still the wrong structure, and the headroom §3 credited it with was the chooser's.
+
 ## 4. The open questions, answered
 
 **Granularity and horizon defaults.** The ring is ahead only while the boundary bucket is no coarser than

@@ -8,13 +8,18 @@ using Prague.Core;
 // list bucket of 1k, timestamps 1 ms apart; shape B = 10k rows over an hour, two skewed list buckets
 // (keyA 3334, keyB 2000) — and the four windows are the spike benchmark's.
 //
-// What this pins, and it is the spike's main result: the winner is decided by declaration order, not by
-// selectivity. PipelineExecutor.cs:377-391 walks the steps in plan order and takes the FIRST exact
-// signal over any inexact incumbent unconditionally (`!exact || value < signal`); only afterwards does
-// the 2x rule let an inexact signal win back. So shape A, which declares the list first, lets the
-// last-updated estimate seed the one-second window (451 vs 1000, 2 x 451 < 1000) — while shape B, which
-// declares the time window first, cannot seed on it at any window, not even when the estimate is 2
-// against a list of 2000. Declaring the same three steps list-first is enough to flip it.
+// What this pins, and it was the spike's main result: the winner used to be decided by declaration
+// order, not by selectivity. PipelineCore.ChooseSmallest took the FIRST exact signal over any inexact
+// incumbent unconditionally (`!exact || value < signal`) and only afterwards let the 2x rule win an
+// estimate back, so shape B — which declares its time window first — could not seed on it at any
+// window, not even at an estimate of 2 against a list of 2000, while shape A's list-first spelling of
+// the same thing did. #97 made the rule symmetric (an exact signal displaces an estimate only when it
+// is smaller than twice that estimate), and what these tests pin now is the other side of it: both
+// spellings of shape B choose the same seed at every window, and shape A is untouched.
+//
+// Note on shape A's one-second row: the B+tree estimate under-reports on dense ascending keys (451 for
+// a true 1000), which is why its narrow window seeds on time at all. The symmetric rule does not depend
+// on that — shape A declares its list first, so its arm of the rule is the one that did not change.
 [TestFixture]
 public class TimeRangeSeedChoiceProbeTests {
 	private const int N = 100_000;
@@ -104,19 +109,29 @@ public class TimeRangeSeedChoiceProbeTests {
 		});
 	}
 
-	// Time declared first: the estimate is the incumbent when the first exact signal arrives, and that
-	// signal takes the seed unconditionally. An estimate of 2 loses to a list of 2000.
+	// Time declared first: the estimate is the incumbent when the first exact signal arrives, and the
+	// symmetric rule now weighs it — 2000 does not displace an estimate of 2, or of 166. Before #97 every
+	// window here seeded on step 2 ListEq (signal 2000); the two narrow ones moved to the smaller signal
+	// and the two wide ones did not move at all.
 	[Test]
-	public void ShapeB_TimeFirst_TheTimeStepNeverSeeds_EvenAtTwoKeys() {
+	public void ShapeB_TimeFirst_TheTimeStepSeedsTheNarrowWindows() {
 		var frozen = _records.Prepare<int, TrItem, (long t, int keyA, int keyB)>()
 			.UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB).BuildFrozen();
 
+		var seeds = new List<string>();
 		foreach (var (label, after) in Windows(RecordBase + Hour, RecordBase + Hour * 85 / 100)) {
 			using var rows = frozen.ExecutePooled((after, 0, 0));
 			var decision = Decision(frozen.Explain());
 			TestContext.Out.WriteLine($"B time-first  {label,-10} after={after} rows={rows.Count,6} estimate={_recordsUpdated.EstimateCount(after),6} keyA=3334 keyB=2000 | {decision}");
-			Assert.That(decision, Does.Contain("step 2 ListEq (signal 2000)"), $"shape B / {label}");
+			seeds.Add(decision);
 		}
+
+		Assert.Multiple(() => {
+			Assert.That(seeds[0], Does.Contain("step 0 LastUpdatedAfter"), "one second: 2000 is not < 2 x 2");
+			Assert.That(seeds[1], Does.Contain("step 0 LastUpdatedAfter"), "one minute: 2000 is not < 2 x 166");
+			Assert.That(seeds[2], Does.Contain("step 2 ListEq (signal 2000)"), "production: 2000 < 2 x 1231");
+			Assert.That(seeds[3], Does.Contain("step 2 ListEq (signal 2000)"), "whole range");
+		});
 	}
 
 	// The same three steps, list-first: now the estimate is measured against an exact incumbent and the
@@ -140,5 +155,47 @@ public class TimeRangeSeedChoiceProbeTests {
 			Assert.That(seeds[2], Does.Contain("step 1 ListEq (signal 2000)"), "production: 2 x 1231 > 2000");
 			Assert.That(seeds[3], Does.Contain("step 1 ListEq (signal 2000)"), "whole range");
 		});
+	}
+
+	// The step index is the one thing the two spellings cannot agree on; the narrower and its signal are.
+	private static string SeedWithoutStepIndex(string decision) {
+		var at = decision.IndexOf("step ", StringComparison.Ordinal);
+		var end = decision.IndexOf(' ', at + 5);
+		return decision.Remove(at, end + 1 - at);
+	}
+
+	private static int[] SortedIds(IEnumerable<TrItem> rows) {
+		var ids = rows.Select(static v => v.Id).ToArray();
+		Array.Sort(ids);
+		return ids;
+	}
+
+	// #97's differential: the seed is a property of the query, not of the order its narrowings were
+	// written in. The same three steps in both spellings, at every window — the same seed, the same rows
+	// as eager (a multiset: an unsorted frozen result has no row-order guarantee) and the same Count.
+	[Test]
+	public void ShapeB_BothDeclarationOrders_ChooseTheSameSeed_AndEagersRows() {
+		var timeFirst = _records.Prepare<int, TrItem, (long t, int keyA, int keyB)>()
+			.UseIndex(_recordsUpdated, static a => a.t).UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB).BuildFrozen();
+		var listFirst = _records.Prepare<int, TrItem, (long t, int keyA, int keyB)>()
+			.UseIndex(_byKeyA, static a => a.keyA).UseIndex(_byKeyB, static a => a.keyB).UseIndex(_recordsUpdated, static a => a.t).BuildFrozen();
+
+		foreach (var (label, after) in Windows(RecordBase + Hour, RecordBase + Hour * 85 / 100)) {
+			var args = (after, 0, 0);
+			using var eager = _records.Query().UseIndex(_byKeyA, 0).UseIndex(_byKeyB, 0).UseIndex(_recordsUpdated, after).Execute();
+			var expected = SortedIds(eager);
+			using var timeRows = timeFirst.ExecutePooled(args);
+			var timeSeed = SeedWithoutStepIndex(Decision(timeFirst.Explain()));
+			using var listRows = listFirst.ExecutePooled(args);
+			var listSeed = SeedWithoutStepIndex(Decision(listFirst.Explain()));
+			TestContext.Out.WriteLine($"B both {label,-10} rows={expected.Length,6} | time-first {timeSeed} | list-first {listSeed}");
+			Assert.Multiple(() => {
+				Assert.That(timeSeed, Is.EqualTo(listSeed), $"the seed must not depend on declaration order / {label}");
+				Assert.That(SortedIds(timeRows), Is.EqualTo(expected).AsCollection, $"time-first rows / {label}");
+				Assert.That(SortedIds(listRows), Is.EqualTo(expected).AsCollection, $"list-first rows / {label}");
+				Assert.That(timeFirst.Count(args), Is.EqualTo(expected.Length), $"time-first count / {label}");
+				Assert.That(listFirst.Count(args), Is.EqualTo(expected.Length), $"list-first count / {label}");
+			});
+		}
 	}
 }
