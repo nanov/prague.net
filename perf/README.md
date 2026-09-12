@@ -86,10 +86,26 @@ every buffer they touch inside that iteration. That re-warm read as ~204 B/op on
 `joinMany`/`multiJoin`, appearing and disappearing with the host's memory load
 (the 65 B ↔ 268 B flip; issue #74). With the threshold raised the pool stays warm
 and every pooled query shape reads a flat 0 B, which `compare.py` gates strictly:
-against a zero baseline any byte is a regression. If a pooled shape reads
-non-zero, it is a real per-query allocation — a `this`- or local-capturing lambda
-at the call site is the usual cause (use the `TArgs` overloads with a `static`
-lambda).
+against a zero baseline any byte is a regression.
+
+**Read the magnitude before you go hunting.** The smallest object on the .NET heap
+is 24 B, so a pooled shape reading **1–2 B/op cannot be a per-query allocation** —
+it is BDN dividing a handful of one-off bytes by the ops in the measurement
+iteration, and on the slowest shapes (~90–190 µs/op, so few ops per iteration) a
+couple of KB of pool re-warm lands as exactly that `1 B`. It is not deterministic:
+measured on `apple-m4pro-darwin` at `d781863` (i.e. on `main`, with no branch
+applied), `query.sortTiedJoined.alloc` and `query.sortTiedJoinedBoundedPage.alloc`
+read `0/0`, then `0/1`, `1/1`, `1/1` across four consecutive `run.sh sort` runs,
+and the same commit reads differently again when the process runs only those two
+benchmarks instead of all eight — the reading depends on what else shared the
+process and on host memory pressure, not on the code under test. `core`'s
+`joinMany` / `joinManyAll` / `multiJoin` behave the same way.
+
+So: a sub-24-B reading is this artefact — leave the baseline alone and do **not**
+bless it, because blessing writes 1 B into a ±2% gate whose whole value is that
+the baseline is 0. A reading of **24 B or more**, stable across runs, is a real
+per-query allocation — a `this`- or local-capturing lambda at the call site is the
+usual cause (use the `TArgs` overloads with a `static` lambda).
 
 ## Metrics
 
