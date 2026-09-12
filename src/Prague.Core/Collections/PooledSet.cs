@@ -547,8 +547,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		var gate = ReaderGate.Enter();
 		try {
 			CopyKeysCore(ref sink);
-		}
-		finally {
+		} finally {
 			ReaderGate.Exit(gate);
 		}
 	}

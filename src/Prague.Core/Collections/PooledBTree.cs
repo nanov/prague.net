@@ -1468,8 +1468,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			var lo = LocateLower(from, fromInclusive);
 			var hi = LocateUpper(to, toInclusive);
 			return Estimate(in lo, in hi);
-		}
-		finally {
+		} finally {
 			ReaderGate.Exit(slot);
 		}
 	}
@@ -1485,8 +1484,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			var last = _lastLeaf;
 			var count = Volatile.Read(ref last.Count);
 			return Estimate(in lo, new BoundPosition(last, count, count, 1.0));
-		}
-		finally {
+		} finally {
 			ReaderGate.Exit(slot);
 		}
 	}
@@ -1501,8 +1499,7 @@ internal sealed class PooledBTree<TIndex, TValue> : IDisposable
 			var hi = LocateUpper(to, inclusive);
 			var first = _firstLeaf;
 			return Estimate(new BoundPosition(first, 0, Volatile.Read(ref first.Count), 0.0), in hi);
-		}
-		finally {
+		} finally {
 			ReaderGate.Exit(slot);
 		}
 	}

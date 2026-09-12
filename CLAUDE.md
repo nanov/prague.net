@@ -64,7 +64,7 @@ House style is two skills — apply both, they are not optional:
 
 ## Key invariants (don't break these)
 
-- **Never hand-edit `*.generated.cs`** — change the source generator or the `*.tt` T4 template. T4 does **not** run on build: from `src/Prague.Core`, `~/.dotnet/tools/t4 <Name>.tt -o <dir>/<Name>.generated.cs`, then diff. After touching `Prague.Codegen`/T4, run `Prague.Generated.Tests`.
+- **Never hand-edit `*.generated.cs`** — change the source generator or the `*.tt` T4 template. T4 does **not** run on build: from `src/Prague.Core`, `~/.dotnet/tools/t4 <Name>.tt -o <Name>`, then diff. **Pass `-o` the basename with no extension** — the template declares `<#@ output extension=".generated.cs" #>` and `t4` appends it, so the `-o <Name>.generated.cs` this file used to recommend writes `<Name>.generated.generated.cs`: the real file is left untouched (so a diff against it "passes" while proving nothing) and the stray copy breaks the build with CS0101 duplicate definitions until deleted. After touching `Prague.Codegen`/T4, run `Prague.Generated.Tests`.
 - **Every internal MessagePack call passes `PragueMessagePack.Options`** — never `MessagePackSerializer.DefaultOptions`. Compliance grep in `context/kafka-serde.md`.
 - **Pooled results must be `Dispose()`d.** Join resolvers enforce exactly-one-Dispose via the `handedOff` guard — see `context/joins.md`.
 - **Frozen-vs-eager differential tests are the safety net.** Sequence assertions build the frozen side with `PreserveEagerOrder = true`; multiset assertions cover the default path. Keep both; some byte-identity tests pass on the default path only because fixtures insert in Id order.
