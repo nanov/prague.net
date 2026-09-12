@@ -1,5 +1,6 @@
 namespace Prague.Benchmarks;
 
+using System.Runtime.CompilerServices;
 using BenchmarkDotNet.Attributes;
 using Prague.Core;
 using Prague.Core.Collections;
@@ -17,6 +18,7 @@ using Link = Prague.Core.BaseResolver<int, Prague.Benchmarks.PqbRecord>;
 ///   the query.
 /// </summary>
 [MemoryDiagnoser]
+[BenchmarkCategory("BoundedComparerProbe")]
 public class BoundedComparerProbeBenchmarks {
 	// Shape B's page over its ~100 matched rows; shape A's is 111 rows over the same page.
 	private const int N = 100;
@@ -54,6 +56,15 @@ public class BoundedComparerProbeBenchmarks {
 	/// <summary>The proposed frozen joined comparer: the (key, left, ordinal) triple, the sorter by value.</summary>
 	[Benchmark]
 	public int PairComparer_Sorter() => RunPair(new SorterPairComparer<Sorter>(_sorter));
+
+	/// <summary>
+	///   The floor: the user comparer called directly, no resolver in the way. The gap to
+	///   <see cref="PairComparer_Sorter" /> is the comparer hop alone — <c>IJoinResolver.CompareLeftValues</c>
+	///   is a generic method over a reference-type left, so its shared-canonical instantiation costs a
+	///   runtime generic lookup per compare and blocks the inline down to the user comparer.
+	/// </summary>
+	[Benchmark]
+	public int PairComparer_DirectComparer() => RunPair(new TiesThenOrdinal(new PqbRecordByScoreTies()));
 
 	[Benchmark]
 	public int PairComparer_Chain1() {
@@ -93,6 +104,15 @@ public class BoundedComparerProbeBenchmarks {
 		for (var i = 0; i < items.Length; i++)
 			TopKSelect.Push(heap, ref count, ref heapified, K, (i, items[i], i), comparer);
 		return TopKSelect.DrainAscending(heap, ref count, ref heapified, comparer);
+	}
+
+	/// <summary>Orders the triple by the user comparer, then by encounter ordinal — the bounded tie rule, called directly.</summary>
+	private readonly struct TiesThenOrdinal(PqbRecordByScoreTies ties) : IComparer<(int Key, PqbRecord Left, int Ordinal)> {
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public int Compare((int Key, PqbRecord Left, int Ordinal) x, (int Key, PqbRecord Left, int Ordinal) y) {
+			var order = ties.Compare(x.Left, y.Left);
+			return order != 0 ? order : x.Ordinal.CompareTo(y.Ordinal);
+		}
 	}
 
 	private readonly struct SorterPairComparer<TResolver> : IComparer<(int Key, PqbRecord Left, int Ordinal)>
