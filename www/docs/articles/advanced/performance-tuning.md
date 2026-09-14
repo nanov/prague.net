@@ -50,7 +50,7 @@ There is no runtime cost-based optimizer; the order in source is the order in ex
 
 `AddOrUpdate(value)` compares the incoming value to the resident one via `CacheEquals` and short-circuits to `UpdateType.Same` when they're equal — no index churn, no after-handler invocation. Mark monotonic-but-irrelevant fields with `[DataCacheIgnoreEquality]` so they don't force `Update` results on every emit. See [Conditional Updates](../core-concepts/conditional-updates.md).
 
-## Static lambdas in filters
+## Static lambdas in join filters
 
 Join filters and key selectors accept a `TArg` form that lets the JIT devirtualize the lambda:
 
@@ -62,7 +62,21 @@ Join filters and key selectors accept a `TArg` form that lets the JIT devirtuali
 .JoinWithAuthor(q => q.WithStatus(authorStatus))
 ```
 
-The same applies to `WithKeyFilter` / `WithValueFilter` predicates and join key selectors — prefer `static` lambdas that close over no state.
+The lambda here is rebuilt on every query execution, so the capture costs an allocation per call. The same applies to join key selectors — prefer `static` lambdas that close over no state and take what they need as a `TArg`.
+
+## Static lambdas in Kafka filters
+
+The rationale is different on the ingestion side. A `WithKeyFilter` / `WithValueFilter` predicate is constructed **once**, while the handler is built, and held for the process lifetime — a capturing closure there allocates at startup, not per message. What you still want is a predicate that reads DI state without resolving or capturing anything on the hot path, and the state-factory overloads give you exactly that:
+
+```csharp
+// State resolved once, at build time; predicate stays static, so one delegate per process
+builder.AddCache<OrderCache, string, Order>()
+    .WithKeyFilter(
+        static sp => sp.GetRequiredService<IAllowList>().Ids.ToFrozenSet(),
+        static (allow, key) => allow.Contains(key));
+```
+
+State arrives as an argument rather than a capture, so the lambda can be `static`: Roslyn caches it in a static field and the ingestion path allocates nothing. See [Kafka Integration](kafka-integration.md) for the full set of overloads and their lifecycle caveats.
 
 ## Avoid `ToList()` / `ToArray()`
 

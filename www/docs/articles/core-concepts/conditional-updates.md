@@ -11,7 +11,7 @@ Every write to a Prague cache flows through `AddOrUpdate(value)` or `AddOrUpdate
 ```csharp
 public enum UpdateType
 {
-    Filtered = 0,   // rejected by header/key filter (Kafka path, live phase only)
+    Filtered = 0,   // rejected by header/key/value filter (Kafka path, live phase only)
     Same     = 1,   // key exists; value is structurally equal to resident
     Add      = 2,   // new key
     Update   = 3,   // key exists; value differs

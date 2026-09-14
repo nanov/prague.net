@@ -34,7 +34,7 @@ public KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> WithKeyFilter(
 | Predicate returns `true` | Message proceeds normally (load buffer during initial load; `HandleUpdate` / `HandleDelete` afterwards). |
 | Predicate returns `false`, initial load | Value bytes disposed; message dropped from the load buffer. Cache never sees the key. No after-handler notification (load phase suppresses `ExecuteAfterHandlersFilter`, matching existing `_isLoading` gate). |
 | Predicate returns `false`, live phase | Value bytes disposed; `ExecuteAfterHandlersFilter` fires (`UpdateType.Filtered`). Same observable behavior as a header-filter rejection. |
-| Predicate returns `false`, tombstone (null value) | Same as any other rejection — drop. No `HandleDelete` is invoked. |
+| Predicate returns `false`, tombstone (null value) | ~~Same as any other rejection — drop. No `HandleDelete` is invoked.~~ **SUPERSEDED 2026-09-14** — see `2026-09-14-tombstone-gate-design.md`. This choice was made by symmetry with header filters, before `treatAsDelete` and before the value filter's opposite rule existed; it left an entry pinned in the cache that not even the producer could remove. A tombstone now bypasses the key filter entirely and removes the key. |
 | Predicate throws | Wrapped at the channel-loop call site: log via structured `KeyFilterError` log message, treat as **reject**. Rationale: if we cannot determine whether the key passes, the safer default for cache integrity is to not admit it. |
 
 ## Internal types

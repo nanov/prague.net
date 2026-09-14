@@ -16,14 +16,12 @@ internal sealed class KafkaKeyFilters<TKey> {
 		get => _filters.Length == 0;
 	}
 
-	internal static KafkaKeyFilters<TKey> Create(IReadOnlyList<KafkaKeyFilter<TKey>>? filters) {
-		if (filters is null || filters.Count == 0)
-			return _empty;
-		var arr = new KafkaKeyFilter<TKey>[filters.Count];
-		for (var i = 0; i < filters.Count; i++)
-			arr[i] = filters[i];
-		return new KafkaKeyFilters<TKey>(arr);
-	}
+	/// <summary>
+	///   Takes ownership of <paramref name="filters" /> — the caller must not retain or mutate it afterwards.
+	///   The only caller builds the array fresh per handler, so the defensive copy would be pure waste.
+	/// </summary>
+	internal static KafkaKeyFilters<TKey> Create(KafkaKeyFilter<TKey>[]? filters)
+		=> filters is null || filters.Length == 0 ? _empty : new KafkaKeyFilters<TKey>(filters);
 
 	/// <summary>
 	/// Evaluates all filters in registration order (AND composition). The first rejecting filter
@@ -57,4 +55,25 @@ internal sealed class KafkaKeyPredicateFilter<TKey> : KafkaKeyFilter<TKey> {
 	internal override bool TreatAsDelete => _treatAsDelete;
 
 	public override bool ShouldProcess(TKey key) => _predicate(key);
+}
+
+/// <summary>
+///   Key filter whose predicate reads state resolved from DI once, while the handler was built. The state is passed
+///   as an argument rather than captured, so the predicate can be a <c>static</c> lambda: it then closes over nothing
+///   and is cached in a static field, allocating exactly one delegate per process.
+/// </summary>
+internal sealed class KafkaKeyStatePredicateFilter<TState, TKey> : KafkaKeyFilter<TKey> {
+	private readonly Func<TState, TKey, bool> _predicate;
+	private readonly TState _state;
+	private readonly bool _treatAsDelete;
+
+	public KafkaKeyStatePredicateFilter(TState state, Func<TState, TKey, bool> predicate, bool treatAsDelete) {
+		_state = state;
+		_predicate = predicate;
+		_treatAsDelete = treatAsDelete;
+	}
+
+	internal override bool TreatAsDelete => _treatAsDelete;
+
+	public override bool ShouldProcess(TKey key) => _predicate(_state, key);
 }

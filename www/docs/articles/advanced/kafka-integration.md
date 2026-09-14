@@ -74,18 +74,52 @@ builder.AddCache<OrderCache, string, Order>()
         ts => ts > DateTime.UtcNow.AddDays(-7),
         passOnNull: false)
     .WithKeyFilter(static k => !k.StartsWith("tmp-"))
-    .WithValueFilter(static o => o.Status == OrderStatus.Active);
+    .WithValueFilter(static o => o.Status == OrderStatus.Active)
+    .WithKeyFilter(                                           // state resolved from DI, once
+        static sp => sp.GetRequiredService<IAllowList>().Ids.ToFrozenSet(),
+        static (allow, k) => allow.Contains(k));
 ```
 
 Numeric overloads (`int`, `long`) compare the header bytes directly without deserialization. The generic `WithHeaderFilter<T>` deserializes via MessagePack first; if that fails, falls back to raw little/big-endian bytes for backward compatibility.
 
-`WithValueFilter(Func<TValue, bool> predicate, bool treatAsDelete = false)` runs the predicate against the **deserialized** cache entity and admits the message only when it returns `true`. It is a plain ingestion-time predicate — *not* an indexed query, so the body is arbitrary C# (combine conditions with `||` / `&&` inside the single lambda; there is no "OR filter" at ingestion). Use it to keep only the records you care about (e.g. a status, a tenant, a non-empty field). Header and key filters are evaluated first, so the value is deserialized only for messages that already passed them.
+`WithValueFilter(Func<TValue, bool> predicate, bool treatAsDelete = false)` runs the predicate against the **deserialized** cache entity and admits the message only when it returns `true`. It is a plain ingestion-time predicate — *not* an indexed query, so the body is arbitrary C# (combine conditions with `||` / `&&` inside the single lambda; there is no "OR filter" at ingestion). It is evaluated **exactly once per message, as that message is consumed**, and never against records that are already in the cache. Use it to keep only the records you care about (e.g. a status, a tenant, a non-empty field). Header and key filters are evaluated first, so the value is deserialized only for messages that already passed them.
 
-- **Tombstones** (null-value delete messages) **skip the value filter entirely and still delete** the key — the predicate is never evaluated for a message that carries no value.
-- All filter methods (header, key, value) compose with **AND**; multiple `WithValueFilter` calls must all pass.
+- **Tombstones** (null-value delete messages) **skip the key and value filters entirely and still delete** the key — neither predicate is evaluated for a message that carries no value. A delete is the log's statement that the key is gone, and an ingress predicate cannot meaningfully judge it. Two header-side rules are the deliberate exceptions: a filter that saw its header and **explicitly rejected** the value still drops the tombstone (that is how a consumer selects a sub-stream of a shared topic), and so does the producer self-filter. A header that is merely **missing** does not — see `WithHeaderExistsFilter` below.
+- All filter methods (header, key, value) compose with **AND**; multiple `WithValueFilter` calls must all pass, and multiple `WithHeaderExistsFilter` calls all require their header (up to 64 distinct names).
+- **Every predicate runs on one thread.** All filters for every cache in the same `AddKafkaCaches` section are evaluated synchronously on the single long-running consume thread. A predicate that blocks or does I/O stalls the initial load *and* the live tail of every other cache in that section.
+- **A filter is not an authorization boundary.** It is a retention / load-shedding device: cached entries reflect the state that was in force when they were ingested. Dynamic visibility policy belongs in a reader over `Query()`, where narrowing and widening both take effect immediately.
 
-- **Initial load**: rejected messages are silently dropped.
-- **Live phase**: rejected messages still fire `ICacheAfterHandler.Handle(UpdateType.Filtered, ...)` so projectors can observe them.
+- **Initial load**: rejected messages are silently dropped — except a tombstone, which still removes the key.
+- **Live phase**: rejected messages still fire `ICacheAfterHandler.Handle(UpdateType.Filtered, ...)` so projectors can observe them. A tombstone fires `UpdateType.Delete` instead when the key was resident, and nothing at all when it was not.
+
+### Filters that need DI state
+
+Key, value, and header filters each have an overload that resolves state from the container. The factory runs **exactly once**, while the handler is built, against the root `IServiceProvider`; its result is handed to the predicate on every message, so nothing is resolved from DI on the ingestion path:
+
+```csharp
+builder.AddCache<OrderCache, string, Order>()
+    // Snapshot — immutable for the process lifetime.
+    .WithKeyFilter(
+        static sp => sp.GetRequiredService<IAllowList>().Ids.ToFrozenSet(),
+        static (allow, key) => allow.Contains(key))
+    // Several services at once: a named tuple's element names survive into the predicate.
+    .WithKeyFilter(
+        static sp => (allow: sp.GetRequiredService<IAllowList>(), clock: sp.GetRequiredService<IClock>()),
+        static (s, key) => s.allow.Contains(key) && s.clock.IsOpen)
+    // Sugar for a single service — note the explicit type argument.
+    .WithValueFilter<IRegionPolicy>(static (policy, o) => policy.Allows(o.Region))
+    // Header state filter: both type arguments are explicit.
+    .WithHeaderFilter<IClock, long>("dispatchedAt",
+        static sp => sp.GetRequiredService<IClock>(),
+        static (clock, ts) => ts >= clock.CutoffUnixMs);
+```
+
+- **Prefer a snapshot over a live service.** `sp => sp.GetRequiredService<IAllowList>().Ids.ToFrozenSet()` is fixed for the process lifetime, which makes a restart the single well-defined way to reload it — see *Filter lifecycle* below. Capturing the live service instead means the predicate reads its current state on every message, while entries admitted under the old state stay cached regardless.
+- **Write the predicate as a `static` lambda.** State arrives as an *argument*, not a capture, so a `static` lambda closes over nothing; Roslyn caches it in a static field and you pay one delegate per process and nothing per message.
+- **Spell out the type argument on the `<TService>` overloads.** It is not inferable from an untyped lambda — you get `CS0411`. Write `.WithKeyFilter<IAllowList>(static (allow, key) => allow.Contains(key))`, and both type arguments for the header overload.
+- **`sp` is the root provider.** A service registered as `Scoped` throws at build time with a Prague message pointing you at a singleton registration or the snapshot overloads. A `Transient` is resolved once and then captured for the process lifetime.
+
+> **Startup ordering.** The state factory runs while hosted services are being **constructed**, which precedes the `StartAsync` of *every* hosted service — only the initial cache *load* is ordered by registration. A state service that populates itself in its own `StartAsync` or `BackgroundService` is still empty when the factory reads it, so make sure the state is fully materialized by then.
 
 ### `treatAsDelete` — derive tombstones from a filter
 
@@ -104,7 +138,16 @@ Every key/value filter chain evaluates to a shared `FilterDecision` — `Accept`
 - **Multiple filters compose with AND, first-reject wins**: the first filter (in registration order) to reject decides the outcome. A message failing a plain filter is skipped even if a later `treatAsDelete` filter would also have rejected it; only a message whose *first* rejecting filter is a `treatAsDelete` filter becomes a tombstone. This holds across the key and value chains alike.
 - A thrown predicate is treated as a plain reject (skip), never as a delete.
 
-> **Key vs value `treatAsDelete`.** A value can change over time, so `treatAsDelete` on a value filter naturally evicts a key whose record stopped qualifying. A **key is immutable**, so `treatAsDelete` on a key filter only evicts an already-cached key when the predicate closes over **mutable external state** (e.g. a tenant allow-list that shrinks) and a *new* message for that key later arrives and is rejected. For a pure key predicate it is effectively inert (a rejected key was never cached). **Header filters do not support `treatAsDelete`** — they are evaluated before the key is deserialized.
+> **Key vs value `treatAsDelete`.** A value can change over time, so `treatAsDelete` on a value filter naturally evicts a key whose record stopped qualifying. A **key is immutable**, so `treatAsDelete` on a key filter only evicts an already-cached key when the predicate reads **state that changed after the key was admitted** — a live service captured through the `WithKeyFilter<TService>` overload, or a mutable closure — and a *new* message for that key later arrives and is rejected. For a pure key predicate, or for a snapshot (which is immutable for the process lifetime), it is effectively inert; reload such a filter by restarting the process. **Header filters do not support `treatAsDelete`** — they are evaluated before the key is deserialized.
+
+### Filter lifecycle — what a filter change does and does not do
+
+Filters are an **ingress gate**: the predicate is evaluated exactly once per message, as it is consumed, and is never re-applied to cache state that has already been materialized. Changing a filter — by editing the predicate, or by mutating the state it reads — therefore does not retroactively re-filter what is already in memory:
+
+- **Narrowing** (fewer records qualify) evicts only through `treatAsDelete`, and only when a *new* message arrives for the affected key. On a compacted topic with no further writes for that key, that means never.
+- **Widening** (more records qualify) resurrects nothing, ever. Records dropped earlier are not in memory and are never replayed — Prague subscribes and reads forward; it never seeks back over a partition it has already consumed.
+
+The supported way to re-admit them is a **process restart**, and it works out of the box: Prague commits no offsets (`EnableAutoCommit = false`, `EnableAutoOffsetStore = false`), joins under a fresh per-process group id by default, and resets to `Earliest` — so a restarted process re-reads each topic in full under the new state. Configuring `group.id` explicitly does not break this (Prague writes no offset for that group either), but it does make instances split partitions instead of each loading the whole topic.
 
 ## After-handlers
 

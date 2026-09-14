@@ -16,14 +16,12 @@ internal sealed class KafkaValueFilters<TValue> {
 		get => _filters.Length == 0;
 	}
 
-	internal static KafkaValueFilters<TValue> Create(IReadOnlyList<KafkaValueFilter<TValue>>? filters) {
-		if (filters is null || filters.Count == 0)
-			return _empty;
-		var arr = new KafkaValueFilter<TValue>[filters.Count];
-		for (var i = 0; i < filters.Count; i++)
-			arr[i] = filters[i];
-		return new KafkaValueFilters<TValue>(arr);
-	}
+	/// <summary>
+	///   Takes ownership of <paramref name="filters" /> — the caller must not retain or mutate it afterwards.
+	///   The only caller builds the array fresh per handler, so the defensive copy would be pure waste.
+	/// </summary>
+	internal static KafkaValueFilters<TValue> Create(KafkaValueFilter<TValue>[]? filters)
+		=> filters is null || filters.Length == 0 ? _empty : new KafkaValueFilters<TValue>(filters);
 
 	/// <summary>
 	/// Evaluates all filters in registration order (AND composition). The first rejecting filter
@@ -57,4 +55,25 @@ internal sealed class KafkaValuePredicateFilter<TValue> : KafkaValueFilter<TValu
 	internal override bool TreatAsDelete => _treatAsDelete;
 
 	public override bool ShouldProcess(TValue value) => _predicate(value);
+}
+
+/// <summary>
+///   Value filter whose predicate reads state resolved from DI once, while the handler was built. The state is passed
+///   as an argument rather than captured, so the predicate can be a <c>static</c> lambda: it then closes over nothing
+///   and is cached in a static field, allocating exactly one delegate per process.
+/// </summary>
+internal sealed class KafkaValueStatePredicateFilter<TState, TValue> : KafkaValueFilter<TValue> {
+	private readonly Func<TState, TValue, bool> _predicate;
+	private readonly TState _state;
+	private readonly bool _treatAsDelete;
+
+	public KafkaValueStatePredicateFilter(TState state, Func<TState, TValue, bool> predicate, bool treatAsDelete) {
+		_state = state;
+		_predicate = predicate;
+		_treatAsDelete = treatAsDelete;
+	}
+
+	internal override bool TreatAsDelete => _treatAsDelete;
+
+	public override bool ShouldProcess(TValue value) => _predicate(_state, value);
 }
