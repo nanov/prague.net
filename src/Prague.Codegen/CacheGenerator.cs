@@ -2580,14 +2580,15 @@ public class CacheGenerator : IIncrementalGenerator {
 
 					// RemoveAndProduce extension method
 					w.Line();
-					w.Summary("Removes a document from the cache and produces a delete (tombstone) message to Kafka.");
+					w.Summary("Removes a document from the cache and produces a delete (tombstone) message to Kafka.",
+						"The tombstone is published whether or not the key was resident here: residency is a fact about",
+						"this process's view — an ingress filter that excludes the key, a load still running, an earlier",
+						"local removal — not about the log. Returns whether the local cache held the key; the tombstone is",
+						"published either way.");
 					w.Method($"public static bool RemoveAndProduce(this {cacheFullName} cache, {enrichInfo.KeyTypeName} key)", (ref CodeWriter w) => {
-						w.If("!cache.Cache.Remove(key, out _)", (ref CodeWriter w) => {
-							w.Line("return false;");
-						});
-						w.Line();
+						w.Line("var removed = cache.Cache.Remove(key, out _);");
 						w.Line($"{namespaceName}.CacheMarshall.Delete(cache, key);");
-						w.Line("return true;");
+						w.Line("return removed;");
 					});
 
 					// Internal configuration method

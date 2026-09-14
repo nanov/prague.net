@@ -84,6 +84,17 @@ public class KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> : KafkaCacheHa
 				return this;
 		}
 
+		/// <summary>
+		/// Requires <paramref name="headerName" /> to be present for a message to be processed. A message that does
+		/// not carry it is dropped.
+		/// <para>
+		/// <b>Tombstones are exempt.</b> A delete carries no headers to satisfy the requirement with — Prague's own
+		/// producer stamps only its instance id on a delete — so requiring one would pin the key permanently, and no
+		/// Prague-produced delete could ever remove a key from a consumer configured this way.
+		/// </para>
+		/// </summary>
+		/// <param name="headerName">Kafka header name that must be present.</param>
+		/// <returns>The builder instance for chaining.</returns>
 		public KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> WithHeaderExistsFilter(string headerName) {
 		_filters ??= new Dictionary<string, List<KafkaHeaderFilterExecutor>>();
 		ref var list = ref CollectionsMarshal.GetValueRefOrAddDefault(_filters, headerName, out var exists);
@@ -229,6 +240,13 @@ public class KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> : KafkaCacheHa
 	/// Allows messages to be filtered by the deserialized key using a custom predicate.
 	/// Multiple <c>WithKeyFilter</c> calls compose with AND. Predicate exceptions are caught
 	/// at the channel-loop call site, logged, and treated as a reject.
+	/// <para>
+	/// Tombstones (null-value delete messages) skip the filter entirely and still remove the key from the cache —
+	/// the predicate is not invoked for them at all. A delete is the log's statement that the key is gone; a key
+	/// predicate cannot meaningfully judge it, and suppressing it would pin an entry that not even the producer
+	/// could remove. A header filter that explicitly rejects a header it saw, and the producer self-filter, do
+	/// still drop a tombstone.
+	/// </para>
 	/// </summary>
 	/// <param name="predicate">Predicate receiving the deserialized <typeparamref name="TKey"/>; return true to keep, false to drop.</param>
 	/// <param name="treatAsDelete">

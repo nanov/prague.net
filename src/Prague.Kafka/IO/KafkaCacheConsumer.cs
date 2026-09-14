@@ -64,20 +64,30 @@ internal abstract class KafkaCacheHandler {
 	/// <summary>
 	///   Span-based header filtering for the raw path — producer-instance self-filter plus the handler's
 	///   configured header filters, evaluated against UTF-8 name/value spans with no allocation.
+	///   <para>
+	///   Returns the reason rather than a bare bool, because the consume loop treats one of them differently:
+	///   <see cref="HeaderGate.MissingRequiredHeader" /> is waived for a tombstone, since a delete carries no
+	///   headers to satisfy a <c>WithHeaderExistsFilter</c> with and requiring one would pin the key forever —
+	///   against Prague's own producer included, as <c>KafkaCacheProducer.Delete</c> stamps no user headers.
+	///   <see cref="HeaderGate.SelfProduced" /> and <see cref="HeaderGate.Rejected" /> stay absolute.
+	///   </para>
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal bool IsHeaderFiltered(in RawHeaders headers) {
+	internal HeaderGate EvaluateHeaderGate(in RawHeaders headers) {
 		var filters = HeadersFilters;
-		var state = filters.InitialState;
+		// One bit per required header name, collected as they are resolved. Required names compose with AND: a
+		// single shared bool meant any one required header satisfied all of them.
+		var seen = 0UL;
 		foreach (var (name, value) in headers) {
 			if (System.Text.Ascii.Equals(name, KafkaCaches.ProducerInstanceIdHeaderName)
 			    && value.SequenceEqual(KafkaCaches.InstanceIdBytes))
-				return true;
-			if (!filters.ShouldProcess(ref state, name, value))
-				return true;
+				return HeaderGate.SelfProduced;
+			if (!filters.ShouldProcess(ref seen, name, value))
+				return HeaderGate.Rejected;
 		}
 
-		return !state;
+		// seen only ever collects bits that are in RequiredMask, so equality means every requirement was met.
+		return seen == filters.RequiredMask ? HeaderGate.Accept : HeaderGate.MissingRequiredHeader;
 	}
 
 	internal long HighWatermarkOffset { get; private protected set; }
@@ -173,6 +183,22 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 			return;
 		}
 
+		// An empty value span is a tombstone: the log's statement that the key is gone, and no key or value
+		// predicate may contradict it. Checked here — above the key gate, below the key deserialization it needs —
+		// and in exactly ONE place, so the load and live branches cannot drift apart. #35 was one decision written
+		// twice. The value gates further down are already downstream of it: a tombstone carries nothing to judge.
+		// raw.Value is read inline rather than hoisted into a local: a local here would be live-in to the key
+		// filter's catch handler below, which forces RyuJIT to emit an EH write-thru stack home for it on every
+		// message, including consumers with no key filters at all.
+		if (raw.Value.IsEmpty) {
+			if (isLoading)
+				RemoveDuringLoad(key, raw.Timestamp.UnixTimestampMs);
+			else
+				PublishRaw(RAW_KIND_DELETE, key, null, raw.Timestamp.UnixTimestampMs);
+
+			return;
+		}
+
 		if (!_keyFilters.IsEmpty) {
 			FilterDecision decision;
 			try {
@@ -199,12 +225,6 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		var valueSpan = raw.Value;
 
 		if (isLoading) {
-			// Empty value span == tombstone — cancel any pending buffered value and drop any already-flushed one.
-			if (valueSpan.IsEmpty) {
-				RemoveDuringLoad(key, timestamp.UnixTimestampMs);
-				return;
-			}
-
 			TVlaue value;
 			try {
 				value = CacheSerde<TVlaue>.DeserializeFromSpan(valueSpan);
@@ -238,11 +258,6 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		}
 
 		// live phase
-		if (valueSpan.IsEmpty) {
-			PublishRaw(RAW_KIND_DELETE, key, null, timestamp.UnixTimestampMs);
-			return;
-		}
-
 		TVlaue liveValue;
 		try {
 			liveValue = CacheSerde<TVlaue>.DeserializeFromSpan(valueSpan);
@@ -413,7 +428,6 @@ internal class KafkaCacheConsumer : IDisposable {
 	private readonly string[] _topics;
 
 	private int _assignedPartitions;
-	private int _cachesLoading;
 	private Task? _channelLoopTask;
 
 	public KafkaCacheConsumer(
@@ -553,11 +567,8 @@ internal class KafkaCacheConsumer : IDisposable {
 				if (!_handlers.TryGetValue(partition.Topic, out var handler))
 					continue;
 				handler.SetHighWatermarkOffset(watermaker.High.Value);
-				_cachesLoading++;
 				_statistics.Caches[partition.Topic].AssignedPartitionCount++;
 			}
-
-			_statistics.SetCachesLoadingCount(_cachesLoading);
 		});
 		rawBuilder.SetPartitionsRevokedHandler((_, partitions) => {
 			_assignedPartitions -= partitions.Count;
@@ -618,8 +629,6 @@ internal class KafkaCacheConsumer : IDisposable {
 							continue;
 
 						loadingCount--;
-						_cachesLoading--;
-						_statistics.SetCachesLoadingCount(_cachesLoading);
 						handler.IsInitialConsumeDone = true;
 						handler.FlushRawLoadBufferAndGoLive(_manualReset, raw.Offset.Value, ct);
 						continue;
@@ -628,10 +637,44 @@ internal class KafkaCacheConsumer : IDisposable {
 					if (handler is null)
 						continue;
 
-					if (handler.IsHeaderFiltered(raw.Headers)) {
-						if (handler.IsInitialConsumeDone)
-							handler.PublishRawFiltered();
-						continue;
+					HeaderGate gate;
+					try {
+						gate = handler.EvaluateHeaderGate(raw.Headers);
+					}
+					catch (Exception e) {
+						// The header gate runs first, on raw wire bytes, and invokes a user-supplied predicate —
+						// exactly like the key and value gates, which have always caught and degraded. Without this
+						// the enclosing catch rethrows, the loop exits, and the finally stops the raw worker of
+						// EVERY cache on this consumer; the poisoned record then replays from the log on restart.
+						//
+						// Caught by origin, not by type. Nothing inside the gate observes this token or talks to the
+						// broker, so anything thrown here is the user's predicate (or a bug in header enumeration) —
+						// never cancellation, never a broker error. Filtering on the exception TYPE would let a
+						// predicate impersonate either: an OperationCanceledException would reach the shutdown
+						// handler and stop the loop with nobody having asked, and a KafkaException would reach the
+						// broker-error handler and latch the consumer fatal. A real shutdown is distinguished by the
+						// token instead, which is the only thing that actually knows.
+						//
+						// Mapped to Rejected, not to a waived reason: the key and value gates already settle that a
+						// predicate we could not evaluate must not admit the message, and a throw must never become
+						// a way for a foreign tombstone to cross a sub-stream gate.
+						if (ct.IsCancellationRequested)
+							throw;
+						_logger.HeaderFilterError(e, handler.Name, raw.Offset.Value);
+						gate = HeaderGate.Rejected;
+					}
+
+					if (gate != HeaderGate.Accept) {
+						// A tombstone is not dropped merely for lacking a required header — a delete carries none,
+						// so a WithHeaderExistsFilter would otherwise pin the key forever, against Prague's own
+						// producer included. The other two reasons stay absolute: an explicit reject is how a
+						// consumer selects a sub-stream of a shared topic, and the self-filter is what stops a
+						// producer re-consuming its own writes. raw.Value is read only on this rejected path.
+						if (gate != HeaderGate.MissingRequiredHeader || !raw.Value.IsEmpty) {
+							if (handler.IsInitialConsumeDone)
+								handler.PublishRawFiltered();
+							continue;
+						}
 					}
 
 					handler.DispatchRaw(in raw, !handler.IsInitialConsumeDone);
@@ -697,6 +740,11 @@ internal static partial class KafkaCacheConsumerLog {
 	[LoggerMessage(Level = LogLevel.Error,
 		Message = "[Prague] Error deserializing key {CacheName} - {Offset}")]
 	public static partial void ErrorDeserializingKey(this ILogger logger, Exception exception, string cacheName, long offset);
+
+	[LoggerMessage(Level = LogLevel.Error,
+		Message = "[Prague] Header filter threw for {CacheName} - {Offset}; message rejected")]
+	public static partial void HeaderFilterError(this ILogger logger, Exception exception, string cacheName,
+		long offset);
 
 	[LoggerMessage(Level = LogLevel.Error,
 		Message = "[Prague] Key filter predicate threw for {CacheName} - {Offset}")]

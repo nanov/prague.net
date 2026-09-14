@@ -6,16 +6,39 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using SerDe;
 
+/// <summary>
+///   A header name that some filter requires to be present carries a bit; a message must collect every required
+///   bit to pass. The requirement belongs to the header NAME, which is the dictionary key, so the bit lives on the
+///   entry rather than on the filter object — the builder owns those and hands the same instances over on every
+///   container build.
+/// </summary>
+internal readonly record struct HeaderFilterEntry(KafkaHeaderFilterExecutor Filter, ulong RequiredBit);
+
 internal sealed class KafkaHeaderFilters {
+	/// <summary>One bit per required header name, so at most 64 distinct <c>WithHeaderExistsFilter</c> names.</summary>
+	internal const int MAX_REQUIRED_HEADERS = 64;
+
 	private static readonly KafkaHeaderFilters _empty = new(new Dictionary<string, List<KafkaHeaderFilterExecutor>>());
 
-	private readonly FrozenDictionary<string, KafkaHeaderFilterExecutor> _filters;
-	private readonly FrozenDictionary<string, KafkaHeaderFilterExecutor>.AlternateLookup<ReadOnlySpan<char>> _byName;
+	private readonly FrozenDictionary<string, HeaderFilterEntry> _filters;
+	private readonly FrozenDictionary<string, HeaderFilterEntry>.AlternateLookup<ReadOnlySpan<char>> _byName;
 
-	internal readonly bool InitialState;
+	/// <summary>
+	///   Every required header's bit OR-ed together. A message passes the presence check when the bits it collected
+	///   equal this. Zero when nothing is required, which is the common case and short-circuits to accept.
+	/// </summary>
+	internal readonly ulong RequiredMask;
+
+	/// <summary>
+	///   UTF-8 byte length of the longest configured header name, and the bound that keeps the raw path's
+	///   <c>stackalloc</c> from being sized by the wire. See <see cref="ShouldProcess" />.
+	/// </summary>
+	private readonly int _maxNameUtf8Length;
 
 	private KafkaHeaderFilters(Dictionary<string, List<KafkaHeaderFilterExecutor>> filters) {
-		var initialStateisFalse = false;
+		var requiredMask = 0UL;
+		var requiredCount = 0;
+		var maxNameUtf8Length = 0;
 		_filters = filters.ToFrozenDictionary(x => x.Key,
 			x => {
 				if (x.Value.Count == 0)
@@ -25,13 +48,27 @@ internal sealed class KafkaHeaderFilters {
 					_ => new KafkaCombinedHeaderFilter(x.Value)
 				};
 
-				initialStateisFalse = initialStateisFalse || filter.IsInitialFalse;
-				return filter;
+				var nameUtf8Length = Encoding.UTF8.GetByteCount(x.Key);
+				if (nameUtf8Length > maxNameUtf8Length)
+					maxNameUtf8Length = nameUtf8Length;
+
+				if (!filter.RequiresHeader)
+					return new HeaderFilterEntry(filter, 0);
+
+				if (requiredCount == MAX_REQUIRED_HEADERS)
+					throw new InvalidOperationException(
+						$"[Prague] A cache may require at most {MAX_REQUIRED_HEADERS} distinct headers via "
+						+ $"WithHeaderExistsFilter; '{x.Key}' is one too many.");
+
+				var bit = 1UL << requiredCount++;
+				requiredMask |= bit;
+				return new HeaderFilterEntry(filter, bit);
 			}, StringComparer.Ordinal);
 		// Ordinal comparer supports span-keyed lookup — lets the raw consume path resolve a filter
 		// from a UTF-8 header-name span with no string allocation.
 		_byName = _filters.GetAlternateLookup<ReadOnlySpan<char>>();
-		InitialState = !initialStateisFalse;
+		RequiredMask = requiredMask;
+		_maxNameUtf8Length = maxNameUtf8Length;
 	}
 
 	internal static KafkaHeaderFilters Create(Dictionary<string, List<KafkaHeaderFilterExecutor>>? filters) {
@@ -40,38 +77,54 @@ internal sealed class KafkaHeaderFilters {
 		return new KafkaHeaderFilters(filters);
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal bool ShouldProcess(ref bool searchState, string headerName, ReadOnlySpan<byte> headersBytes) {
-		return !_filters.TryGetValue(headerName, out var filter) || filter.ShouldProcess(ref searchState, headersBytes);
-	}
-
 	/// <summary>
-	///   Raw consume-path overload — resolves the filter from the UTF-8 header-name span (no string
-	///   allocation) and evaluates it against the value span.
+	///   Raw consume-path evaluation — resolves the filter from the UTF-8 header-name span (no string allocation)
+	///   and evaluates it against the value span. On a hit, the entry's requirement bit is OR-ed into
+	///   <paramref name="seen" />; the caller compares the result with <see cref="RequiredMask" /> once, after the
+	///   last header.
+	///   <para>
+	///   The length gate is a safety bound, not an optimisation. A header name is raw wire data and Kafka bounds it
+	///   only by <c>message.max.bytes</c>, so sizing a <c>stackalloc</c> by it let a producer overflow the stack —
+	///   uncatchable, fatal to the whole host, and replayed from the log on restart. The gate is exact rather than
+	///   merely conservative because <c>GetByteCount(GetString(b)) &gt;= b.Length</c> for <i>every</i> byte sequence,
+	///   well-formed or not: a well-formed sequence round-trips byte for byte, and an ill-formed one decodes to
+	///   U+FFFD, which re-encodes to three bytes and so never shrinks. A name longer than the longest configured key
+	///   therefore cannot decode to any key, and no filter can match it.
+	///   </para>
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headerName, ReadOnlySpan<byte> headerValue) {
-		// Header names are ASCII; UTF-8 byte length is an exact upper bound on the char count.
+	internal bool ShouldProcess(ref ulong seen, ReadOnlySpan<byte> headerName, ReadOnlySpan<byte> headerValue) {
+		if (headerName.Length > _maxNameUtf8Length)
+			return true;
+		return Resolve(ref seen, headerName, headerValue);
+	}
+
+	// Split out so the localloc lives in a callee: a stackalloc in the body blocks inlining of the whole method,
+	// and the bound check above is what the caller wants inlined.
+	private bool Resolve(ref ulong seen, ReadOnlySpan<byte> headerName, ReadOnlySpan<byte> headerValue) {
 		Span<char> nameChars = stackalloc char[headerName.Length];
 		var charCount = Encoding.UTF8.GetChars(headerName, nameChars);
-		return !_byName.TryGetValue(nameChars[..charCount], out var filter)
-			|| filter.ShouldProcess(ref searchState, headerValue);
+		if (!_byName.TryGetValue(nameChars[..charCount], out var entry))
+			return true;
+		seen |= entry.RequiredBit;
+		return entry.Filter.ShouldProcess(headerValue);
 	}
 }
 
 internal abstract class KafkaHeaderFilterExecutor {
-	public abstract bool IsInitialFalse { get; }
-	public abstract bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headersBytes);
+	/// <summary>
+	///   Whether this filter requires its header to be PRESENT, as opposed to judging a value it saw. Only
+	///   <see cref="KafkaHeaderExistsFilter" /> does; everything else passes a message that omits the header
+	///   entirely. This is what <see cref="HeaderGate.MissingRequiredHeader" /> — and therefore the tombstone
+	///   waiver — means, so a new executor answering true here changes that contract.
+	/// </summary>
+	public abstract bool RequiresHeader { get; }
+
+	public abstract bool ShouldProcess(ReadOnlySpan<byte> headersBytes);
 }
 
 internal abstract class KafkaHeaderFilter : KafkaHeaderFilterExecutor {
-	public override bool IsInitialFalse => false;
-
-	public sealed override bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headersBytes) {
-		return ShouldProcess(headersBytes);
-	}
-
-	public abstract bool ShouldProcess(ReadOnlySpan<byte> headersBytes);
+	public override bool RequiresHeader => false;
 }
 
 internal sealed class KafkaCombinedHeaderFilter : KafkaHeaderFilterExecutor {
@@ -79,39 +132,35 @@ internal sealed class KafkaCombinedHeaderFilter : KafkaHeaderFilterExecutor {
 
 	public KafkaCombinedHeaderFilter(List<KafkaHeaderFilterExecutor> filters) {
 		_filters = new KafkaHeaderFilterExecutor[filters.Count];
-		var isInitialFalse = true;
+		var requiresHeader = false;
 		for (var i = 0; i < filters.Count; i++) {
-			isInitialFalse = isInitialFalse && filters[i].IsInitialFalse;
+			// OR, not AND: if ANY member requires its header to be present, so does the combination. AND meant that
+			// pairing WithHeaderExistsFilter("h") with any other filter on "h" silently dropped the requirement.
+			requiresHeader = requiresHeader || filters[i].RequiresHeader;
 			_filters[i] = filters[i];
 		}
 
-		IsInitialFalse = isInitialFalse;
-		_filters = filters.ToArray();
+		RequiresHeader = requiresHeader;
 	}
 
-	public override bool IsInitialFalse { get; }
+	public override bool RequiresHeader { get; }
 
-	public override bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headersBytes) {
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
 		foreach (var filter in _filters)
-			if (!filter.ShouldProcess(ref searchState, headersBytes))
+			if (!filter.ShouldProcess(headersBytes))
 				return false;
 		return true;
 	}
 }
 
+/// <summary>
+///   Requires its header to be present. It judges no value — presence is recorded by the container when the name
+///   resolves, so this passes anything it is handed.
+/// </summary>
 internal sealed class KafkaHeaderExistsFilter : KafkaHeaderFilterExecutor {
-	public override bool IsInitialFalse => true;
+	public override bool RequiresHeader => true;
 
-	public override bool ShouldProcess(ref bool searchState, ReadOnlySpan<byte> headersBytes) {
-		searchState = true;
-		return true;
-	}
-}
-
-internal sealed class KafkaHeaderNotExistsFilter : KafkaHeaderFilter {
-	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) {
-		return false;
-	}
+	public override bool ShouldProcess(ReadOnlySpan<byte> headersBytes) => true;
 }
 
 internal class KafkaHeaderEqualsFilter<T> : KafkaHeaderFilter {
