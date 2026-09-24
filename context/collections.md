@@ -45,6 +45,18 @@ Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `Inters
   outstanding enumerators. The ref struct enumerator pins via the per-thread
   `ReaderGate` slot (no shared-line Interlocked); only the boxed enumerator refcounts
   its generation.
+  **Duplicates are the one shape the staleness model admits.** A walk (enumerator or
+  `CopyKeysTo`) visits slots in order; a key removed and re-added while it is in flight is
+  re-inserted wherever the LIFO free list points (a higher freed slot, or `LastIndex`), so a walk
+  that already yielded it yields it again. Consumers that collect into a set are immune; a flat
+  buffer is not. The writer therefore keeps a plain `_epoch`, bumped before every structural
+  mutation, and `CopyKeysTo` returns whether it was unchanged across the walk (acquire load
+  before, full fence + load after — two loads and one fence per walk, never per key): `true` is
+  a proof of one distinct key per slot, `false` means "may contain a repeat, dedupe if you need
+  set semantics". The pipeline's single-bucket seed is the consumer that acts on it
+  (`PipelineStep.SeedBucket` → `DedupeSeedFrom`, cold). Pinned by
+  `Prague.Core.Tests/DataStructures/PooledSetCopyKeysChurnTests` — a sink that plays the writer
+  from inside the walk reproduces the duplicate deterministically.
 - `ReaderGate` (`src/Prague.Core/Collections/ReaderGate.cs`) — process-wide
   grace-period reclamation shared by `PooledSet` and `PooledBTree`: readers pin with
   padded per-thread slots (two stores + one local fence, no RMW); writers park retired

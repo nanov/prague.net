@@ -307,6 +307,11 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	private int _freeList;
 
+	// Writer epoch: bumped before every structural mutation (an add that inserts, a remove that
+	// removes), plain store — the mutation's own volatile publish releases it. CopyKeysTo reads it
+	// on both sides of its walk to tell a clean snapshot from one the writer moved under; see there.
+	private int _epoch;
+
 	/// <summary>
 	///   Default initial capacity of index buckets — a prime that still fits a
 	///   64-slot pooled array.
@@ -393,6 +398,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 			i = slot.Next;
 		}
 
+		_epoch++;
 		int idx;
 		var fromFreeList = _freeList >= 0;
 		if (fromFreeList) {
@@ -446,6 +452,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		while (i >= 0) {
 			ref var slot = ref Unsafe.Add(ref slotsRef, i);
 			if (slot.HashCode == hashCode && Equals(slot.Value, item)) {
+				_epoch++;
 				if (prev < 0)
 					Volatile.Write(ref Unsafe.Add(ref bucketsRef, bucket), slot.Next + 1);
 				else
@@ -542,11 +549,23 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	///   both inside the window the enumerator has. A slot freed under the reader with a reference key
 	///   is cleared to null before reuse; that read is skipped. Multi-word struct keys keep the
 	///   enumerator's version-guarded copy-out.
+	///   <para>
+	///   <b>The one shape the model does admit is a duplicate.</b> A key removed and re-added while the
+	///   walk is in flight is re-inserted into whichever slot the LIFO free list hands out — a higher one
+	///   when another key was freed after it, or <c>LastIndex</c> when the list is empty — so a walk that
+	///   already delivered it at its old slot delivers it again at the new one. Returns <c>true</c> when
+	///   the writer's epoch did not move across the walk, which proves the copy is one distinct key per
+	///   slot; <c>false</c> says the copy <i>may</i> hold a key twice and the sink's owner must dedupe if
+	///   it needs set semantics. The check is two volatile loads and one fence per walk, never per key;
+	///   the writer pays a plain increment. A flat-buffer consumer without the check was the frozen
+	///   pipeline's single-bucket seed, and a <c>SortBounded</c> page returned the same row twice under a
+	///   writer moving rows between buckets (<c>FrozenPipelineSortBoundedTests.EightReaders…</c>).
+	///   </para>
 	/// </summary>
-	internal void CopyKeysTo<TSink>(ref TSink sink) where TSink : struct, IKeySink<T>, allows ref struct {
+	internal bool CopyKeysTo<TSink>(ref TSink sink) where TSink : struct, IKeySink<T>, allows ref struct {
 		var gate = ReaderGate.Enter();
 		try {
-			CopyKeysCore(ref sink);
+			return CopyKeysCore(ref sink);
 		} finally {
 			ReaderGate.Exit(gate);
 		}
@@ -554,7 +573,9 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	// NoInlining: keeps the walk out of the gated wrapper's EH region (see ContainsCore).
 	[MethodImpl(MethodImplOptions.NoInlining)]
-	private void CopyKeysCore<TSink>(ref TSink sink) where TSink : struct, IKeySink<T>, allows ref struct {
+	private bool CopyKeysCore<TSink>(ref TSink sink) where TSink : struct, IKeySink<T>, allows ref struct {
+		// Acquire: every slot load below is ordered after this read of the epoch.
+		var epoch = Volatile.Read(ref _epoch);
 		var tables = Volatile.Read(ref _tables);
 		var lastIndex = Volatile.Read(ref tables.LastIndex);
 		ref var start = ref MemoryMarshal.GetArrayDataReference(tables.Slots);
@@ -569,21 +590,25 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 					continue;
 				sink.Add(value);
 			}
-
-			return;
+		} else {
+			var versions = tables.Versions!;
+			for (var i = 0; i < lastIndex; i++) {
+				ref var slot = ref Unsafe.Add(ref start, i);
+				var version = Volatile.Read(ref versions[i]);
+				if (Volatile.Read(ref slot.HashCode) < 0)
+					continue;
+				var value = slot.Value;
+				if (Volatile.Read(ref versions[i]) != version)
+					continue;
+				sink.Add(value);
+			}
 		}
 
-		var versions = tables.Versions!;
-		for (var i = 0; i < lastIndex; i++) {
-			ref var slot = ref Unsafe.Add(ref start, i);
-			var version = Volatile.Read(ref versions[i]);
-			if (Volatile.Read(ref slot.HashCode) < 0)
-				continue;
-			var value = slot.Value;
-			if (Volatile.Read(ref versions[i]) != version)
-				continue;
-			sink.Add(value);
-		}
+		// Full fence, then the epoch again: the fence keeps the slot loads above from drifting past
+		// this load, and the writer bumps the epoch BEFORE the volatile publish of any slot it touches,
+		// so a walk that observed a re-added slot cannot observe the epoch that preceded the re-add.
+		Interlocked.MemoryBarrier();
+		return Volatile.Read(ref _epoch) == epoch;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
