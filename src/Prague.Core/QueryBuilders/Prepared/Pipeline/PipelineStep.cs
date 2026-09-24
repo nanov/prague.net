@@ -191,6 +191,7 @@ internal ref struct SeedKeys<TKey> : IKeySink<TKey> {
 	/// <summary>Drops every key past <paramref name="count" /> (after an in-place compaction).</summary>
 	internal void Truncate(int count) => _count = count;
 
+
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Add(TKey key) {
 		var count = _count;
@@ -351,7 +352,13 @@ internal abstract class PipelineStepBase<TKey, TValue, TArgs> : IPipelineStep<TK
 	/// <summary>Copies one list bucket into the seed (the bulk <see cref="PooledSet{T,TKeyComparer}.CopyKeysTo{TSink}" />), deduplicating through <paramref name="dedupe" /> when asked (the eager <c>UnionWith</c> into a set).</summary>
 	protected static void SeedBucket(PooledSet<TKey, DefaultKeyComparer<TKey>> bucket, ref SeedKeys<TKey> seed, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe, bool dedupeKeys) {
 		if (!dedupeKeys) {
-			bucket.CopyKeysTo(ref seed);
+			// A single bucket copies flat: one distinct key per slot — unless the writer moved a key out and
+			// back in under the walk, which re-inserts it ahead of the walk and delivers it twice. The copy
+			// says whether that could have happened; only then is the bucket's stretch of the seed deduped,
+			// so the common (quiet) execution pays two volatile loads and no set.
+			var start = seed.Count;
+			if (!bucket.CopyKeysTo(ref seed))
+				DedupeSeedFrom(ref seed, start, ref dedupe);
 			return;
 		}
 
@@ -359,6 +366,28 @@ internal abstract class PipelineStepBase<TKey, TValue, TArgs> : IPipelineStep<TK
 			dedupe = new ValueSet<TKey, DefaultKeyComparer<TKey>>();
 		var sink = new DedupeSink<TKey>(ref seed, ref dedupe);
 		bucket.CopyKeysTo(ref sink);
+	}
+
+	/// <summary>
+	///   Keeps the first occurrence of every key from <paramref name="start" /> on, compacting the seed in
+	///   place — the repair for a single-bucket copy the writer mutated under. Uses the caller's dedupe
+	///   set, created here when absent and released by the caller with the rest of the seed. Cold: runs
+	///   only when <see cref="PooledSet{T,TKeyComparer}.CopyKeysTo{TSink}" /> reported the walk dirty.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static void DedupeSeedFrom(ref SeedKeys<TKey> seed, int start, ref ValueSet<TKey, DefaultKeyComparer<TKey>> dedupe) {
+		var keys = seed.MutableKeys[start..];
+		if (keys.Length < 2)
+			return;
+		if (!dedupe.IsInitlized)
+			dedupe = new ValueSet<TKey, DefaultKeyComparer<TKey>>(keys.Length);
+		else
+			dedupe.Clear();
+		var write = 0;
+		for (var read = 0; read < keys.Length; read++)
+			if (dedupe.Add(keys[read]))
+				keys[write++] = keys[read];
+		seed.Truncate(start + write);
 	}
 }
 
