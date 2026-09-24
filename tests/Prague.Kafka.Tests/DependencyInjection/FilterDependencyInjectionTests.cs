@@ -197,16 +197,17 @@ public class FilterDependencyInjectionTests {
 			$"evaluating a built snapshot filter must not allocate; saw {allocated} bytes");
 	}
 	/// <summary>
-	///   A DI-resolved header filter judges a value; it must not turn into a presence requirement. Registering one
-	///   leaves the gate's initial state satisfied, exactly as the eager header predicate does — only
-	///   <c>WithHeaderExistsFilter</c> requires its header to appear.
+	///   The seam between the two features: a DI-resolved header filter judges a value, so it must not claim a bit
+	///   in the requirement mask. Only <c>WithHeaderExistsFilter</c> requires its header to appear — and that
+	///   equivalence is what lets the consume loop waive <c>MissingRequiredHeader</c> for a tombstone.
 	/// </summary>
 	[Test]
-	public void HeaderStateFactory_RunsOnce_AndRequiresNoHeader() {
+	public void HeaderStateFactory_RunsOnce_AndDoesNotClaimARequirementBit() {
 		var services = new ServiceCollection();
 		services.AddSingleton<AllowList>();
 		var calls = 0;
 		var builder = NewBuilder(services);
+		builder.WithHeaderExistsFilter("tenant");
 		builder.WithHeaderFilter<AllowList, int>("ts", sp => {
 			calls++;
 			return sp.GetRequiredService<AllowList>();
@@ -217,15 +218,15 @@ public class FilterDependencyInjectionTests {
 
 		Assert.Multiple(() => {
 			Assert.That(calls, Is.EqualTo(1), "the state factory runs once, at build");
-			Assert.That(filters.InitialState, Is.True, "judging a value is not requiring the header");
+			Assert.That(filters.RequiredMask, Is.EqualTo(1UL), "only the exists filter requires its header");
 		});
 
 		// And the DI-resolved predicate still decides: 1 is in the allow-list, 9 is not (MessagePack fixint).
-		var state = filters.InitialState;
 		Assert.Multiple(() => {
-			var hit = state;
+			ulong hit = 0;
 			Assert.That(filters.ShouldProcess(ref hit, "ts"u8, [0x01]), Is.True);
-			var miss = state;
+			Assert.That(hit, Is.Zero, "judging a value contributes no requirement bit");
+			ulong miss = 0;
 			Assert.That(filters.ShouldProcess(ref miss, "ts"u8, [0x09]), Is.False);
 		});
 	}

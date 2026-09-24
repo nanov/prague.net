@@ -84,13 +84,13 @@ Numeric overloads (`int`, `long`) compare the header bytes directly without dese
 
 `WithValueFilter(Func<TValue, bool> predicate, bool treatAsDelete = false)` runs the predicate against the **deserialized** cache entity and admits the message only when it returns `true`. It is a plain ingestion-time predicate — *not* an indexed query, so the body is arbitrary C# (combine conditions with `||` / `&&` inside the single lambda; there is no "OR filter" at ingestion). It is evaluated **exactly once per message, as that message is consumed**, and never against records that are already in the cache. Use it to keep only the records you care about (e.g. a status, a tenant, a non-empty field). Header and key filters are evaluated first, so the value is deserialized only for messages that already passed them.
 
-- **Tombstones** (null-value delete messages) **skip the value filter entirely and still delete** the key — the predicate is never evaluated for a message that carries no value.
-- All filter methods (header, key, value) compose with **AND**; multiple `WithValueFilter` calls must all pass.
+- **Tombstones** (null-value delete messages) **skip the key and value filters entirely and still delete** the key — neither predicate is evaluated for a message that carries no value. A delete is the log's statement that the key is gone, and an ingress predicate cannot meaningfully judge it. Two header-side rules are the deliberate exceptions: a filter that saw its header and **explicitly rejected** the value still drops the tombstone (that is how a consumer selects a sub-stream of a shared topic), and so does the producer self-filter. A header that is merely **missing** does not — see `WithHeaderExistsFilter` below.
+- All filter methods (header, key, value) compose with **AND**; multiple `WithValueFilter` calls must all pass, and multiple `WithHeaderExistsFilter` calls all require their header (up to 64 distinct names).
 - **Every predicate runs on one thread.** All filters for every cache in the same `AddKafkaCaches` section are evaluated synchronously on the single long-running consume thread. A predicate that blocks or does I/O stalls the initial load *and* the live tail of every other cache in that section.
 - **A filter is not an authorization boundary.** It is a retention / load-shedding device: cached entries reflect the state that was in force when they were ingested. Dynamic visibility policy belongs in a reader over `Query()`, where narrowing and widening both take effect immediately.
 
-- **Initial load**: rejected messages are silently dropped.
-- **Live phase**: rejected messages still fire `ICacheAfterHandler.Handle(UpdateType.Filtered, ...)` so projectors can observe them.
+- **Initial load**: rejected messages are silently dropped — except a tombstone, which still removes the key.
+- **Live phase**: rejected messages still fire `ICacheAfterHandler.Handle(UpdateType.Filtered, ...)` so projectors can observe them. A tombstone fires `UpdateType.Delete` instead when the key was resident, and nothing at all when it was not.
 
 ### Filters that need DI state
 
@@ -213,6 +213,8 @@ public sealed class OrderService
 ```
 
 The producer always writes — there is no producer-side dedup. If you need it, consult `cache.Cache.TryGet(...)` before calling `Produce`.
+
+**Your own writes are not applied to your own cache.** Every consumer drops messages stamped with its own producer instance id, so a process that calls `Produce` or `Delete` directly does not see the result in its local cache until it restarts. For deletes, use the generated `cache.RemoveAndProduce(key)` instead: it removes the key locally *and* publishes the tombstone. The tombstone is published whether or not the key was resident locally — a key excluded by an ingress filter, or not loaded yet, still gets its delete — and the `bool` it returns says only whether the local cache held the key.
 
 ## MessagePack isolation
 

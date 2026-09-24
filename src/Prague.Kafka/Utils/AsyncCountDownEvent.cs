@@ -12,6 +12,12 @@ internal sealed class AsyncCountdownEvent {
 	public AsyncCountdownEvent(int initialCount, KafkaCachesConsumerStatistics statistics) {
 		_statistics = statistics;
 		_count = initialCount;
+		// This counter IS the loading gauge. It was previously mirrored by a separate _cachesLoading field in
+		// KafkaCacheConsumer, incremented per assigned partition — which fires on every rebalance, not just the
+		// first assignment, and had no matching decrement. One post-load rebalance therefore pinned readiness to
+		// Degraded for the life of the process. Publishing from the one place that already tracks completion
+		// removes the second source of truth rather than trying to keep two in step.
+		_statistics.SetCachesLoadingCount(_count);
 		if (_count == 0)
 			_tcs.TrySetResult(true);
 	}
@@ -23,7 +29,9 @@ internal sealed class AsyncCountdownEvent {
 		=> _tcs.TrySetException(exception);
 
 	public void Signal(TimeSpan loadTime) {
-		if (Interlocked.Decrement(ref _count) > 0)
+		var remaining = Interlocked.Decrement(ref _count);
+		_statistics.SetCachesLoadingCount(remaining);
+		if (remaining > 0)
 			return;
 		_statistics.InitialLoadTime = loadTime;
 		_tcs.TrySetResult(true);
