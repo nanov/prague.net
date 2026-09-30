@@ -9,6 +9,7 @@ Hot-path runtime. Apply `high-performance-net` skill rules to everything here (S
 - `InMemoryDataCache<TKey, TValue>` is the storage + query engine. `TKey : notnull, IEquatable<TKey>`.
 - It implements `IDataCache<InMemoryDataCache<TKey,TValue>, TKey, TValue>` **directly** — a raw cache participates in joins with no codegen wrapper (`Cache => this`; `Query()` uses the cache type itself as discriminator carrier via `ExecutableQuery<InMemoryDataCache<...>>`).
 - `IDataCache<TCache, TKey, TValue>` (`IDataCacheEntity.cs`) exposes `Cache { get; }` (an `InMemoryDataCache<TKey,TValue>` **property**, not a field) and `Query()`. Resolver code reaches the inner cache via `rightCache.Cache` — never through `rightCache.Query()._leftQuery._dataCache`.
+- Writes are conditional: `AddOrUpdate` asks the store to replace only when `!old.CacheEquals(new)` and reports `Same` otherwise (no index walk, no `LastUpdated` refresh). The overload `AddOrUpdate(key, value, timestamp, bool force, out oldValue)` picks the always-true predicate when `force` is set — the write is then unconditional and always returns `true` — and is the ordinary conditional write otherwise; every body fans out to the indexes through one `ApplyToIndexes` helper. `IDataCache<TKey,TValue>` carries the forced shape as `AddOrUpdate(document, timestamp, force, out old)`.
 
 ## Topic map
 
