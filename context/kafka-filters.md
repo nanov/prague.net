@@ -4,7 +4,7 @@
 
 Filter types live under `src/Prague.Kafka/Filters/`. `KafkaCacheHandlerBuilder` builder methods, all **AND-composed** across calls:
 
-- `WithHeaderFilter(...)` — evaluated **first**, in the raw consume loop via `KafkaCacheHandler.EvaluateHeaderGate(in RawHeaders)` against UTF-8 name/value **spans** (before key deserialization). **No `treatAsDelete`.** It also self-filters the producer-instance header (`KafkaCaches.ProducerInstanceIdHeaderName` == this instance's id) so a producer never re-consumes its own writes.
+- `WithHeaderFilter(...)` — evaluated **first**, in the raw consume loop via `KafkaCacheHandler.EvaluateHeaderGate(in RawHeaders, out bool forced)` against UTF-8 name/value **spans** (before key deserialization). **No `treatAsDelete`.** It also self-filters the producer-instance header (`KafkaCaches.ProducerInstanceIdHeaderName` == this instance's id) so a producer never re-consumes its own writes. The same loop reports the `X-Prague-Force` marker (`out bool forced`) — one more length-guarded compare per header, no second walk; it is orthogonal to the gate result.
   Returns `HeaderGate { Accept, SelfProduced, Rejected, MissingRequiredHeader }` (`Filters/HeaderGate.cs`) — the *reason*, not a bare bool, because `ConsumeRawLoop` waives exactly one of them for a tombstone. `MissingRequiredHeader` is the only reason that describes the message's **shape** rather than judging its content; `SelfProduced` and `Rejected` are absolute.
 - `WithKeyFilter(Func<TKey,bool>, bool treatAsDelete = false)`
 - `WithValueFilter(Func<TValue,bool>, bool treatAsDelete = false)`
@@ -17,7 +17,7 @@ DI-aware variants, all resolving **once** at `Build` (see "Snapshot filters" bel
 - `WithValueFilter<TService>(Func<TService,TValue,bool>, bool treatAsDelete = false)` — same
 - `WithHeaderFilter<TState,THeaderValue>(string name, Func<IServiceProvider,TState>, Func<TState,THeaderValue,bool>, bool passOnNull = true)` — neither type arg infers
 
-No-filter path is zero-alloc for the **key and value** gates (inline `IsEmpty` check, short-circuited at the three `DispatchRaw` call sites). The **header** gate still walks every header regardless — the producer self-filter has to inspect each one — but a name longer than the longest configured filter key is answered by a compare, so with zero filters configured (bound 0) nothing is transcoded or looked up.
+No-filter path is zero-alloc for the **key and value** gates (inline `IsEmpty` check, short-circuited at the three `DispatchRaw` call sites). The **header** gate still walks every header regardless — the producer self-filter and the force marker have to inspect each one — but a name longer than the longest configured filter key is answered by a compare, so with zero filters configured (bound 0) nothing is transcoded or looked up.
 
 **Required headers are a bitmask.** `KafkaHeaderFilters.RequiredMask` carries one bit per header name that a `WithHeaderExistsFilter` requires; the gate ORs in a bit when a name resolves and compares `seen == RequiredMask` once, after the last header. A single shared bool used to mean any one required header satisfied all of them — `exists("A") + exists("B")` composed as OR against the documented AND. Cap is 64 distinct required names; the 65th throws at handler build.
 

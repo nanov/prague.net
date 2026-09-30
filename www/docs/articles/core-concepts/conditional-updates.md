@@ -73,7 +73,30 @@ Multiple handlers per cache are allowed (every `AddSingleton<ICacheAfterHandler<
 
 ## Producer-side dispatch
 
-`KafkaCacheProducer.Produce(topic, key, value)` always writes — there is no conditional skip on the producer. If you want producer-side dedup, hold a local `OrderCache` and consult `TryGet` before producing.
+`KafkaCacheProducer.Produce(topic, key, value)` always writes — there is no conditional skip on the raw producer. The generated `cache.AddOrUpdateAndProduce(document)` is the conditional one: it applies the document locally and produces it only when the local `AddOrUpdate` reported a change.
+
+## Forcing a write
+
+Sometimes the current state has to be re-emitted *as a change* — to refresh `LastUpdated`, to re-run projectors on every replica, to re-stamp the persisted offset — without inventing a field that differs. That is a **forced write**:
+
+```csharp
+cache.AddOrUpdate(document, timestampMs, force: true, out _);  // local, unconditional
+cache.AddOrUpdateAndProduce(document, force: true);            // local + Kafka, unconditional everywhere
+producer.Produce("orders", o.OrderId, o, force: true);         // raw producer, header only
+```
+
+The forced overload is `AddOrUpdate(document, long timestampMs, bool force, out TValue? oldValue)` on a generated cache and `AddOrUpdate(key, value, long timestampMs, bool force, out TValue? oldValue)` on `InMemoryDataCache`; with `force: false` it is the ordinary conditional write.
+
+A forced write replaces the resident value even when `CacheEquals` says equal, walks every index (the `LastUpdated` adapters re-stamp their group with the write timestamp; a custom-timestamp adapter re-reads the entity's own timestamp property, so an equal document leaves it unchanged), and — on the Kafka path — carries the `X-Prague-Force` header, so every consumer applies it the same way in both the load and the live phase. After-handlers see `Update` (or `Add` for a new key), never `Same`.
+
+What force does **not** do:
+
+- It does not bypass ingress policy. Header, key and value filters still run; a rejected forced message is skipped or deleted exactly as an unforced one would be.
+- It does not touch tombstones — a delete is already unconditional.
+- It does not re-apply on the producer that wrote it: the self-filter drops the echo, and the local apply happened in `AddOrUpdateAndProduce` itself.
+- It does not fire after-handlers on the initial load; nothing does.
+
+The header is presence-only (its value, `1`, is reserved). Any producer may stamp it. A consumer built before the header existed passes it as an unknown header and applies the message conditionally — it sees `Same`.
 
 ## Why this matters
 

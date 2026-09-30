@@ -2493,10 +2493,14 @@ public class CacheGenerator : IIncrementalGenerator {
 			});
 			w.Line();
 			w.Method($"internal void Produce({keyTypeName} key, {typeName} value)", (ref CodeWriter w) => {
+				w.Line("Produce(key, value, force: false);");
+			});
+			w.Line();
+			w.Method($"internal void Produce({keyTypeName} key, {typeName} value, bool force)", (ref CodeWriter w) => {
 				w.If("_producer == null || _topicName == null", (ref CodeWriter w) => {
 					w.Line("throw new System.InvalidOperationException(\"Producer not configured. Ensure this cache is registered with Kafka.\");");
 				});
-				w.Line("_producer.Produce(_topicName, key, value);");
+				w.Line("_producer.Produce(_topicName, key, value, force);");
 			});
 		});
 		w.Line();
@@ -2523,10 +2527,18 @@ public class CacheGenerator : IIncrementalGenerator {
 						w.Line();
 						w.Summary("Produces a message to Kafka for the given cache instance.");
 						w.Method($"public static void Produce({cacheClassName} cache, {keyTypeName} key, {typeName} value)", (ref CodeWriter w) => {
+							w.Line("Produce(cache, key, value, force: false);");
+						});
+
+						w.Line();
+						w.Summary("Produces a message to Kafka for the given cache instance.",
+							"With <paramref name=\"force\"/> the message carries the X-Prague-Force header, and every consumer",
+							"applies it unconditionally — see Prague.Kafka.CacheProducerExtensions.AddOrUpdateAndProduce.");
+						w.Method($"public static void Produce({cacheClassName} cache, {keyTypeName} key, {typeName} value, bool force)", (ref CodeWriter w) => {
 							w.If("cache._producer == null || cache._topicName == null", (ref CodeWriter w) => {
 								w.Line("throw new System.InvalidOperationException(\"Producer not configured. Ensure this cache is registered with Kafka.\");");
 							});
-							w.Line("cache._producer.Produce(cache._topicName, key, value);");
+							w.Line("cache._producer.Produce(cache._topicName, key, value, force);");
 						});
 
 						w.Line();
@@ -2566,15 +2578,26 @@ public class CacheGenerator : IIncrementalGenerator {
 					w.Line();
 					w.Summary("Adds or updates a document in the cache and produces it to Kafka if changed.");
 					w.Method($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, {typeName} document)", (ref CodeWriter w) => {
+						w.Line("AddOrUpdateAndProduce(cache, document, force: false);");
+					});
+
+					w.Line();
+					w.Summary("Adds or updates a document in the cache and produces it to Kafka if changed.",
+						"With <paramref name=\"force\"/> the write is unconditional: the resident value is replaced even when it is",
+						"cache-equal, and the message is produced with the X-Prague-Force header so every consumer applies it the",
+						"same way (after-handlers see Update, never Same). Filters still apply on the consumer; force is not an",
+						"authorization override.");
+					w.Method($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, {typeName} document, bool force)", (ref CodeWriter w) => {
 						// Get key from document
 						if (!string.IsNullOrEmpty(keyPropertyName))
 							w.Line($"var key = document.{keyPropertyName};");
 						else
 							w.Line("var key = document.GetKey();");
 
-						w.Line("var changed = cache.Cache.AddOrUpdate(key, document);").Line();
+						// A forced write always reports a change, so the produce below is unconditional for it.
+						w.Line("var changed = cache.Cache.AddOrUpdate(key, document, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), force, out _);");
 						w.If("changed", (ref CodeWriter w) => {
-							w.Line($"{namespaceName}.CacheMarshall.Produce(cache, key, document);");
+							w.Line($"{namespaceName}.CacheMarshall.Produce(cache, key, document, force);");
 						});
 					});
 
@@ -7613,6 +7636,17 @@ public class CacheGenerator : IIncrementalGenerator {
 				$"            => Cache.AddOrUpdate(document.{keyPropertyName}, document, timestamp, out oldDocument);");
 		else
 			sb.AppendLine("            => Cache.AddOrUpdate(document.GetKey(), document, timestamp, out oldDocument);");
+
+		// The forced overload — unconditional when force is true; the one extra shape IDataCache carries.
+		sb.AppendLine();
+		sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+		sb.AppendLine(
+			$"        public bool AddOrUpdate({documentTypeName} document, long timestamp, bool force, out {documentTypeName} oldDocument)");
+		if (keyPropertyName != null)
+			sb.AppendLine(
+				$"            => Cache.AddOrUpdate(document.{keyPropertyName}, document, timestamp, force, out oldDocument);");
+		else
+			sb.AppendLine("            => Cache.AddOrUpdate(document.GetKey(), document, timestamp, force, out oldDocument);");
 
 		// Remove overloads
 		sb.AppendLine();

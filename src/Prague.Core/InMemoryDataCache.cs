@@ -1451,20 +1451,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 			return false;
 		}
 
-		StatisticsCollector.Performed(r.Operation);
-
-		foreach (var index in _indeces)
-			if (r.Operation is AddOrUpdateOperation.Update) {
-				// Only update if OldValue is not null
-				if (r.OldValue is not null)
-					index.Update(key, r.KeyHash, r.OldValue, r.Value, timestamp);
-				else
-					index.Add(key, r.KeyHash, r.Value, timestamp);
-			}
-			else {
-				index.Add(key, r.KeyHash, r.Value, timestamp);
-			}
-
+		ApplyToIndexes(key, in r, timestamp);
 		oldValue = r.OldValue;
 		return true;
 	}
@@ -1483,21 +1470,44 @@ public sealed class InMemoryDataCache<TKey, TValue>
 		if (r.Operation is AddOrUpdateOperation.Same)
 			return false;
 
+		ApplyToIndexes(key, in r, timestamp);
+		return true;
+	}
+
+	/// <summary>
+	///   <paramref name="force"/> makes the write unconditional: the resident value is replaced even when
+	///   <c>CacheEquals</c> says the two are equal, so every index sees an <c>Update</c> and the
+	///   <c>LastUpdated</c> adapters re-stamp their group with <paramref name="timestamp"/>. A forced write therefore always returns
+	///   <c>true</c>; <paramref name="oldValue"/> is <c>null</c> when the key was added. With
+	///   <paramref name="force"/> <c>false</c> this is <see cref="AddOrUpdate(TKey,TValue,long,out TValue)"/>.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	public bool AddOrUpdate(TKey key, TValue value, long timestamp, bool force, out TValue? oldValue) {
+		var r = force
+			? _cache.AddOrUpdate(key, value, static (_, _, _) => true)
+			: _cache.AddOrUpdate(key, value, static (_, ov, nv) => !ov!.CacheEquals(nv));
+
+		if (r.Operation is AddOrUpdateOperation.Same) {
+			oldValue = default;
+			return false;
+		}
+
+		ApplyToIndexes(key, in r, timestamp);
+		oldValue = r.OldValue;
+		return true;
+	}
+
+	// The store has already committed the write; fan it out to the indexes in registration order. An
+	// Update whose OldValue is null is applied as an Add — no index has seen the key yet.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void ApplyToIndexes(TKey key, in ConcurrentCacheStore<TKey, TValue>.UpdateResult r, long timestamp) {
 		StatisticsCollector.Performed(r.Operation);
 
 		foreach (var index in _indeces)
-			if (r.Operation is AddOrUpdateOperation.Update) {
-				// Only update if OldValue is not null
-				if (r.OldValue is not null)
-					index.Update(key, r.KeyHash, r.OldValue, r.Value, timestamp);
-				else
-					index.Add(key, r.KeyHash, r.Value, timestamp);
-			}
-			else {
+			if (r.Operation is AddOrUpdateOperation.Update && r.OldValue is not null)
+				index.Update(key, r.KeyHash, r.OldValue, r.Value, timestamp);
+			else
 				index.Add(key, r.KeyHash, r.Value, timestamp);
-			}
-
-		return true;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -212,7 +212,9 @@ public sealed class OrderService
 }
 ```
 
-The producer always writes — there is no producer-side dedup. If you need it, consult `cache.Cache.TryGet(...)` before calling `Produce`.
+The producer always writes — there is no producer-side dedup. If you need it, consult `cache.Cache.TryGet(...)` before calling `Produce`, or use the generated `cache.AddOrUpdateAndProduce(document)`, which produces only when the local write changed something.
+
+`Produce(topic, key, value, force: true)` and `AddOrUpdateAndProduce(document, force: true)` stamp the `X-Prague-Force` header: every consumer then applies the record even when it is cache-equal to what it holds, and after-handlers see `Update` rather than `Same`. See [Forcing a write](../core-concepts/conditional-updates.md#forcing-a-write).
 
 **Your own writes are not applied to your own cache.** Every consumer drops messages stamped with its own producer instance id, so a process that calls `Produce` or `Delete` directly does not see the result in its local cache until it restarts. For deletes, use the generated `cache.RemoveAndProduce(key)` instead: it removes the key locally *and* publishes the tombstone. The tombstone is published whether or not the key was resident locally — a key excluded by an ingress filter, or not loaded yet, still gets its delete — and the `bool` it returns says only whether the local cache held the key.
 

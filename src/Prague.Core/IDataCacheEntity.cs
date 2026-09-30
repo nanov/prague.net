@@ -82,6 +82,9 @@ public interface IDataCache<TKey, TValue> : IDataCache where TKey : IEquatable<T
 
 	bool AddOrUpdate(TValue document, long timestamp, out TValue? value);
 
+	/// <summary>Unconditional when <paramref name="force"/> — see <see cref="InMemoryDataCache{TKey,TValue}.AddOrUpdate(TKey,TValue,long,bool,out TValue)"/>.</summary>
+	bool AddOrUpdate(TValue document, long timestamp, bool force, out TValue? value);
+
 	void Remove(TKey key, long timestamp);
 
 	bool Remove(TKey key, long timestamp, [MaybeNullWhen(false)] out TValue value);

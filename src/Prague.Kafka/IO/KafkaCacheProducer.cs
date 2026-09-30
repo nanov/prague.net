@@ -58,8 +58,20 @@ public class KafkaCacheProducer : IDisposable {
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	/// <summary>Produce an upsert.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public void Produce<TKey, TCacheValue>(string topic, TKey key, TCacheValue value)
+		where TKey : notnull, IEquatable<TKey>
+		where TCacheValue : IEnrichable<TCacheValue> {
+		Produce(topic, key, value, force: false);
+	}
+
+	/// <summary>
+	///   Produce an upsert. With <paramref name="force"/> the record carries <c>X-Prague-Force</c>, and every
+	///   consumer applies it even when the value is cache-equal to what it holds.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	public void Produce<TKey, TCacheValue>(string topic, TKey key, TCacheValue value, bool force)
 		where TKey : notnull, IEquatable<TKey>
 		where TCacheValue : IEnrichable<TCacheValue> {
 		if (_cts.IsCancellationRequested)
@@ -74,6 +86,10 @@ public class KafkaCacheProducer : IDisposable {
 			var headers = new KafkaHeaders();
 			headers.Add(KafkaCaches.ProducerInstanceIdHeaderName, KafkaCaches.InstanceIdBytes);
 			TCacheValue.Derich(value, ref headers);
+			// A static array: KafkaHeaders stores the memory by reference and needs it alive only until
+			// RawProduce returns, so the forced path allocates nothing either.
+			if (force)
+				headers.Add(KafkaCaches.ForceHeaderName, KafkaCaches.ForceHeaderValue);
 
 			RawProduceWithRetry(topic, keyWriter.WrittenSpan, valueWriter.WrittenSpan, in headers);
 		}

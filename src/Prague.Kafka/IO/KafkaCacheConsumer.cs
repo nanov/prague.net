@@ -35,8 +35,10 @@ internal abstract class KafkaCacheHandler {
 	///   Process one raw message. During loading it deserializes + enriches off the native spans and
 	///   compacts the materialized value by key; live it publishes the materialized value to the
 	///   per-handler ring-buffer worker. All span reads complete before the caller disposes the message.
+	///   <paramref name="forced"/> routes the value through the unconditional write in either phase; a
+	///   tombstone ignores it.
 	/// </summary>
-	internal abstract void DispatchRaw(in RawMessage raw, bool isLoading);
+	internal abstract void DispatchRaw(in RawMessage raw, bool isLoading, bool forced);
 
 	/// <summary>Live-phase only: fire the <c>Filtered</c> after-handler (header-filtered message).</summary>
 	internal abstract void PublishRawFiltered();
@@ -71,17 +73,25 @@ internal abstract class KafkaCacheHandler {
 	///   against Prague's own producer included, as <c>KafkaCacheProducer.Delete</c> stamps no user headers.
 	///   <see cref="HeaderGate.SelfProduced" /> and <see cref="HeaderGate.Rejected" /> stay absolute.
 	///   </para>
+	///   <para>
+	///   <paramref name="forced"/> reports the <c>X-Prague-Force</c> marker. It is read here, in the one loop
+	///   that already visits every header, so a forced write costs one more length-guarded compare per header
+	///   and no second walk. It is orthogonal to the gate: a rejected forced message is still rejected.
+	///   </para>
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	internal HeaderGate EvaluateHeaderGate(in RawHeaders headers) {
+	internal HeaderGate EvaluateHeaderGate(in RawHeaders headers, out bool forced) {
 		var filters = HeadersFilters;
 		// One bit per required header name, collected as they are resolved. Required names compose with AND: a
 		// single shared bool meant any one required header satisfied all of them.
 		var seen = 0UL;
+		forced = false;
 		foreach (var (name, value) in headers) {
 			if (System.Text.Ascii.Equals(name, KafkaCaches.ProducerInstanceIdHeaderName)
 			    && value.SequenceEqual(KafkaCaches.InstanceIdBytes))
 				return HeaderGate.SelfProduced;
+			if (System.Text.Ascii.Equals(name, KafkaCaches.ForceHeaderName))
+				forced = true;
 			if (!filters.ShouldProcess(ref seen, name, value))
 				return HeaderGate.Rejected;
 		}
@@ -168,12 +178,14 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 	private const byte RAW_KIND_UPDATE = 0;
 	private const byte RAW_KIND_DELETE = 1;
 	private const byte RAW_KIND_FILTERED = 2;
+	// A forced update rides in Kind rather than a second field, so RawWorkItem keeps its layout.
+	private const byte RAW_KIND_FORCE_UPDATE = 3;
 	private const int RAW_WORKER_CAPACITY = 64;
 
 	private RawLiveWorker? _rawWorker;
 	private ValueCompactingBuffer<TKey, TVlaue>? _rawLoadBuffer;
 
-	internal override void DispatchRaw(in RawMessage raw, bool isLoading) {
+	internal override void DispatchRaw(in RawMessage raw, bool isLoading, bool forced) {
 		var offset = raw.Offset.Value;
 		TKey key;
 		try {
@@ -251,7 +263,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 			value.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
 			_enricher.Enrich(value, raw.Headers, timestamp);
 			var buffer = _rawLoadBuffer ??= new ValueCompactingBuffer<TKey, TVlaue>(COMPACTING_BUFFER_CAPACITY);
-			buffer.AddOrReplace(key, value, timestamp.UnixTimestampMs);
+			buffer.AddOrReplace(key, value, timestamp.UnixTimestampMs, forced);
 			if (buffer.IsFull(COMPACTING_BUFFER_CAPACITY))
 				FlushRawLoadBufferToCache();
 			return;
@@ -283,7 +295,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 
 		liveValue.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
 		_enricher.Enrich(liveValue, raw.Headers, timestamp);
-		PublishRaw(RAW_KIND_UPDATE, key, liveValue, timestamp.UnixTimestampMs);
+		PublishRaw(forced ? RAW_KIND_FORCE_UPDATE : RAW_KIND_UPDATE, key, liveValue, timestamp.UnixTimestampMs);
 	}
 
 	internal override void PublishRawFiltered()
@@ -324,8 +336,8 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 	private void FlushRawLoadBufferToCache() {
 		if (_rawLoadBuffer is null)
 			return;
-		foreach (var (value, ts) in _rawLoadBuffer)
-			_cache.AddOrUpdate(value, ts);
+		foreach (var (value, ts, forced) in _rawLoadBuffer)
+			_cache.AddOrUpdate(value, ts, forced, out _);
 
 		_rawLoadBuffer.Clear();
 	}
@@ -346,14 +358,15 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 
 	private ValueTask ApplyRawLiveAsync(byte kind, TKey key, TVlaue? value, long timestampMs)
 		=> kind switch {
-			RAW_KIND_UPDATE => HandleRawLiveUpdate(key, value!, timestampMs),
+			RAW_KIND_UPDATE => HandleRawLiveUpdate(key, value!, timestampMs, force: false),
+			RAW_KIND_FORCE_UPDATE => HandleRawLiveUpdate(key, value!, timestampMs, force: true),
 			RAW_KIND_DELETE => HandleRawLiveDelete(key, timestampMs),
 			_ => ExecuteAfterHandlers(UpdateType.Filtered, default!, null, null)
 		};
 
-	private ValueTask HandleRawLiveUpdate(TKey key, TVlaue value, long timestampMs) {
-		var updateResult = _cache.AddOrUpdate(value, timestampMs, out var old);
-		return (updateResult, old) switch {
+	private ValueTask HandleRawLiveUpdate(TKey key, TVlaue value, long timestampMs, bool force) {
+		var changed = _cache.AddOrUpdate(value, timestampMs, force, out var old);
+		return (changed, old) switch {
 			(false, _) => ExecuteAfterHandlers(UpdateType.Same, key, value, null),
 			(_, null) => ExecuteAfterHandlers(UpdateType.Add, key, value, null),
 			_ => ExecuteAfterHandlers(UpdateType.Update, key, value, old)
@@ -638,8 +651,9 @@ internal class KafkaCacheConsumer : IDisposable {
 						continue;
 
 					HeaderGate gate;
+					bool forced;
 					try {
-						gate = handler.EvaluateHeaderGate(raw.Headers);
+						gate = handler.EvaluateHeaderGate(raw.Headers, out forced);
 					} catch (Exception e) {
 						// The header gate runs first, on raw wire bytes, and invokes a user-supplied predicate —
 						// exactly like the key and value gates, which have always caught and degraded. Without this
@@ -662,6 +676,7 @@ internal class KafkaCacheConsumer : IDisposable {
 						ct.ThrowIfCancellationRequested();
 						_logger.HeaderFilterError(e, handler.Name, raw.Offset.Value);
 						gate = HeaderGate.Rejected;
+						forced = false;
 					}
 
 					if (gate != HeaderGate.Accept) {
@@ -677,7 +692,7 @@ internal class KafkaCacheConsumer : IDisposable {
 						}
 					}
 
-					handler.DispatchRaw(in raw, !handler.IsInitialConsumeDone);
+					handler.DispatchRaw(in raw, !handler.IsInitialConsumeDone, forced);
 				}
 				catch (OperationCanceledException) {
 					_manualReset.TrySetCanceled();
