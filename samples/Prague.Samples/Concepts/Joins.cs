@@ -97,6 +97,25 @@ public class Joins {
 	}
 
 	[Test]
+	public void CountJoinYieldsTheNumberOfRights() {
+		#region count-join
+		using var rows = _customers.Query()
+			.CountJoinWithOrder()                        // int per customer: no Order is materialised
+			.ExecutePooled();
+
+		foreach (var row in rows)
+			Console.WriteLine($"{row.Left.Name} has {row.Right} orders");
+
+		using var buyers = _customers.Query()
+			.InnerCountJoinWithOrder()                   // drops customers with no orders
+			.ExecutePooled();
+		#endregion
+
+		Assert.That(rows.Map(r => (r.Left.Id, r.Right)).ToArray(), Is.EquivalentTo(new[] { (42, 2), (7, 1) }));
+		Assert.That(buyers.Count, Is.EqualTo(2));
+	}
+
+	[Test]
 	public void OneToOneBothWays() {
 		#region one-to-one
 		using var withShipment = _orders.Query().WithOrderId("ORD-001").JoinWithShipment().ExecutePooled();   // Shipment?

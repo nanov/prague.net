@@ -6942,6 +6942,26 @@ public class CacheGenerator : IIncrementalGenerator {
 						$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, newResultTypeColl, nonExecBuilderColl, resolverColl,
 						"InnerJoinManyCollection", fkJoinArgsColl);
+
+					// CountJoinWith{TOther} / InnerCountJoinWith{TOther}: the number of owners per element as an int,
+					// without materialising them (JoinCountResolver over the same index half).
+					var countResultTypeColl = CountJoinResultType(level, documentTypeName);
+					Func<string, string> countResolverColl = f => $"JoinCountResolver<{keyTypeName}, {documentTypeName}, {collCacheFqn}, {otherKeyTypeName}, {otherTypeFullName}, JoinManyCollectionBuckets<{keyTypeName}, {otherKeyTypeName}, {otherTypeFullName}>, {f}>";
+					EmitFkJoinWithOverloads(sb,
+						$"Count of {otherTypeFullName} owners per element via reverse collection FK (many-to-many), without materialising them.",
+						$"CountJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+						keyTypeName, documentTypeName, countResultTypeColl, nonExecBuilderColl, countResolverColl,
+						"CountJoinCollection", fkJoinArgsColl);
+					EmitFkSortedJoinWithOverload(sb,
+						$"Count of {otherTypeFullName} owners per element via reverse collection FK (many-to-many) after a Sort.",
+						$"CountJoin{methodName.Substring(4)}", joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
+						keyTypeName, documentTypeName, countResultTypeColl, nonExecBuilderColl, countResolverColl,
+						"CountJoinCollection", fkJoinArgsColl);
+					EmitFkJoinWithOverloads(sb,
+						$"Count of {otherTypeFullName} owners per element via reverse collection FK (many-to-many) - drops elements with a zero count.",
+						$"InnerCountJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+						keyTypeName, documentTypeName, countResultTypeColl, nonExecBuilderColl, countResolverColl,
+						"InnerCountJoinCollection", fkJoinArgsColl);
 					continue;
 				}
 
@@ -6985,6 +7005,26 @@ public class CacheGenerator : IIncrementalGenerator {
 					$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeRev, nonExecBuilderRev, resolverRev,
 					"InnerJoinMany", fkJoinArgsRev);
+
+				// CountJoinWith{TOther} / InnerCountJoinWith{TOther}: the number of rights per left as an int, without
+				// materialising them (JoinCountResolver over the same right list index). No nested form.
+				var countResultTypeRev = CountJoinResultType(level, documentTypeName);
+				Func<string, string> countResolverRev = f => $"JoinCountResolver<{keyTypeName}, {documentTypeName}, {otherCacheClassFqn}, {otherKeyTypeName}, {otherTypeFullName}, JoinManyRightListBuckets<{keyTypeName}, {otherKeyTypeName}, {otherTypeFullName}, {keyTypeName}, IdentitySelector<{keyTypeName}>>, {f}>";
+				EmitFkJoinWithOverloads(sb,
+					$"Count of {otherTypeFullName} per left via reverse FK (one-to-many), without materialising the rights.",
+					$"CountJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+					keyTypeName, documentTypeName, countResultTypeRev, nonExecBuilderRev, countResolverRev,
+					"CountJoin", fkJoinArgsRev);
+				EmitFkSortedJoinWithOverload(sb,
+					$"Count of {otherTypeFullName} per left via reverse FK (one-to-many) after a Sort.",
+					$"CountJoin{methodName.Substring(4)}", joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
+					keyTypeName, documentTypeName, countResultTypeRev, nonExecBuilderRev, countResolverRev,
+					"CountJoin", fkJoinArgsRev);
+				EmitFkJoinWithOverloads(sb,
+					$"Count of {otherTypeFullName} per left via reverse FK (one-to-many) — drops lefts with a zero count.",
+					$"InnerCountJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+					keyTypeName, documentTypeName, countResultTypeRev, nonExecBuilderRev, countResolverRev,
+					"InnerCountJoin", fkJoinArgsRev);
 
 				// Nested continuation overloads (all chain levels — the per-level runtime nested
 				// JoinMany/InnerJoinMany overloads are T4-generated). JoinWith{TOther}(b => b.JoinXxx(...))
@@ -7126,6 +7166,26 @@ public class CacheGenerator : IIncrementalGenerator {
 						$"InnerJoin{fwdMethodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, newResultTypeFwdColl, nonExecBuilderFwdColl, resolverFwdColl,
 						"InnerJoinManyCollectionForward", fkJoinArgsFwdColl);
+
+					// CountJoinWith{TOther} / InnerCountJoinWith{TOther}: the number of referenced elements per owner as an
+					// int, without materialising them (JoinCountResolver over this cache's own index half).
+					var countResultTypeFwdColl = CountJoinResultType(level, documentTypeName);
+					Func<string, string> countResolverFwdColl = f => $"JoinCountResolver<{keyTypeName}, {documentTypeName}, {fwdReferencedCacheClassFqn}, {fwdReferencedKeyTypeName}, {fwdReferencedTypeFullName}, JoinManyCollectionForwardBuckets<{keyTypeName}, {fwdReferencedKeyTypeName}, {documentTypeName}>, {f}>";
+					EmitFkJoinWithOverloads(sb,
+						$"Count of {fwdReferencedTypeFullName} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner, without materialising them.",
+						$"CountJoin{fwdMethodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+						keyTypeName, documentTypeName, countResultTypeFwdColl, nonExecBuilderFwdColl, countResolverFwdColl,
+						"CountJoinCollectionForward", fkJoinArgsFwdColl);
+					EmitFkSortedJoinWithOverload(sb,
+						$"Count of {fwdReferencedTypeFullName} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner after a Sort.",
+						$"CountJoin{fwdMethodName.Substring(4)}", joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
+						keyTypeName, documentTypeName, countResultTypeFwdColl, nonExecBuilderFwdColl, countResolverFwdColl,
+						"CountJoinCollectionForward", fkJoinArgsFwdColl);
+					EmitFkJoinWithOverloads(sb,
+						$"Count of {fwdReferencedTypeFullName} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner - drops owners with a zero count.",
+						$"InnerCountJoin{fwdMethodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
+						keyTypeName, documentTypeName, countResultTypeFwdColl, nonExecBuilderFwdColl, countResolverFwdColl,
+						"InnerCountJoinCollectionForward", fkJoinArgsFwdColl);
 					continue;
 				}
 
@@ -7534,6 +7594,12 @@ public class CacheGenerator : IIncrementalGenerator {
 
 		sb.AppendLine("    }");
 	}
+
+	/// <summary>The result row of a <c>CountJoinWith{T}</c> at <paramref name="level" />: the current row plus an <see cref="int" /> count slot.</summary>
+	private static string CountJoinResultType(int level, string documentTypeName)
+		=> level == 0
+			? $"JoinResult<{documentTypeName}, int>"
+			: $"JoinResult<{documentTypeName}, {string.Join(", ", Enumerable.Range(1, level).Select(i => $"T{i}"))}, int>";
 
 	/// <summary>
 	/// Emits the three filter flavors (no-filter, filter, filter + arg) for a single

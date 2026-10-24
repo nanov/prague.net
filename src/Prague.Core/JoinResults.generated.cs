@@ -1784,6 +1784,24 @@ internal ref struct UnsafeRightAccessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new RightNonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new RightNonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new RightNonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -1829,6 +1847,15 @@ internal readonly struct RightNonEmptyManyFilter<TKey, TJoinResult, TInnerValue>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct RightNonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight<int>() != 0;
 }
 
 internal ref struct UnsafeRight2Accessor<TKey, TJoinResult>
@@ -1887,6 +1914,24 @@ internal ref struct UnsafeRight2Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right2NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right2</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right2NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right2</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right2NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right2</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -1932,6 +1977,15 @@ internal readonly struct Right2NonEmptyManyFilter<TKey, TJoinResult, TInnerValue
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight2<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right2NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight2<int>() != 0;
 }
 
 internal ref struct UnsafeRight3Accessor<TKey, TJoinResult>
@@ -1990,6 +2044,24 @@ internal ref struct UnsafeRight3Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right3NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right3</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right3NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right3</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right3NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right3</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2035,6 +2107,15 @@ internal readonly struct Right3NonEmptyManyFilter<TKey, TJoinResult, TInnerValue
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight3<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right3NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight3<int>() != 0;
 }
 
 internal ref struct UnsafeRight4Accessor<TKey, TJoinResult>
@@ -2093,6 +2174,24 @@ internal ref struct UnsafeRight4Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right4NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right4</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right4NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right4</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right4NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right4</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2138,6 +2237,15 @@ internal readonly struct Right4NonEmptyManyFilter<TKey, TJoinResult, TInnerValue
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight4<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right4NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight4<int>() != 0;
 }
 
 internal ref struct UnsafeRight5Accessor<TKey, TJoinResult>
@@ -2196,6 +2304,24 @@ internal ref struct UnsafeRight5Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right5NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right5</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right5NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right5</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right5NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right5</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2241,6 +2367,15 @@ internal readonly struct Right5NonEmptyManyFilter<TKey, TJoinResult, TInnerValue
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight5<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right5NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight5<int>() != 0;
 }
 
 internal ref struct UnsafeRight6Accessor<TKey, TJoinResult>
@@ -2299,6 +2434,24 @@ internal ref struct UnsafeRight6Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right6NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right6</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right6NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right6</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right6NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right6</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2344,6 +2497,15 @@ internal readonly struct Right6NonEmptyManyFilter<TKey, TJoinResult, TInnerValue
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight6<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right6NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight6<int>() != 0;
 }
 
 internal ref struct UnsafeRight7Accessor<TKey, TJoinResult>
@@ -2402,6 +2564,24 @@ internal ref struct UnsafeRight7Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right7NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right7</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right7NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right7</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right7NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right7</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2447,6 +2627,15 @@ internal readonly struct Right7NonEmptyManyFilter<TKey, TJoinResult, TInnerValue
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight7<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right7NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight7<int>() != 0;
 }
 
 internal ref struct UnsafeRight8Accessor<TKey, TJoinResult>
@@ -2505,6 +2694,24 @@ internal ref struct UnsafeRight8Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right8NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right8</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right8NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right8</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right8NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right8</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2550,6 +2757,15 @@ internal readonly struct Right8NonEmptyManyFilter<TKey, TJoinResult, TInnerValue
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight8<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right8NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight8<int>() != 0;
 }
 
 internal ref struct UnsafeRight9Accessor<TKey, TJoinResult>
@@ -2608,6 +2824,24 @@ internal ref struct UnsafeRight9Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right9NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right9</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right9NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right9</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right9NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right9</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2653,6 +2887,15 @@ internal readonly struct Right9NonEmptyManyFilter<TKey, TJoinResult, TInnerValue
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight9<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right9NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight9<int>() != 0;
 }
 
 internal ref struct UnsafeRight10Accessor<TKey, TJoinResult>
@@ -2711,6 +2954,24 @@ internal ref struct UnsafeRight10Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right10NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right10</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right10NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right10</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right10NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right10</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2756,6 +3017,15 @@ internal readonly struct Right10NonEmptyManyFilter<TKey, TJoinResult, TInnerValu
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight10<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right10NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight10<int>() != 0;
 }
 
 internal ref struct UnsafeRight11Accessor<TKey, TJoinResult>
@@ -2814,6 +3084,24 @@ internal ref struct UnsafeRight11Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right11NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right11</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right11NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right11</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right11NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right11</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2859,6 +3147,15 @@ internal readonly struct Right11NonEmptyManyFilter<TKey, TJoinResult, TInnerValu
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight11<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right11NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight11<int>() != 0;
 }
 
 internal ref struct UnsafeRight12Accessor<TKey, TJoinResult>
@@ -2917,6 +3214,24 @@ internal ref struct UnsafeRight12Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right12NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right12</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right12NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right12</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right12NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right12</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -2962,6 +3277,15 @@ internal readonly struct Right12NonEmptyManyFilter<TKey, TJoinResult, TInnerValu
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight12<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right12NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight12<int>() != 0;
 }
 
 internal ref struct UnsafeRight13Accessor<TKey, TJoinResult>
@@ -3020,6 +3344,24 @@ internal ref struct UnsafeRight13Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right13NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right13</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right13NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right13</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right13NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right13</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -3065,6 +3407,15 @@ internal readonly struct Right13NonEmptyManyFilter<TKey, TJoinResult, TInnerValu
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight13<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right13NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight13<int>() != 0;
 }
 
 internal ref struct UnsafeRight14Accessor<TKey, TJoinResult>
@@ -3123,6 +3474,24 @@ internal ref struct UnsafeRight14Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right14NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right14</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right14NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right14</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right14NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right14</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -3168,6 +3537,15 @@ internal readonly struct Right14NonEmptyManyFilter<TKey, TJoinResult, TInnerValu
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight14<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right14NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight14<int>() != 0;
 }
 
 internal ref struct UnsafeRight15Accessor<TKey, TJoinResult>
@@ -3226,6 +3604,24 @@ internal ref struct UnsafeRight15Accessor<TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new Right15NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c>Right15</c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new Right15NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c>Right15</c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new Right15NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c>Right15</c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -3271,6 +3667,15 @@ internal readonly struct Right15NonEmptyManyFilter<TKey, TJoinResult, TInnerValu
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGetRight15<QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct Right15NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGetRight15<int>() != 0;
 }
 
 #endregion

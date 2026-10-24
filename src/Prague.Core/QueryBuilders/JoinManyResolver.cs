@@ -89,22 +89,14 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
 
 	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint)
-		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Fill(ref accessor, new Buckets(_rightIndex, _selector), _rightStore, cloneOnAdd, _isInner, ref disposer, ref sizeHint);
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Fill(ref accessor, Buckets(), _rightStore, cloneOnAdd, _isInner, ref disposer, ref sizeHint);
 
 	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values)
-		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Narrow(keys, values, new Buckets(_rightIndex, _selector), _rightStore);
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Narrow(keys, values, Buckets(), _rightStore);
 
-	// The frozen fill's bucket source: the family's own read — the selector, then the right list index.
-	private struct Buckets(CacheKeyValueListIndex<TRightKey, TRightValue, TIndexKey> rightIndex, TSelector selector) : IManyBucketSource<TLeftKey, TRightKey> {
-		private TSelector _selector = selector;
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public bool TryGetBucket(TLeftKey leftKey, out PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket) {
-			var indexKey = TSelector.IsIdentity ? Unsafe.As<TLeftKey, TIndexKey>(ref leftKey) : _selector.Select(leftKey);
-			bucket = rightIndex.GetValuesUnsafe(indexKey);
-			return bucket is { Count: > 0 };
-		}
-	}
+	// The family's bucket read (the selector, then the right list index), shared with the frozen fill and the count join.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private readonly JoinManyRightListBuckets<TLeftKey, TRightKey, TRightValue, TIndexKey, TSelector> Buckets() => new(_rightIndex, _selector);
 
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 
@@ -180,52 +172,11 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 
 	// ── Core execution loop ──────────────────────────────────────────────────
 
-	/// <summary>
-	/// One paired execute over every recorded right: builds the paired core over the fan-out's pair
-	/// set, applies the user filter once, then hands the set to the core and delivers each surviving
-	/// right to all of its lefts — through the plain paired execute when no right is shared (the FK
-	/// shape), through a <see cref="JoinManyFanOut{TLeftKey,TRightKey}.Delivery{TRightValue,TContainer}"/>
-	/// otherwise. The set is marked handed off right before the execute — after the filter ran — so a
-	/// throw inside the user lambda leaves it to <see cref="JoinManyFanOut{TLeftKey,TRightKey}.Dispose"/>,
-	/// while a set that reached the core is never disposed twice.
-	/// </summary>
+	// One paired execute over the recorded pairs (JoinManyPairedExecute: filter once, hand-off, deliver).
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private void ExecutePairs<TContainer>(ref JoinManyFanOut<TLeftKey, TRightKey> fanOut, ref TContainer container)
-		where TContainer : struct, IJoinedResultContainer<TLeftKey, TRightValue>, allows ref struct {
-		if (fanOut.DistinctRights == 0) {
-			return;
-		}
-
-		var pairedCore = new PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>(_rightCache.Cache, fanOut.Pairs);
-		var builder = new CacheQueryBuilderCombined<
-			NonExecutableQuery<TRightCache>,
-			PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>,
-			TRightKey, TRightValue,
-			Resolvers<BaseResolver<TRightKey, TRightValue>>,
-			TRightValue>(
-			new NonExecutableQuery<TRightCache>(_rightCache),
-			pairedCore,
-			new Resolvers<BaseResolver<TRightKey, TRightValue>>(new BaseResolver<TRightKey, TRightValue>()),
-			0);
-
-		// NoFilter.Apply() is JIT-elided. The filter narrows pairs in place; it cannot add or renumber
-		// them. A throw here (user lambda) must leave disposal to the fan-out.
-		builder = _filter.Apply(builder);
-
-		fanOut.MarkPairsHandedOff();
-		ref var core = ref Unsafe.AsRef(in builder._leftQuery);
-		if (fanOut.SingleLeftPerRight) {
-			// No right is shared, so a pair's JoinedKey is its whole chain: the plain paired execute (the
-			// store calls Add(pair.JoinedKey, value)) delivers exactly what a Delivery would, without the
-			// wrapper or the chain walk.
-			core.ExecutePaired(ref container);
-			return;
-		}
-
-		var delivery = new JoinManyFanOut<TLeftKey, TRightKey>.Delivery<TRightValue, TContainer>(
-			container, fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
-		core.ExecutePairedJoined(ref delivery);
-		container = delivery.Inner;
-	}
+		where TContainer : struct, IJoinedResultContainer<TLeftKey, TRightValue>, allows ref struct
+		=> JoinManyPairedExecute.Run<TLeftKey, TRightCache, TRightKey, TRightValue, TFilter, TContainer>(_rightCache, ref _filter, ref fanOut, ref container);
 
 	/// <summary>
 	/// Walks the right index per leftKey, records its (leftKey, rightKey) pairs, calls
@@ -243,21 +194,13 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 			return;
 
 		// ── 1. Walk index, keyed-init container, record the pairs ─────────────
-		// Inline rather than calling _rightIndex.IntersectValuesInit because that
-		// helper requires the container to be parameterized on TIndexKey (not
-		// TLeftKey), and reinterpreting refs to ref structs across generic params
-		// is brittle. The inline loop is identical work and avoids the gymnastics.
+		// The family's bucket read (selector, then the right list index) — the same one the frozen fill
+		// and the count join use.
 		var fanOut = new JoinManyFanOut<TLeftKey, TRightKey>(leftKeys.Length);
+		var buckets = Buckets();
 		try {
 			foreach (var leftKey in leftKeys) {
-				TIndexKey indexKey;
-				if (TSelector.IsIdentity)
-					indexKey = Unsafe.As<TLeftKey, TIndexKey>(ref Unsafe.AsRef(in leftKey));
-				else
-					indexKey = _selector.Select(leftKey);
-
-				var bucket = _rightIndex.GetValuesUnsafe(indexKey);
-				if (bucket is null || bucket.Count == 0)
+				if (!buckets.TryGetBucket(leftKey, out var bucket))
 					continue;
 
 				// Size the slot from the pairs this walk recorded, not from bucket.Count: the bucket
@@ -334,14 +277,10 @@ public struct JoinManyRightListIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		// Same flow as outer ExecuteReverse, but operate on candidates (not accessor.GetKeys).
 		var fanOut = new JoinManyFanOut<TLeftKey, TRightKey>(candidates.Count);
 		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
+		var buckets = Buckets();
 		try {
 			foreach (var leftKey in candidates) {
-				TIndexKey indexKey = TSelector.IsIdentity
-					? Unsafe.As<TLeftKey, TIndexKey>(ref Unsafe.AsRef(in leftKey))
-					: _selector.Select(leftKey);
-
-				var bucket = _rightIndex.GetValuesUnsafe(indexKey);
-				if (bucket is null || bucket.Count == 0)
+				if (!buckets.TryGetBucket(leftKey, out var bucket))
 					continue;
 
 				// For inner mode, the slot doesn't pre-exist (no outer base execute ran yet).
@@ -461,28 +400,10 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 	bool IJoinResolver.CanFuse => TFilter.IsNoOp;
 
 	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint)
-		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Fill(ref accessor, new Buckets(_leftIndex, _rightIndex, _selector), _rightStore, cloneOnAdd, _isInner, ref disposer, ref sizeHint);
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Fill(ref accessor, Buckets(), _rightStore, cloneOnAdd, _isInner, ref disposer, ref sizeHint);
 
 	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values)
-		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Narrow(keys, values, new Buckets(_leftIndex, _rightIndex, _selector), _rightStore);
-
-	// The frozen fill's bucket source: the family's own read — Reverse → lookup key → selector → right bucket.
-	private struct Buckets(CacheSymmetricKeyValueListIndex<TLeftKey, TLeftValue, TLookupKey> leftIndex, CacheKeyValueListIndex<TRightKey, TRightValue, TRightIndexKey> rightIndex, TSelector selector)
-		: IManyBucketSource<TLeftKey, TRightKey> {
-		private TSelector _selector = selector;
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public bool TryGetBucket(TLeftKey leftKey, out PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket) {
-			if (!leftIndex.Reverse.TryGetValue(leftKey, out var lookupKey)) {
-				bucket = null!;
-				return false;
-			}
-
-			var rightIndexKey = TSelector.IsIdentity ? Unsafe.As<TLookupKey, TRightIndexKey>(ref lookupKey) : _selector.Select(lookupKey);
-			bucket = rightIndex.GetValuesUnsafe(rightIndexKey);
-			return bucket is { Count: > 0 };
-		}
-	}
+		=> JoinManyFusedFill<TLeftKey, TRightKey, TRightValue>.Narrow(keys, values, Buckets(), _rightStore);
 
 	// ── Clone / CloneValue ───────────────────────────────────────────────────
 
@@ -500,73 +421,18 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 
 	// ── Pair recording ───────────────────────────────────────────────────────
 
-	/// <summary>
-	/// Resolves a left to its right bucket: <c>Reverse</c> → lookup key → selector → right index
-	/// key → bucket. False when the left has no lookup key or the bucket is empty.
-	/// </summary>
+	// The family's bucket read (Reverse → lookup key → selector → right bucket), shared with the frozen fill and the count join.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private readonly bool TryGetBucket(TLeftKey leftKey, out PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket) {
-		if (!_leftIndex.Reverse.TryGetValue(leftKey, out var lookupKey)) {
-			bucket = null!;
-			return false;
-		}
-
-		var rightIndexKey = TSelector.IsIdentity
-			? Unsafe.As<TLookupKey, TRightIndexKey>(ref lookupKey)
-			: _selector.Select(lookupKey);
-		bucket = _rightIndex.GetValuesUnsafe(rightIndexKey);
-		return bucket.Count > 0;
-	}
+	private readonly JoinManyLeftSymBuckets<TLeftKey, TLeftValue, TLookupKey, TRightIndexKey, TRightKey, TRightValue, TSelector> Buckets()
+		=> new(_leftIndex, _rightIndex, _selector);
 
 	// ── Execution ────────────────────────────────────────────────────────────
 
-	/// <summary>
-	/// One paired execute over every recorded right: builds the paired core over the fan-out's pair
-	/// set, applies the user filter once, then hands the set to the core and delivers each surviving
-	/// right to all of its lefts — through the plain paired execute when no right is shared, through a
-	/// <see cref="JoinManyFanOut{TLeftKey,TRightKey}.Delivery{TRightValue,TContainer}"/> otherwise.
-	/// The set is marked handed off right before the execute — after the
-	/// filter ran — so a throw inside the user lambda leaves it to
-	/// <see cref="JoinManyFanOut{TLeftKey,TRightKey}.Dispose"/>, while a set that reached the core is
-	/// never disposed twice.
-	/// </summary>
+	// One paired execute over the recorded pairs (JoinManyPairedExecute: filter once, hand-off, deliver).
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private void ExecutePairs<TContainer>(ref JoinManyFanOut<TLeftKey, TRightKey> fanOut, ref TContainer container)
-		where TContainer : struct, IJoinedResultContainer<TLeftKey, TRightValue>, allows ref struct {
-		if (fanOut.DistinctRights == 0) {
-			return;
-		}
-
-		var pairedCore = new PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>(_rightCache.Cache, fanOut.Pairs);
-		var builder = new CacheQueryBuilderCombined<
-			NonExecutableQuery<TRightCache>,
-			PairedCacheQueryBuilderCoreCombined<TLeftKey, TRightKey, TRightValue>,
-			TRightKey, TRightValue,
-			Resolvers<BaseResolver<TRightKey, TRightValue>>,
-			TRightValue>(
-			new NonExecutableQuery<TRightCache>(_rightCache),
-			pairedCore,
-			new Resolvers<BaseResolver<TRightKey, TRightValue>>(new BaseResolver<TRightKey, TRightValue>()),
-			0);
-
-		// NoFilter.Apply() is JIT-elided. The filter narrows pairs in place; it cannot add or renumber
-		// them. A throw here (user lambda) must leave disposal to the fan-out.
-		builder = _filter.Apply(builder);
-
-		fanOut.MarkPairsHandedOff();
-		ref var core = ref Unsafe.AsRef(in builder._leftQuery);
-		if (fanOut.SingleLeftPerRight) {
-			// No right is shared, so a pair's JoinedKey is its whole chain: the plain paired execute (the
-			// store calls Add(pair.JoinedKey, value)) delivers exactly what a Delivery would, without the
-			// wrapper or the chain walk.
-			core.ExecutePaired(ref container);
-			return;
-		}
-
-		var delivery = new JoinManyFanOut<TLeftKey, TRightKey>.Delivery<TRightValue, TContainer>(
-			container, fanOut.Heads, fanOut.NodeLefts, fanOut.NodeNexts);
-		core.ExecutePairedJoined(ref delivery);
-		container = delivery.Inner;
-	}
+		where TContainer : struct, IJoinedResultContainer<TLeftKey, TRightValue>, allows ref struct
+		=> JoinManyPairedExecute.Run<TLeftKey, TRightCache, TRightKey, TRightValue, TFilter, TContainer>(_rightCache, ref _filter, ref fanOut, ref container);
 
 	// ── Core outer execution ─────────────────────────────────────────────────
 
@@ -583,9 +449,10 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 			return;
 
 		var fanOut = new JoinManyFanOut<TLeftKey, TRightKey>(leftKeys.Length);
+		var buckets = Buckets();
 		try {
 			foreach (var leftKey in leftKeys) {
-				if (!TryGetBucket(leftKey, out var bucket))
+				if (!buckets.TryGetBucket(leftKey, out var bucket))
 					continue;
 
 				var added = fanOut.RecordBucket(leftKey, bucket);
@@ -652,10 +519,11 @@ public struct JoinManyLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookup
 
 		var inner = new InnerKeyedContainer<TAccessor>(accessor, cloneOnAdd, disposer.IsActive);
 		var fanOut = new JoinManyFanOut<TLeftKey, TRightKey>(candidates.Count);
+		var buckets = Buckets();
 		try {
 			var anyPairs = false;
 			foreach (var leftKey in candidates) {
-				if (!TryGetBucket(leftKey, out var bucket))
+				if (!buckets.TryGetBucket(leftKey, out var bucket))
 					continue;
 
 				// For inner mode, the slot doesn't pre-exist (no outer base execute ran yet).

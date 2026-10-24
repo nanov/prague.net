@@ -404,10 +404,14 @@ using var byAuthor = authorCache.Query()
 - Each `JoinWith{T}` has an `InnerJoinWith{T}` twin (drops lefts with no match) and three filter
   flavors: none, a callback over the right cache's narrowing builder, and callback + user-state `TArg`
   (`static` lambda, 0 B). After `Sort` / `SortBounded` only the outer, unfiltered form binds.
+- **Counting instead of materialising:** every `JoinWith{T}` whose slot is `QueryResults<TRight>` has a
+  `CountJoinWith{T}` / `InnerCountJoinWith{T}` twin whose slot is an `int` — the number of rights the
+  join would have delivered — with the same filter flavors. Unfiltered it reads one index bucket per
+  left and nothing else (no fan-out, no child buffer, no clones); it works eager, prepared and frozen.
 - Joined rows are `JoinResult<TLeft, T1, …>` with `Left`, `Right`, `Right2`, `Right3`, … A query
   chains up to 5 joins. Pooled join results rent one shared buffer and are returned by one `Dispose()`.
-- Lower-level `JoinOne(...)` / `JoinMany(...)` extensions exist for the raw cache; pass the cache
-  wrapper, not `.Query()`.
+- Lower-level `JoinOne(...)` / `JoinMany(...)` / `CountJoin(...)` extensions exist for the raw cache;
+  pass the cache wrapper, not `.Query()`.
 - Caches created through `DataCacheRegistryBuilder` or `AddKafkaCaches` are joined automatically.
   Stand-alone instances need `leftCache.AddJoinedCaches(rightCache, …)` once.
 

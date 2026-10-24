@@ -18,6 +18,7 @@ using Prague.Core;
 ///     <item><c>Fk_OneToOneReverse</c> — <c>JoinWithFfkProfile</c>, the right-unique resolver.</item>
 ///     <item><c>Fk_OneToManyReverse</c> — <c>JoinWithFfkLine</c>, the right-list <c>JoinMany</c>.</item>
 ///     <item><c>Fk_Collection</c> — <c>JoinWithFfkTag</c> over a <c>List&lt;int&gt;</c> FK, the collection <c>JoinMany</c>.</item>
+///     <item><c>Fk_OneToManyReverse_Count</c> / <c>Fk_Collection_Count</c> — <c>CountJoinWith{T}</c> over the same two shapes: the count resolver (an <c>int</c> per left, no right materialised).</item>
 ///     <item><c>Fk_SortBounded_OneToOneReverse</c> — list → <c>SortBounded</c> page → reverse one-to-one join, the bounded joined container.</item>
 ///     <item><c>Fk_SortBounded_ManyToOne</c> — the same bounded page into the FORWARD many-to-one join (#92; the shape had no sorted overload before).</item>
 ///     <item><c>Fk_ManyToOne_Filtered</c> — a right-side filter callback; the replay fallback today.</item>
@@ -52,6 +53,8 @@ public class FrozenFkJoinBenchmarks {
 	private FrozenQuery<int, JoinResult<FfkCustomer, FfkProfile?>> _oneToOneReverseFrozen = null!;
 	private FrozenQuery<int, JoinResult<FfkOrder, QueryResults<FfkLine>>> _oneToManyReverseFrozen = null!;
 	private FrozenQuery<int, JoinResult<FfkDoc, QueryResults<FfkTag>>> _collectionFrozen = null!;
+	private FrozenQuery<int, JoinResult<FfkOrder, int>> _oneToManyReverseCountFrozen = null!;
+	private FrozenQuery<int, JoinResult<FfkDoc, int>> _collectionCountFrozen = null!;
 	private FrozenQuery<int, JoinResult<FfkCustomer, FfkProfile?>> _sortBoundedOneToOneReverseFrozen = null!;
 	private FrozenQuery<int, JoinResult<FfkOrder, FfkCustomer?>> _sortBoundedManyToOneFrozen = null!;
 	private FrozenQuery<int, JoinResult<FfkOrder, FfkCustomer?>> _manyToOneFilteredFrozen = null!;
@@ -109,6 +112,8 @@ public class FrozenFkJoinBenchmarks {
 		_oneToOneReverseFrozen = _customers.Prepare<int>().WithSegment(static s => s).JoinWithFfkProfile().BuildFrozen();
 		_oneToManyReverseFrozen = _orders.Prepare<int>().WithGroup(static g => g).JoinWithFfkLine().BuildFrozen();
 		_collectionFrozen = _docs.Prepare<int>().WithBucket(static b => b).JoinWithFfkTag().BuildFrozen();
+		_oneToManyReverseCountFrozen = _orders.Prepare<int>().WithGroup(static g => g).CountJoinWithFfkLine().BuildFrozen();
+		_collectionCountFrozen = _docs.Prepare<int>().WithBucket(static b => b).CountJoinWithFfkTag().BuildFrozen();
 		_sortBoundedOneToOneReverseFrozen = _customers.Prepare<int>().WithSegment(static s => s)
 			.SortBounded(new FfkCustomerByScoreTies()).JoinWithFfkProfile().BuildFrozen();
 		_sortBoundedManyToOneFrozen = _orders.Prepare<int>().WithGroup(static g => g)
@@ -184,6 +189,34 @@ public class FrozenFkJoinBenchmarks {
 	[BenchmarkCategory("Fk_Collection"), Benchmark]
 	public int Fk_Collection_Frozen() {
 		using var r = _collectionFrozen.ExecutePooled(_bucket);
+		return r.Count;
+	}
+
+	// ── Fk_OneToManyReverse_Count: list (1k) → reverse one-to-many count, no right materialised ────
+
+	[BenchmarkCategory("Fk_OneToManyReverse_Count"), Benchmark(Baseline = true)]
+	public int Fk_OneToManyReverse_Count_Eager() {
+		using var r = _orders.Query().WithGroup(_group).CountJoinWithFfkLine().ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Fk_OneToManyReverse_Count"), Benchmark]
+	public int Fk_OneToManyReverse_Count_Frozen() {
+		using var r = _oneToManyReverseCountFrozen.ExecutePooled(_group);
+		return r.Count;
+	}
+
+	// ── Fk_Collection_Count: list (1k) → collection FK count (residency-checked: forward references) ─
+
+	[BenchmarkCategory("Fk_Collection_Count"), Benchmark(Baseline = true)]
+	public int Fk_Collection_Count_Eager() {
+		using var r = _docs.Query().WithBucket(_bucket).CountJoinWithFfkTag().ExecutePooled();
+		return r.Count;
+	}
+
+	[BenchmarkCategory("Fk_Collection_Count"), Benchmark]
+	public int Fk_Collection_Count_Frozen() {
+		using var r = _collectionCountFrozen.ExecutePooled(_bucket);
 		return r.Count;
 	}
 
