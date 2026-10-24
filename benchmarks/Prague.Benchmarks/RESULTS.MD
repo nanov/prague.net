@@ -2140,3 +2140,33 @@ Run 2 (InProcessNoEmitToolchain, IterationCount=5, WarmupCount=1):
 
 Run 1 (same job, 1-minute load 4.1 at start): pooled 11,741,457 Reads/s / 46,923 Queries/s / 12.23 KB;
 allocating 9,927,888 Reads/s / 39,656 Queries/s / 7689312.44 KB.
+
+## `CountJoinWith{T}` — the count resolver (`JoinCountResolver`)
+
+`FrozenFkJoinBenchmarks`, same fixture as the generated `JoinWith…` rows above, `--inProcess -f net9.0`,
+one category per run, pooled + disposed, 0 B on every row. `Fk_*_Count` is `CountJoinWith{T}` over the
+same shape as its `JoinWith{T}` row: an `int` per left from one bucket read, no right materialised.
+The forward collection count probes the store per referenced key (a reference may dangle), so it is not
+a bare `bucket.Count`.
+
+| Category | Eager | Frozen | Ratio | load (1-min, start → end) |
+|---|---:|---:|---:|---|
+| Fk_OneToManyReverse (JoinWithFfkLine, this tree) | 80.65 us | 56.68 us | 0.70 | 8.45 → 5.16 |
+| **Fk_OneToManyReverse_Count** (CountJoinWithFfkLine) | **23.51 us** | **22.11 us** | 0.94 | 5.16 → 3.96 |
+| Fk_Collection (JoinWithFfkTag, this tree) | 95.02 us | 55.28 us | 0.58 | 3.96 → 3.27 |
+| **Fk_Collection_Count** (CountJoinWithFfkTag, forward) | **34.02 us** | **33.63 us** | 0.99 | 3.27 → 2.55 |
+
+The count is 3.4× (eager) / 2.6× (frozen) cheaper than the `JoinWith` it replaces on the one-to-many shape
+and 2.8× / 1.6× on the collection; frozen barely beats eager because the eager unfiltered count already does
+no fan-out — what is left is the 1k-row narrowing both sides pay.
+
+**No `JoinMany` regression from the shared-bucket / shared-paired-execute refactor** — A/B, base = `HEAD`
+(`3732a47`) in a detached worktree, back to back:
+
+| Category | Base eager / frozen | This tree eager / frozen | load (start) |
+|---|---:|---:|---|
+| Fk_OneToManyReverse | 80.99 / 57.08 us | 80.94 / 54.87 us | base 5.54, tree 2.87 |
+| Fk_Collection | 95.48 / 55.21 us | 98.98 / 54.44 us | base 3.76, tree 4.22 |
+
+Every delta is inside the run-to-run spread at these loads (the eager collection +3.7% ran at the higher
+load; the first tree run above, 95.02 us, is under base).

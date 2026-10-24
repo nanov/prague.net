@@ -3,18 +3,6 @@ namespace Prague.Core;
 using System.Runtime.CompilerServices;
 using Collections;
 
-/// <summary>
-///   The bucket a <c>JoinMany</c> family resolves for one left — the family's own index reads in the
-///   family's own order (right-list: the selector then the right list index; left-symmetric: the left
-///   index's reverse map, the selector, the right list index; collection: the index half) — so the frozen
-///   fill's staleness window is the eager fan-out's. A struct type parameter: the call devirtualizes.
-/// </summary>
-internal interface IManyBucketSource<TLeftKey, TRightKey>
-	where TRightKey : notnull, IEquatable<TRightKey> {
-	/// <summary>False when the left has no bucket or an empty one; <paramref name="bucket" /> is then unspecified.</summary>
-	bool TryGetBucket(TLeftKey leftKey, out PooledSet<TRightKey, DefaultKeyComparer<TRightKey>> bucket);
-}
-
 /// <summary>The last <see cref="JoinManyFusedFill.Window" /> right keys appended to the slot being filled: the linear half of the repeat-sighting check.</summary>
 [InlineArray(JoinManyFusedFill.Window)]
 internal struct ManyKeyWindow<TRightKey> {

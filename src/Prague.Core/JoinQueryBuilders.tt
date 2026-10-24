@@ -4046,6 +4046,108 @@ public static class CacheQueryBuilderCombinedJoinManyLevel<#= level #>Extensions
 
 #endregion
 
+#region Generated CountJoin Extension Methods
+
+<#
+	// CountJoin / InnerCountJoin (and the collection twins): a JoinMany whose slot is the number of rights,
+	// an int, for every level 0..MaxJoins-1 — level 0 over the bare left value, level N over
+	// JoinResult<TValue, T1..TN>. One resolver (JoinCountResolver) over the family's bucket read
+	// (JoinManyRightListBuckets / JoinManyLeftSymBuckets / JoinManyCollection[Forward]Buckets), so every family ×
+	// selector × filter × outer/inner shape is the same emission with a different bucket type. isMany:
+	// false — _manyCount counts pooled child buffers and a count has none. The nested continuation form
+	// (JoinMany(b => b.JoinXxx(...))) has no count variant.
+	var cjNonExec = "CacheQueryBuilderCombined<NonExecutableQuery<TRightCache>, PairedCacheQueryBuilderCoreCombined<TKey, TRightKey, TRightValue>, TRightKey, TRightValue, Resolvers<BaseResolver<TRightKey, TRightValue>>, TRightValue>";
+	var cjRightCacheParam = "IDataCache<TRightCache, TRightKey, TRightValue> rightCache";
+
+	// (filter type, extra parameters, filter construction, filter-arg type parameter, summary suffix)
+	var cjFilters = new[] {
+		new { Type = $"NoFilter<{cjNonExec}>", Params = "", Ctor = "default", ArgTp = "", Doc = "no filter" },
+		new { Type = $"JoinFilter<{cjNonExec}>", Params = $",\n\t\t\tFunc<{cjNonExec}, {cjNonExec}> filter", Ctor = $"new JoinFilter<{cjNonExec}>(filter)", ArgTp = "", Doc = "with a filter on the right cache (only the rights it keeps are counted)" },
+		new { Type = $"JoinFilterWithArg<{cjNonExec}, TFilterArg>", Params = $",\n\t\t\tFunc<{cjNonExec}, TFilterArg, {cjNonExec}> filter,\n\t\t\tTFilterArg filterArg", Ctor = $"new JoinFilterWithArg<{cjNonExec}, TFilterArg>(filter, filterArg)", ArgTp = ", TFilterArg", Doc = "with a filter and a captured argument (zero-alloc with a static lambda)" },
+	};
+
+	// (method base name, shape type parameters, parameters, buckets type, buckets construction, extra constraints, summary)
+	var cjShapes = new[] {
+		new { Name = "CountJoin", Tp = "", Params = $"{cjRightCacheParam},\n\t\t\tCacheKeyValueListIndex<TRightKey, TRightValue, TKey> rightIndex",
+			Buckets = "JoinManyRightListBuckets<TKey, TRightKey, TRightValue, TKey, IdentitySelector<TKey>>", BucketsCtor = "rightIndex, default", Where = "",
+			Doc = "Count join driven by a list index on the right side (the <c>JoinMany(rightCache, rightIndex)</c> shape)" },
+		new { Name = "CountJoin", Tp = ", TIndexKey", Params = $"Func<TKey, TIndexKey> keySelector,\n\t\t\t{cjRightCacheParam},\n\t\t\tCacheKeyValueListIndex<TRightKey, TRightValue, TIndexKey> rightIndex",
+			Buckets = "JoinManyRightListBuckets<TKey, TRightKey, TRightValue, TIndexKey, KeySelector<TKey, TIndexKey>>", BucketsCtor = "rightIndex, new KeySelector<TKey, TIndexKey>(keySelector)", Where = "\n\t\twhere TIndexKey : notnull, IEquatable<TIndexKey>",
+			Doc = "Count join driven by a list index on the right side through a key selector" },
+		new { Name = "CountJoin", Tp = ", TSelectorArg, TIndexKey", Params = $"Func<TKey, TSelectorArg, TIndexKey> keySelector,\n\t\t\tTSelectorArg selectorArg,\n\t\t\t{cjRightCacheParam},\n\t\t\tCacheKeyValueListIndex<TRightKey, TRightValue, TIndexKey> rightIndex",
+			Buckets = "JoinManyRightListBuckets<TKey, TRightKey, TRightValue, TIndexKey, KeySelectorWithArg<TKey, TSelectorArg, TIndexKey>>", BucketsCtor = "rightIndex, new KeySelectorWithArg<TKey, TSelectorArg, TIndexKey>(keySelector, selectorArg)", Where = "\n\t\twhere TIndexKey : notnull, IEquatable<TIndexKey>",
+			Doc = "Count join driven by a list index on the right side through a key selector with a captured argument" },
+		new { Name = "CountJoin", Tp = ", TLookupKey", Params = $"CacheSymmetricKeyValueListIndex<TKey, TValue, TLookupKey> leftSymIndex,\n\t\t\t{cjRightCacheParam},\n\t\t\tCacheKeyValueListIndex<TRightKey, TRightValue, TLookupKey> rightIndex",
+			Buckets = "JoinManyLeftSymBuckets<TKey, TValue, TLookupKey, TLookupKey, TRightKey, TRightValue, IdentitySelector<TLookupKey>>", BucketsCtor = "leftSymIndex, rightIndex, default", Where = "\n\t\twhere TLookupKey : notnull, IEquatable<TLookupKey>",
+			Doc = "Count join driven by a symmetric list index on the left side and a list index on the right side" },
+		new { Name = "CountJoin", Tp = ", TLookupKey, TRightIndexKey", Params = $"CacheSymmetricKeyValueListIndex<TKey, TValue, TLookupKey> leftSymIndex,\n\t\t\tFunc<TLookupKey, TRightIndexKey> keySelector,\n\t\t\t{cjRightCacheParam},\n\t\t\tCacheKeyValueListIndex<TRightKey, TRightValue, TRightIndexKey> rightIndex",
+			Buckets = "JoinManyLeftSymBuckets<TKey, TValue, TLookupKey, TRightIndexKey, TRightKey, TRightValue, KeySelector<TLookupKey, TRightIndexKey>>", BucketsCtor = "leftSymIndex, rightIndex, new KeySelector<TLookupKey, TRightIndexKey>(keySelector)", Where = "\n\t\twhere TLookupKey : notnull, IEquatable<TLookupKey>\n\t\twhere TRightIndexKey : notnull, IEquatable<TRightIndexKey>",
+			Doc = "Count join driven by a symmetric list index on the left side, a key selector and a list index on the right side" },
+		new { Name = "CountJoin", Tp = ", TLookupKey, TSelectorArg, TRightIndexKey", Params = $"CacheSymmetricKeyValueListIndex<TKey, TValue, TLookupKey> leftSymIndex,\n\t\t\tFunc<TLookupKey, TSelectorArg, TRightIndexKey> keySelector,\n\t\t\tTSelectorArg selectorArg,\n\t\t\t{cjRightCacheParam},\n\t\t\tCacheKeyValueListIndex<TRightKey, TRightValue, TRightIndexKey> rightIndex",
+			Buckets = "JoinManyLeftSymBuckets<TKey, TValue, TLookupKey, TRightIndexKey, TRightKey, TRightValue, KeySelectorWithArg<TLookupKey, TSelectorArg, TRightIndexKey>>", BucketsCtor = "leftSymIndex, rightIndex, new KeySelectorWithArg<TLookupKey, TSelectorArg, TRightIndexKey>(keySelector, selectorArg)", Where = "\n\t\twhere TLookupKey : notnull, IEquatable<TLookupKey>\n\t\twhere TRightIndexKey : notnull, IEquatable<TRightIndexKey>",
+			Doc = "Count join driven by a symmetric list index on the left side, a key selector with a captured argument and a list index on the right side" },
+		new { Name = "CountJoinCollection", Tp = "", Params = $"{cjRightCacheParam},\n\t\t\tCacheCollectionSymmetricKeyValueListIndex<TRightKey, TRightValue, TKey> index",
+			Buckets = "JoinManyCollectionBuckets<TKey, TRightKey, TRightValue>", BucketsCtor = "index.Forward", Where = "",
+			Doc = "M:N reverse-collection count join (element → owners, the <c>JoinManyCollection</c> shape)" },
+		new { Name = "CountJoinCollectionForward", Tp = "", Params = $"{cjRightCacheParam},\n\t\t\tCacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TRightKey> index",
+			Buckets = "JoinManyCollectionForwardBuckets<TKey, TRightKey, TValue>", BucketsCtor = "index.Reverse", Where = "",
+			Doc = "M:N forward-collection count join (owner → referenced elements, the <c>JoinManyCollectionForward</c> shape)" },
+	};
+
+	for (int level = 0; level < MaxJoins; level++) {
+		var cjExtraTs = string.Concat(Enumerable.Range(1, level).Select(i => $", T{i}"));
+		var cjCurrent = level == 0 ? "TValue" : $"JoinResult<TValue{cjExtraTs}>";
+		var cjNext = $"JoinResult<TValue{cjExtraTs}, int>";
+#>
+/// <summary>
+///   <c>CountJoin</c> / <c>InnerCountJoin</c> at level <#= level #> → <#= level + 1 #>: per left, the number of
+///   rights the matching <c>JoinMany</c> would deliver, as an <see cref="int" /> slot — without materialising
+///   the rights. Unfiltered it is one index-bucket read per left; a filter runs the <c>JoinMany</c> fan-out
+///   and counts the surviving rights. The inner variants drop the lefts whose count is <c>0</c>.
+/// </summary>
+public static class CacheQueryBuilderCountJoinLevel<#= level #>Extensions {
+<#
+		foreach (var shape in cjShapes) {
+			foreach (var inner in new[] { false, true }) {
+				foreach (var f in cjFilters) {
+					var resolverType = $"JoinCountResolver<TKey, TValue, TRightCache, TRightKey, TRightValue, {shape.Buckets}, {f.Type}>";
+					var methodName = inner ? "Inner" + shape.Name : shape.Name;
+					var methodTp = $"<TDiscriminator, TExecutor, TResolverChain, TKey, TValue{cjExtraTs}{shape.Tp}, TRightCache, TRightKey{f.ArgTp}, TRightValue>";
+#>
+
+	/// <summary><#= shape.Doc #> — <#= inner ? "inner (lefts with a zero count are dropped)" : "outer (a left without a right counts 0)" #>, <#= f.Doc #>.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue,
+		Resolvers<TResolverChain, <#= resolverType #>>,
+		<#= cjNext #>>
+		<#= methodName #><#= methodTp #>(
+			this in CacheQueryBuilderCombined<TDiscriminator, TExecutor, TKey, TValue, TResolverChain, <#= cjCurrent #>> builder,
+			<#= shape.Params #><#= f.Params #>)
+		where TExecutor : struct, ICandidatesExecutor<TKey, TValue>
+		where TDiscriminator : struct, IBaseJoinable
+		where TResolverChain : struct, IResolvers
+		where TKey : notnull, IEquatable<TKey>
+		where TValue : ICacheEquatable<TValue>, ICacheClonable<TValue>
+		where TRightValue : ICacheEquatable<TRightValue>, ICacheClonable<TRightValue>
+		where TRightKey : notnull, IEquatable<TRightKey>
+		where TRightCache : IDataCache<TRightCache, TRightKey, TRightValue><#= shape.Where #> {
+		var resolver = new <#= resolverType #>(
+			(TRightCache)rightCache, new <#= shape.Buckets #>(<#= shape.BucketsCtor #>), <#= f.Ctor #><#= inner ? ", isInner: true" : "" #>);
+		return Unsafe.AsRef(in builder).AddResolver<Resolvers<TResolverChain, <#= resolverType #>>, <#= cjNext #>>(
+			new Resolvers<TResolverChain, <#= resolverType #>>(builder._resolverChain, resolver), false);
+	}
+<#
+				}
+			}
+		}
+#>
+}
+
+<#
+	}
+#>
+#endregion
+
 #region Generated IResolverChain Interfaces and ResolverChain Structs
 
 <#

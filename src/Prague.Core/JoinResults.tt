@@ -295,6 +295,24 @@ internal ref struct <#= accessorName #><TKey, TJoinResult>
 	public void PruneEmptyManySlots<TInnerValue>()
 		=> _results.Filter(new <#= propName #>NonEmptyManyFilter<TKey, TJoinResult, TInnerValue>());
 
+	/// <summary>Drops the rows whose <see cref="int"/> slot <c><#= propName #></c> is <c>0</c> — an inner count join's lefts without a right in the frozen pipeline — keeping the order of the rest.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneZeroCountSlots()
+		=> _results.Filter(new <#= propName #>NonZeroCountFilter<TKey, TJoinResult>());
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots"/>: drops result-map entries where THIS
+	/// accessor's <see cref="int"/> slot (<c><#= propName #></c>) is <c>0</c>, then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>. Struct-dispatched
+	/// filter — zero allocation.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainNonZeroCountSlots<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		_results.Filter(new <#= propName #>NonZeroCountFilter<TKey, TJoinResult>());
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
 	/// <summary>
 	/// Drops result-map entries where THIS accessor's slot (<c><#= propName #></c>) is
 	/// <see langword="null"/> / <c>default</c>, then narrows <paramref name="candidates"/>
@@ -340,6 +358,15 @@ internal readonly struct <#= propName #>NonEmptyManyFilter<TKey, TJoinResult, TI
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public bool Keep(TKey key, ref TJoinResult value)
 		=> value.UnsafeGet<#= propName #><QueryResults<TInnerValue>>().Count > 0;
+}
+
+internal readonly struct <#= propName #>NonZeroCountFilter<TKey, TJoinResult>
+	: ValueDictionary<TKey, TJoinResult, DefaultKeyComparer<TKey>>.IValueDictionaryFilter<TKey, TJoinResult>
+	where TKey : IEquatable<TKey>
+	where TJoinResult : IJoinResult {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public bool Keep(TKey key, ref TJoinResult value)
+		=> value.UnsafeGet<#= propName #><int>() != 0;
 }
 
 <#

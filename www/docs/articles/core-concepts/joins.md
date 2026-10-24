@@ -71,6 +71,10 @@ The reverse side of a many-to-one yields the many as a nested `QueryResults<T>`:
 
 [!code-csharp[](../../../../samples/Prague.Samples/Concepts/Joins.cs#reverse-join)]
 
+When only the number of rights matters, `CountJoinWith{X}` yields the count as `int` without materialising the rights; `InnerCountJoinWith{X}` drops zero counts. Both take the same filter overloads as `JoinWith{X}`; the nested continuation form has no count variant:
+
+[!code-csharp[](../../../../samples/Prague.Samples/Concepts/Joins.cs#count-join)]
+
 A one-to-one yields `TRight?` from either side; a one-to-many yields `QueryResults<T>` from the one side:
 
 [!code-csharp[](../../../../samples/Prague.Samples/Concepts/Joins.cs#one-to-one)]

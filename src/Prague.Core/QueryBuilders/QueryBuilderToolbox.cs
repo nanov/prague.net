@@ -273,6 +273,16 @@ public interface IUnsafeValueAccessor {
 
 	/// <summary>Drops the rows whose slot here is an empty <see cref="QueryResults{TInnerValue}" /> (an inner <c>JoinMany</c>'s lefts without a right after the frozen pipeline's post-pass fill), keeping the order of the rest.</summary>
 	internal void PruneEmptyManySlots<TInnerValue>();
+
+	/// <summary>
+	/// Count-join analog of <see cref="RetainNonEmptyManySlots{TKey,TInnerValue}"/>: drops result-map entries
+	/// where THIS accessor's <see cref="int"/> slot is <c>0</c> (no right counted for the left), then narrows
+	/// <paramref name="candidates"/> to the surviving keys. Used by <c>InnerCountJoin</c>.
+	/// </summary>
+	internal void RetainNonZeroCountSlots<TKey>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) where TKey : IEquatable<TKey>;
+
+	/// <summary>Drops the rows whose <see cref="int"/> slot here is <c>0</c> (an inner count join's lefts without a right in the frozen pipeline), keeping the order of the rest.</summary>
+	internal void PruneZeroCountSlots();
 }
 public interface IUnsafeValueAccessor<TLeftKey> : IUnsafeValueAccessor
 	where TLeftKey : IEquatable<TLeftKey> {
