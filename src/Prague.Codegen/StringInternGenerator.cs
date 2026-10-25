@@ -25,8 +25,8 @@ public sealed class StringInternGenerator : IIncrementalGenerator {
 
 	private static readonly DiagnosticDescriptor NotPartial = new(
 		"CACHE053",
-		"[DataCacheStringIntern(false)] requires a partial property",
-		"Property '{0}' must be declared partial (C# 13+) to opt out of string interning; Prague generates its implementing part",
+		"[DataCacheStringIntern] requires a partial property",
+		"Property '{0}' must be declared partial (C# 13+) to carry [DataCacheStringIntern]; Prague generates its implementing part",
 		"CacheGenerator",
 		DiagnosticSeverity.Error,
 		true);
@@ -55,11 +55,8 @@ public sealed class StringInternGenerator : IIncrementalGenerator {
 			return Target.Error(Diagnostic.Create(NotString, syntax.Identifier.GetLocation(), property.Name,
 				property.Type.ToDisplayString()));
 
-		var isPartial = syntax.Modifiers.Any(SyntaxKind.PartialKeyword);
-		if (!isPartial)
-			return intern
-				? Target.None
-				: Target.Error(Diagnostic.Create(NotPartial, syntax.Identifier.GetLocation(), property.Name));
+		if (!syntax.Modifiers.Any(SyntaxKind.PartialKeyword))
+			return Target.Error(Diagnostic.Create(NotPartial, syntax.Identifier.GetLocation(), property.Name));
 
 		// Only the defining part (accessors without bodies) drives emission; the implementing part is ours.
 		if (syntax.AccessorList is not { } accessors || accessors.Accessors.Any(a => a.Body is not null || a.ExpressionBody is not null))

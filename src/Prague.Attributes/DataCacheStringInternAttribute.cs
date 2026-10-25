@@ -7,9 +7,9 @@ namespace Prague.Core;
 ///   high-cardinality values (ids, free text) that would only churn the intern pool.
 /// </summary>
 /// <remarks>
-///   An opted-out property must be declared <c>partial</c> (C# 13+): Prague's source generator emits the
-///   implementing part and attaches the non-interning formatter to it. <c>[DataCacheStringIntern(true)]</c>
-///   is the default and changes nothing.
+///   The property must be declared <c>partial</c> (C# 13+): Prague's source generator emits the implementing
+///   part and, for <see langword="false"/>, attaches the non-interning formatter to it.
+///   <c>[DataCacheStringIntern(true)]</c> keeps the default behavior.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class DataCacheStringInternAttribute : Attribute {

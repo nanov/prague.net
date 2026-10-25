@@ -28,12 +28,12 @@ public class StringInternGeneratorTests {
 		Assert.That(Ids(diagnostics), Is.EqualTo(new[] { "CACHE053" }));
 	}
 
-	[Test]
-	public void DefaultOnNonPartialProperty_IsANoOp() {
-		var (diagnostics, compilation) = Run(Usings + "public class M { [DataCacheStringIntern] public string Name { get; set; } = \"\"; }");
+	[TestCase("[DataCacheStringIntern]")]
+	[TestCase("[DataCacheStringIntern(true)]")]
+	public void InternOnNonPartialProperty_ReportsCache053(string attribute) {
+		var (diagnostics, _) = Run(Usings + "public class M { " + attribute + " public string Name { get; set; } = \"\"; }");
 
-		Assert.That(Ids(diagnostics), Is.Empty);
-		Assert.That(compilation.SyntaxTrees.Count(), Is.EqualTo(1), "Nothing is generated for a non-partial default.");
+		Assert.That(Ids(diagnostics), Is.EqualTo(new[] { "CACHE053" }));
 	}
 
 	[Test]
