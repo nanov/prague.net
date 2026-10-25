@@ -5,6 +5,7 @@
 namespace Prague.Samples.Advanced;
 
 using System.Collections.Frozen;
+using MessagePack;
 using MessagePack.Resolvers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -36,6 +37,15 @@ public interface IClock {
 
 public interface IRegionPolicy {
 	bool Allows(int customerId);
+}
+#endregion
+
+#region string-intern-opt-out
+public partial class AuditEntry {
+	public string Status { get; set; } = "";   // interned: few distinct values
+
+	[DataCacheStringIntern(false)]
+	public partial string Message { get; set; }   // free text: decoded fresh every time
 }
 #endregion
 
@@ -264,6 +274,18 @@ public class KafkaIntegration {
 		using var provider = services.BuildServiceProvider();
 
 		Assert.That(provider.GetRequiredService<OrderCache>(), Is.Not.Null);
+	}
+
+	[Test]
+	public void StringInternOptOut() {
+		var bytes = MessagePackSerializer.Serialize(
+			new AuditEntry { Status = "rejected", Message = "card declined by issuer" }, PragueMessagePack.Options);
+
+		var a = MessagePackSerializer.Deserialize<AuditEntry>(bytes, PragueMessagePack.Options);
+		var b = MessagePackSerializer.Deserialize<AuditEntry>(bytes, PragueMessagePack.Options);
+
+		Assert.That(b.Status, Is.SameAs(a.Status));
+		Assert.That(b.Message, Is.EqualTo(a.Message).And.Not.SameAs(a.Message));
 	}
 
 	// Wiring that needs a live cluster: compiled, never run here.

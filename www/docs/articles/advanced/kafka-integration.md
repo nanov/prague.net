@@ -226,7 +226,17 @@ Prague routes every SerDe call through `PragueMessagePack.Options`, an internall
 
 [!code-csharp[](../../../../samples/Prague.Samples/Advanced/KafkaIntegration.cs#messagepack-resolver)]
 
-The lambda's input is the default Prague composite (`StringInterningFormatter` + `PragueDateTimeResolver` + `TypelessContractlessStandardResolver`); return whatever composite you want active for SerDe. Put your own resolvers before `defaultResolver` so they win.
+The lambda's input is the default Prague composite (`PragueStringInterningFormatter` + `PragueDateTimeResolver` + `TypelessContractlessStandardResolver`); return whatever composite you want active for SerDe. Put your own resolvers before `defaultResolver` so they win.
+
+### String interning
+
+Prague interns every string it deserializes, so a value repeated across thousands of entities ("EUR", "active", a country code) is held once. The pool is keyed by the UTF-8 bytes on the wire: a repeated value costs a hash and a byte compare, with no decode and no allocation. Entries are weak, so a string the cache no longer references is collected. Strings over 256 UTF-8 bytes are decoded without interning.
+
+High-cardinality values such as ids or free text gain nothing from the pool and only churn it. Opt such a property out with `[DataCacheStringIntern(false)]` and declare it `partial` (C# 13+). The source generator writes the property's implementation and attaches a non-interning formatter to it:
+
+[!code-csharp[](../../../../samples/Prague.Samples/Advanced/KafkaIntegration.cs#string-intern-opt-out)]
+
+The opt-out applies under Prague's default resolver composite. A non-partial property marked `[DataCacheStringIntern(false)]` is a compile error (CACHE053); so is the attribute on a non-string property (CACHE052).
 
 ## Testing
 
