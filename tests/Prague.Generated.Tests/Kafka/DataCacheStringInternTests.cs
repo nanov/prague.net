@@ -1,6 +1,7 @@
 namespace Prague.Generated.Tests.Kafka;
 
 using MessagePack;
+using MessagePack.Resolvers;
 using NUnit.Framework;
 using Prague.Core;
 using Prague.Kafka;
@@ -51,6 +52,38 @@ public class DataCacheStringInternTests {
 		Assert.That(a.Note, Is.EqualTo("private-note"));
 		Assert.That(b.Note, Is.Not.SameAs(a.Note));
 		Assert.That(b.Code, Is.SameAs(a.Code));
+	}
+
+	[Test]
+	public void CustomChain_HostResolverFirst_OptOutStillApplies() {
+		// The documented WithMessagePackResolver shape: host formatters first, Prague's composite after.
+		var options = MessagePackSerializerOptions.Standard.WithResolver(
+			CompositeResolver.Create(NativeDateTimeResolver.Instance, PragueMessagePack.CreateDefaultComposite()));
+		var bytes = MessagePackSerializer.Serialize(
+			new KeyedInternModel { Code = "host-code", Note = "host-note" }, options);
+
+		var a = MessagePackSerializer.Deserialize<KeyedInternModel>(bytes, options);
+		var b = MessagePackSerializer.Deserialize<KeyedInternModel>(bytes, options);
+
+		Assert.That(b.Note, Is.Not.SameAs(a.Note));
+		Assert.That(b.Code, Is.SameAs(a.Code));
+	}
+
+	[Test]
+	public void CustomChain_SourceGeneratedFormattersFirst_OptOutIsIgnored() {
+		// Known limitation, pinned: MessagePack's source generator cannot see Prague's generated
+		// [MessagePackFormatter], so its formatter reads Note through the resolver's interning string
+		// formatter. If this starts failing, MessagePack honors the attribute and the docs can drop the caveat.
+		var options = MessagePackSerializerOptions.Standard.WithResolver(
+			CompositeResolver.Create(GeneratedMessagePackResolver.Instance, PragueMessagePack.CreateDefaultComposite()));
+		var bytes = MessagePackSerializer.Serialize(
+			new KeyedInternModel { Code = "sourcegen-code", Note = "sourcegen-note" }, options);
+
+		var a = MessagePackSerializer.Deserialize<KeyedInternModel>(bytes, options);
+		var b = MessagePackSerializer.Deserialize<KeyedInternModel>(bytes, options);
+
+		Assert.That(options.Resolver.GetFormatter<KeyedInternModel>()!.GetType().Name, Is.EqualTo("KeyedInternModelFormatter"));
+		Assert.That(b.Note, Is.SameAs(a.Note));
 	}
 
 	[Test]

@@ -236,7 +236,7 @@ High-cardinality values such as ids or free text gain nothing from the pool and 
 
 [!code-csharp[](../../../../samples/Prague.Samples/Advanced/KafkaIntegration.cs#string-intern-opt-out)]
 
-The opt-out applies under Prague's default resolver composite. A non-partial property marked `[DataCacheStringIntern(false)]` is a compile error (CACHE053); so is the attribute on a non-string property (CACHE052).
+The opt-out applies under Prague's default resolver composite, and under a `WithMessagePackResolver` chain that puts your resolvers before `defaultResolver`. It does not apply when MessagePack's source-generated resolver (`GeneratedMessagePackResolver`) comes first: that generator cannot see the attribute Prague generates, so a `[MessagePackObject]` property it serves stays interned. A non-partial property marked `[DataCacheStringIntern(false)]` is a compile error (CACHE053); so is the attribute on a non-string property (CACHE052).
 
 ## Testing
 
