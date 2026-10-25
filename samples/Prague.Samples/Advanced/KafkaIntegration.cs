@@ -5,7 +5,7 @@
 namespace Prague.Samples.Advanced;
 
 using System.Collections.Frozen;
-using MessagePack.Resolvers;
+using MessagePack;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
@@ -250,15 +250,15 @@ public class KafkaIntegration {
 	}
 
 	[Test]
-	public void MessagePackResolver() {
+	public void MessagePackFormatters() {
 		var services = NewServices();
 
 		#region messagepack-resolver
 		services.AddKafkaCaches(
 			o => o.BootstrapServers = "kafka:9092",
 			builder => builder.AddCache<OrderCache, string, Order>(),
-			options => options.WithMessagePackResolver(defaultResolver =>
-				CompositeResolver.Create(NativeDateTimeResolver.Instance, defaultResolver)));   // your formatters first, Prague's defaults after
+			options => options.WithMessagePackFormatterFactory(defaultFactory =>
+				MessagePackFormatterFactory.Combine(NativeDateTimeFormatterFactory.Instance, defaultFactory)));   // your formatters first, Prague's defaults after
 		#endregion
 
 		using var provider = services.BuildServiceProvider();

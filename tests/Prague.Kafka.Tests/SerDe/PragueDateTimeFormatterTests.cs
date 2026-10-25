@@ -2,14 +2,13 @@ namespace Prague.Kafka.Tests.SerDe;
 
 using Prague.Kafka.SerDe;
 using MessagePack;
-using MessagePack.Resolvers;
 using NUnit.Framework;
 
 [TestFixture]
 public class PragueDateTimeFormatterTests {
 	private static readonly MessagePackSerializerOptions Options =
-		MessagePackSerializerOptions.Standard.WithResolver(
-			CompositeResolver.Create(PragueDateTimeResolver.Instance, StandardResolver.Instance));
+		new(new MessagePackFormatterResolver(
+			MessagePackFormatterFactory.Combine(PragueDateTimeFormatterFactory.Instance, MessagePackFormatterFactory.Default)));
 
 	[Test]
 	public void Serialize_ProducesLegacyInt64Encoding() {
@@ -40,8 +39,8 @@ public class PragueDateTimeFormatterTests {
 		var instantUtc = new DateTime(2026, 5, 17, 12, 34, 56, DateTimeKind.Utc);
 
 		// Encode via MessagePack's built-in DateTime writer (writes standard ext timestamp).
-		// We use NativeDateTimeResolver-less options so DateTime goes through the default ext writer.
-		var standardExtOptions = MessagePackSerializerOptions.Standard.WithResolver(StandardResolver.Instance);
+		// We use options without NativeDateTimeFormatterFactory so DateTime goes through the default ext writer.
+		var standardExtOptions = MessagePackSerializerOptions.Default;
 		var extBytes = MessagePackSerializer.Serialize(instantUtc, standardExtOptions);
 
 		// Sanity: first byte should be one of the ext type prefixes (0xd6, 0xd7, 0xc7).
@@ -65,10 +64,11 @@ public class PragueDateTimeFormatterTests {
 }
 
 [TestFixture]
+/// <summary>v4's generic nullable formatter must resolve Prague's DateTime formatter through the chain.</summary>
 public class PragueNullableDateTimeFormatterTests {
 	private static readonly MessagePackSerializerOptions Options =
-		MessagePackSerializerOptions.Standard.WithResolver(
-			CompositeResolver.Create(PragueDateTimeResolver.Instance, StandardResolver.Instance));
+		new(new MessagePackFormatterResolver(
+			MessagePackFormatterFactory.Combine(PragueDateTimeFormatterFactory.Instance, MessagePackFormatterFactory.Default)));
 
 	[Test]
 	public void Nullable_Null_RoundTrips() {
@@ -93,7 +93,7 @@ public class PragueNullableDateTimeFormatterTests {
 	[Test]
 	public void Nullable_FromStandardTimestampExt_StillDecodes() {
 		var instantUtc = new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc);
-		var standardExtOptions = MessagePackSerializerOptions.Standard.WithResolver(StandardResolver.Instance);
+		var standardExtOptions = MessagePackSerializerOptions.Default;
 		var extBytes = MessagePackSerializer.Serialize<DateTime?>(instantUtc, standardExtOptions);
 
 		// Sanity: should be FixExt prefix.

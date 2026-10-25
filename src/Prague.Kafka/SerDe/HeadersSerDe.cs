@@ -116,7 +116,7 @@ public static class HeadersSerDe {
 	/// </summary>
 	public static bool TryDeserializeMessagePackExact<T>(byte[] bytes, out T? value) {
 		try {
-			value = MessagePackSerializer.Deserialize<T>(bytes.AsMemory(), options: PragueMessagePack.Options, out var bytesRead);
+			value = SpanMessagePackDeserializer.Deserialize<T>(bytes, out var bytesRead);
 			if (bytesRead == bytes.Length) {
 				return true;
 			}

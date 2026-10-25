@@ -30,7 +30,7 @@
     <!-- MessagePack floats on the 3.x line so the library always builds against the
          latest 3.x; consumers are free to pull any newer 3.x of their own. -->
     <PropertyGroup>
-        <MessagePackVersion>3.*</MessagePackVersion>
+        <MessagePackVersion>4.0.0-preview.1</MessagePackVersion>
     </PropertyGroup>
 
     <!-- Auto-include a per-project README.md (next to the csproj) in its NuGet package.
