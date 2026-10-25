@@ -2,7 +2,7 @@
 
 > **Read when:** orienting in the Kafka layer (lifecycle, raw zero-copy path, extension points). For specifics jump to a topic file below.
 
-Kafka consumer/producer integration, SerDe, filters, health, OpenTelemetry, background worker. Built on the **`Nanov.Confluent.Kafka` fork** (keeps the `Confluent.Kafka` namespace) for its raw, span-based `ConsumeRaw` / `RawProduce` APIs.
+Kafka consumer/producer integration, SerDe, filters, health, OpenTelemetry, background worker. Built on the **`Nanov.Kafka` fork** of Confluent.Kafka (namespace `Nanov.Kafka`) for its raw, span-based `ConsumeRaw` / `RawProduce` APIs.
 
 ## Lifecycle & extension points
 

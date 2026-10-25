@@ -1,6 +1,6 @@
 namespace Prague.Kafka.IntegrationTests;
 
-using Confluent.Kafka;
+using Nanov.Kafka;
 using Entities;
 using MessagePack;
 using Microsoft.Extensions.Configuration;

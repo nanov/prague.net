@@ -5035,7 +5035,7 @@ public class CacheGenerator : IIncrementalGenerator {
 		// Generate concrete enricher classes in Prague.Kafka.Internal namespace
 		w.NamespaceBlock("Prague.Kafka.Internal", (ref CodeWriter w) => {
 			w.Using("System");
-			w.Using("Confluent.Kafka");
+			w.Using("Nanov.Kafka");
 			w.Using("Prague.Core");
 
 			// Add unique namespaces
@@ -5170,7 +5170,7 @@ public class CacheGenerator : IIncrementalGenerator {
 				w.Line("// Enrich from headers - optimized with CollectionsMarshal.AsSpan and Ascii.Equals");
 				w.Line("var headersSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(");
 				w.Indent((ref CodeWriter w) => {
-					w.Line("System.Runtime.CompilerServices.Unsafe.As<System.Collections.Generic.List<Confluent.Kafka.IHeader>>(headers.BackingList));");
+					w.Line("System.Runtime.CompilerServices.Unsafe.As<System.Collections.Generic.List<Nanov.Kafka.IHeader>>(headers.BackingList));");
 				});
 				w.ForEach("ref readonly var header in headersSpan", EmitProperties);
 			}
@@ -5207,7 +5207,7 @@ public class CacheGenerator : IIncrementalGenerator {
 			// Inline KafkaHeaders overload — used by the raw produce path. The header-value byte[]s
 			// convert implicitly to ReadOnlyMemory<byte>, so the body is identical.
 			w.Attribute("System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)");
-			w.Method($"public static void Derich({typeName} entity, ref Confluent.Kafka.KafkaHeaders headers)", (ref CodeWriter w) => {
+			w.Method($"public static void Derich({typeName} entity, ref Nanov.Kafka.KafkaHeaders headers)", (ref CodeWriter w) => {
 				EmitDerichBody(ref w, info);
 			});
 		});
@@ -5294,13 +5294,13 @@ public class CacheGenerator : IIncrementalGenerator {
 				w.Line();
 				w.Summary("Extracts values from entity and adds them to Kafka headers (dericher).");
 				w.Attribute("System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)");
-				w.Method($"public static void Derich({typeName} entity, Confluent.Kafka.Headers headers)", (ref CodeWriter w) => {
+				w.Method($"public static void Derich({typeName} entity, Nanov.Kafka.Headers headers)", (ref CodeWriter w) => {
 					w.Line($"Prague.Kafka.Internal.{simpleTypeName}Dericher.Derich(entity, headers);");
 				});
 				w.Line();
 				w.Summary("Allocation-free dericher for the raw produce path.");
 				w.Attribute("System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)");
-				w.Method($"public static void Derich({typeName} entity, ref Confluent.Kafka.KafkaHeaders headers)", (ref CodeWriter w) => {
+				w.Method($"public static void Derich({typeName} entity, ref Nanov.Kafka.KafkaHeaders headers)", (ref CodeWriter w) => {
 					w.Line($"Prague.Kafka.Internal.{simpleTypeName}Dericher.Derich(entity, ref headers);");
 				});
 			});
@@ -5350,7 +5350,7 @@ public class CacheGenerator : IIncrementalGenerator {
 				w.Line($"var keyBytes = Prague.Kafka.SerDe.CacheSerde<{keyType}>.Serialize(item.{keyAccessor});");
 				w.Line($"var valueBytes = Prague.Kafka.SerDe.CacheSerde<{docType}>.Serialize(item);");
 				w.Line();
-				w.Line("var headers = new Confluent.Kafka.Headers();");
+				w.Line("var headers = new Nanov.Kafka.Headers();");
 				w.Line($"{docType}.Derich(item, headers);");
 				w.Line();
 				w.Line("var pragueHeaders = new System.Collections.Generic.List<Prague.Kafka.Dump.PragueHeader>(headers.Count);");
@@ -5541,7 +5541,7 @@ public class CacheGenerator : IIncrementalGenerator {
 		w.Using("System");
 		w.Using("System.Collections.Generic");
 		w.Using("System.Linq");
-		w.Using("Confluent.Kafka");
+		w.Using("Nanov.Kafka");
 		w.Using("Prague.Core");
 
 		// Add unique namespaces

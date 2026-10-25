@@ -2,7 +2,7 @@ namespace Prague.Kafka.IntegrationTests;
 
 using Prague.Kafka;
 using Prague.Kafka.SerDe;
-using Confluent.Kafka;
+using Nanov.Kafka;
 using Entities;
 using MessagePack;
 using MessagePack.Resolvers;

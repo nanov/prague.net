@@ -1,7 +1,7 @@
 namespace Prague.Kafka.IntegrationTests;
 
 using System.Collections.Concurrent;
-using Confluent.Kafka;
+using Nanov.Kafka;
 using Entities;
 using MessagePack;
 using Microsoft.Extensions.Configuration;

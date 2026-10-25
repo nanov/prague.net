@@ -1,6 +1,6 @@
 namespace Prague.Kafka;
 
-using Confluent.Kafka;
+using Nanov.Kafka;
 
 public interface IKafkaCacheBuilderProvider {
 	internal RawConsumerBuilder NewRawConsumerBuilder(

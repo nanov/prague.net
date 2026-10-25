@@ -1,6 +1,6 @@
 namespace Prague.Kafka;
 
-using Confluent.Kafka;
+using Nanov.Kafka;
 using Internal;
 
 public interface IKafkaCache {

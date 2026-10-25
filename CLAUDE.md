@@ -10,7 +10,7 @@ Guidance for Claude Code working in this repo. Keep this file compact — depth 
 - Index types: `Unique` (1:1), `Many` (1:N), `Range` (sorted), plus key-set / symmetric variants — automatic intersection + plan selection.
 - Compile-time joins (1:1 and 1:N) with pooled, zero-allocation result sets; FK-attribute-driven `JoinWith{T}`.
 - Two query flavors: eager `Query()…Execute()` and prepared `Prepare()…Build()` / `BuildFrozen()` (plan once, execute on demand, 0 B per execution). An unsorted frozen result has **no row-order guarantee** — see `context/query.md`.
-- Kafka integration on the `Nanov.Confluent.Kafka` fork — raw, span-based zero-copy consume/produce path.
+- Kafka integration on the `Nanov.Kafka` fork — raw, span-based zero-copy consume/produce path.
 
 ## Commands
 

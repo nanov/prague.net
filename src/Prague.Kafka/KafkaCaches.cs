@@ -1,6 +1,6 @@
 namespace Prague.Kafka;
 
-using Confluent.Kafka;
+using Nanov.Kafka;
 
 internal static class KafkaCaches {
 	public const string ProducerInstanceIdHeaderName = "X-Producer-Id";
