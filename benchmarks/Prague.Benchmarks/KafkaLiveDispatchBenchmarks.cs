@@ -2,7 +2,7 @@ namespace Prague.Benchmarks;
 
 using System.Runtime.InteropServices;
 using BenchmarkDotNet.Attributes;
-using Confluent.Kafka;
+using Nanov.Kafka;
 using MessagePack;
 using Prague.Core;
 using Prague.Kafka;

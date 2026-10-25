@@ -75,14 +75,14 @@ public class DualClusterCacheTests {
 
         for (var i = 1; i <= 3; i++) {
             var product = new Product { Id = i, Name = $"Product-{i}", Price = i * 10m, Category = "Cat" };
-            producerA.Produce(_productTopic, new Confluent.Kafka.Message<byte[], byte[]> {
+            producerA.Produce(_productTopic, new Nanov.Kafka.Message<byte[], byte[]> {
                 Key = MessagePack.MessagePackSerializer.Serialize(i), Value = MessagePack.MessagePackSerializer.Serialize(product)
             });
         }
 
         for (var i = 1; i <= 2; i++) {
             var order = new Order { Id = i, ProductId = i, Quantity = i * 2, Status = "pending" };
-            producerB.Produce(_orderTopic, new Confluent.Kafka.Message<byte[], byte[]> {
+            producerB.Produce(_orderTopic, new Nanov.Kafka.Message<byte[], byte[]> {
                 Key = MessagePack.MessagePackSerializer.Serialize(i), Value = MessagePack.MessagePackSerializer.Serialize(order)
             });
         }

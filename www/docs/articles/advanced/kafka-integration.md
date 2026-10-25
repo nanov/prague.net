@@ -11,7 +11,7 @@ Every code block on this page compiles in `samples/Prague.Samples/Advanced/Kafka
 
 ## Kafka model in one paragraph
 
-Prague assumes each cache is backed by a single compacted Kafka topic **with one partition**, where the message key maps to the cache's primary key. Tombstones (`null` value) delete; non-null values upsert. Partition EOF marks the boundary between *initial load* (replay of the topic state) and *live* (subsequent live updates); the load handshake completes on the first partition EOF, so a multi-partition topic goes live before the load has finished (not enforced in code). Consumer group offset commit, partition rebalance, and broker failover are delegated to `Confluent.Kafka` and librdkafka. If you want a refresher, read the Confluent intro to log compaction — you only need to know that, and the rest of this page makes sense.
+Prague assumes each cache is backed by a single compacted Kafka topic **with one partition**, where the message key maps to the cache's primary key. Tombstones (`null` value) delete; non-null values upsert. Partition EOF marks the boundary between *initial load* (replay of the topic state) and *live* (subsequent live updates); the load handshake completes on the first partition EOF, so a multi-partition topic goes live before the load has finished (not enforced in code). Consumer group offset commit, partition rebalance, and broker failover are delegated to the Kafka client (`Nanov.Kafka`) and librdkafka. If you want a refresher, read the Confluent intro to log compaction — you only need to know that, and the rest of this page makes sense.
 
 ## Creating a topic
 
@@ -233,7 +233,7 @@ The lambda's input is the default Prague composite (`StringInterningFormatter` +
 There is no in-memory broker substitute (the former `Prague.Kafka.TestAdaptor` was removed). Test against a real broker — Prague's own integration tests use Testcontainers. Two things to set up:
 
 - **Give each consumer under test its own `group.id`** (`ClientSettings["group.id"]`). The default group id is the process's instance id, shared by every Prague consumer in the process, so two providers built in one test run would otherwise join one group and split the partitions between them.
-- **A process does not consume what it produced.** The self-filter drops every message stamped with this process's `X-Producer-Id`, from any provider in the process. To load a cache with what code under test produced in the same process, read the raw messages and re-produce them without that header, or produce the fixtures with a plain Confluent producer.
+- **A process does not consume what it produced.** The self-filter drops every message stamped with this process's `X-Producer-Id`, from any provider in the process. To load a cache with what code under test produced in the same process, read the raw messages and re-produce them without that header, or produce the fixtures with a plain Kafka producer.
 
 ## HTTP inspection
 

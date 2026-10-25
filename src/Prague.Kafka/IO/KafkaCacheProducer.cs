@@ -1,7 +1,7 @@
 namespace Prague.Kafka.IO;
 
 using System.Runtime.CompilerServices;
-using Confluent.Kafka;
+using Nanov.Kafka;
 using Internal;
 using Microsoft.Extensions.Logging;
 using Options;

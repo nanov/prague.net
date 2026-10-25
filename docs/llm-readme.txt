@@ -30,8 +30,8 @@ Prague.Core       runtime: InMemoryDataCache<TKey,TValue>, indices, query engine
 Prague.Attributes the attributes, namespace Prague.Core (yes: the attributes live in namespace
                   Prague.Core even though the package is Prague.Attributes).
 Prague.Codegen    source generator, netstandard2.0, referenced as analyzer.
-Prague.Kafka      AddKafkaCaches DI, raw zero-copy consumer/producer on the Nanov.Confluent.Kafka
-                  fork (namespace stays Confluent.Kafka), filters, health checks, OpenTelemetry.
+Prague.Kafka      AddKafkaCaches DI, raw zero-copy consumer/producer on the Nanov.Kafka fork
+                  (namespace Nanov.Kafka), filters, health checks, OpenTelemetry.
 Prague.Api        MapPragueEndpoints(): GET /prague, /prague/{CacheName}, /prague/{CacheName}/{id}.
 Prague.Api.UI     AddPragueUI()/MapPragueUI(): MudBlazor UI over Prague.Api.
 

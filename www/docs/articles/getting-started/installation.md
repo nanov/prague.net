@@ -18,7 +18,7 @@ description: Prague NuGet packages, supported target frameworks and the project 
 | `Prague.Core` | Runtime: `InMemoryDataCache`, indices, query engine, prepared/frozen queries, joins, `QueryResults<T>`, `DataCacheRegistry`. |
 | `Prague.Attributes` | The user-facing attribute set (`[DataCache]`, `[DataCacheKey]`, `[DataCacheIndex]`, `[DataCacheForeignKey<T>]`, …). The attributes live in namespace `Prague.Core`. |
 | `Prague.Codegen` | Roslyn source generator (`netstandard2.0`). Referenced as an analyzer so its types do not appear in your output. |
-| `Prague.Kafka` | Kafka consumer/producer on the `Nanov.Confluent.Kafka` fork, SerDe, filters, change detection, health checks, OpenTelemetry. Pulled in by `Prague`; reference `Prague.Core` + `Prague.Attributes` + `Prague.Codegen` directly to stay broker-free. |
+| `Prague.Kafka` | Kafka consumer/producer on the `Nanov.Kafka` fork, SerDe, filters, change detection, health checks, OpenTelemetry. Pulled in by `Prague`; reference `Prague.Core` + `Prague.Attributes` + `Prague.Codegen` directly to stay broker-free. |
 | `Prague.Api` / `Prague.Api.UI` | `MapPragueEndpoints()` HTTP inspection surface over live caches, and a MudBlazor UI for it. Optional. |
 
 The version shown in the sidebar is the latest stable release on NuGet. Prerelease builds carry a `-pre.N` suffix and need `--prerelease` on `dotnet add package`.

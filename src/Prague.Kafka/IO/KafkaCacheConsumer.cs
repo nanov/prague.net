@@ -3,7 +3,7 @@ namespace Prague.Kafka.IO;
 using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using Confluent.Kafka;
+using Nanov.Kafka;
 using Core;
 using Filters;
 using Internal;

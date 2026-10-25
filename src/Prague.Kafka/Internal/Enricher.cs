@@ -1,6 +1,6 @@
 namespace Prague.Kafka.Internal;
 
-using Confluent.Kafka;
+using Nanov.Kafka;
 
 /// <summary>
 ///   Base class for enriching cache items with Kafka message metadata.

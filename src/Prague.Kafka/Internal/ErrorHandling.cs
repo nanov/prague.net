@@ -1,7 +1,7 @@
 namespace Prague.Kafka.Internal;
 
 using System.Collections.Frozen;
-using Confluent.Kafka;
+using Nanov.Kafka;
 
 // we need to be more restrictive as we are dealing with realtime data here
 public static class KafkaErrorHandling {

@@ -4,7 +4,7 @@
 namespace Prague.Samples.Reference;
 
 using System.Text.Json;
-using Confluent.Kafka;
+using Nanov.Kafka;
 using NUnit.Framework;
 using Prague.Core;
 using Prague.Kafka.SerDe;

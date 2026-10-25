@@ -14,9 +14,8 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Testcontainers.Kafka + Microsoft.Extensions.Hosting are used by the scenario tests added in
-         later tasks. The Kafka client (Nanov.Confluent.Kafka, which exposes the Confluent.Kafka
-         namespace) arrives transitively through the Prague.Kafka ProjectReference — adding an explicit
-         Confluent.Kafka package would collide with it. -->
+         later tasks. The Kafka client (Nanov.Kafka) arrives transitively through the Prague.Kafka
+         ProjectReference. -->
     <PackageReference Include="HdrHistogram" Version="2.5.0" />
     <PackageReference Include="Testcontainers.Kafka" Version="4.16.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="$(MicrosoftRuntimeVersion)" />

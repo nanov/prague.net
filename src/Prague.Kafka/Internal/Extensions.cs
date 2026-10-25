@@ -3,7 +3,7 @@ namespace Prague.Kafka.Internal;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using Confluent.Kafka;
+using Nanov.Kafka;
 #if NET9_0_OR_GREATER
 using Ascii = System.Text.Ascii;
 

@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Nanov.Confluent.Kafka" Version="2.15.1.2" />
+    <PackageReference Include="Nanov.Kafka" Version="2.16.0.2" />
     <PackageReference Include="MessagePack" Version="$(MessagePackVersion)"/>
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="$(MicrosoftRuntimeVersion)"/>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="$(MicrosoftRuntimeVersion)"/>

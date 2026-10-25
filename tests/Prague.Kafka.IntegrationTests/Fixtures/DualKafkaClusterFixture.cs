@@ -1,7 +1,7 @@
 namespace Prague.Kafka.IntegrationTests;
 
-using Confluent.Kafka;
-using Confluent.Kafka.Admin;
+using Nanov.Kafka;
+using Nanov.Kafka.Admin;
 using Testcontainers.Kafka;
 
 [SetUpFixture]

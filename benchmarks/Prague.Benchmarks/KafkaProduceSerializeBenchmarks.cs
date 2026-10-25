@@ -1,7 +1,7 @@
 namespace Prague.Benchmarks;
 
 using BenchmarkDotNet.Attributes;
-using Confluent.Kafka;
+using Nanov.Kafka;
 using Prague.Kafka;
 using Prague.Kafka.Internal;
 using Prague.Kafka.SerDe;

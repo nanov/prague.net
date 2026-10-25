@@ -132,7 +132,7 @@ dotnet add package Prague.Api.UI   # optional: Blazor UI over Prague.Api
 | `Prague.Core` | Runtime: `InMemoryDataCache`, indices, query engine, prepared/frozen queries, joins. |
 | `Prague.Attributes` | `[DataCache]`, `[DataCacheKey]`, `[DataCacheIndex]`, `[DataCacheForeignKey<T>]`, … |
 | `Prague.Codegen` | Roslyn source generator (`netstandard2.0`, referenced as an analyzer). |
-| `Prague.Kafka` | Consumer/producer on the `Nanov.Confluent.Kafka` fork, SerDe, filters, health checks, OTel. |
+| `Prague.Kafka` | Consumer/producer on the `Nanov.Kafka` fork, SerDe, filters, health checks, OTel. |
 | `Prague.Api` / `Prague.Api.UI` | `MapPragueEndpoints()` HTTP surface over live caches, and a MudBlazor UI for it. |
 
 Every package multi-targets `net9.0;net10.0`. Published versions are on the `0.6.0-pre.*` line.
@@ -909,7 +909,7 @@ MIT — see [LICENSE](LICENSE).
 
 Named after Prague, the birthplace of Franz Kafka, whose works inspired the Kafka streaming platform
 that Prague integrates with. Kafka access is through the
-[`Nanov.Confluent.Kafka`](https://www.nuget.org/packages/Nanov.Confluent.Kafka) fork for its raw,
+[`Nanov.Kafka`](https://www.nuget.org/packages/Nanov.Kafka) fork for its raw,
 span-based consume/produce APIs.
 
 ---

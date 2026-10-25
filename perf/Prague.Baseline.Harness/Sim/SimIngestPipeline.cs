@@ -1,7 +1,7 @@
 namespace Prague.Baseline.Harness.Sim;
 
 using System.Runtime.InteropServices;
-using Confluent.Kafka;
+using Nanov.Kafka;
 using Prague.Baseline.Scenario;
 using Prague.Kafka.Internal;
 using Prague.Kafka.SerDe;
