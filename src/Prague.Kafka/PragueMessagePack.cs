@@ -13,21 +13,18 @@ using SerDe;
 ///   of that static do not affect Prague's wire format.
 /// </summary>
 public static class PragueMessagePack {
-	private static readonly StringInterningFormatter _stringInterningFormatter = new();
-
 	/// <summary>
-	///   Builds Prague's default resolver composite. The built-in MessagePack
-	///   <see cref="StringInterningFormatter"/> sits in the formatter slot
-	///   (uses a <c>ConditionalWeakTable</c> internally so interned entries
-	///   are reclaimed by the GC when no other references exist — no
-	///   intern-table leak); <see cref="PragueDateTimeResolver"/> intercepts
+	///   Builds Prague's default resolver composite. <see cref="PragueStringInterningFormatter"/>
+	///   sits in the formatter slot (weakly interns strings by their UTF-8 bytes, so
+	///   interned entries are reclaimed by the GC when no other references exist);
+	///   <see cref="PragueDateTimeResolver"/> intercepts
 	///   DateTime/DateTime?; <see cref="TypelessContractlessStandardResolver"/>
 	///   handles everything else for byte-for-byte compatibility with topics
 	///   produced under the historical host-side composite.
 	/// </summary>
 	internal static IFormatterResolver CreateDefaultComposite() =>
 		CompositeResolver.Create(
-			new IMessagePackFormatter[] { _stringInterningFormatter },
+			new IMessagePackFormatter[] { PragueStringInterningFormatter.Instance },
 			new IFormatterResolver[] {
 				PragueDateTimeResolver.Instance,
 				TypelessContractlessStandardResolver.Instance
