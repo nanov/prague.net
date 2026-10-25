@@ -27,18 +27,18 @@ Driven by `[DataCache]` POCOs. For each it emits a `partial XxxCache` with: inde
 
 ## FK join-convenience methods
 
-`[DataCacheForeignKey<T>]` emits `.JoinWith{T}()` / `.InnerJoinWith{T}()`, outer + inner, at every chain level. Three overloads each: no-filter, filter lambda, filter + user-state `TArg` — forwarding to the lower-level join extensions and their `NoFilter`/`JoinFilter`/`JoinFilterWithArg` strategy structs ([`joins.md`](joins.md)).
+`[DataCacheForeignKey<T>]` emits `.JoinWith{T}()` / `.InnerJoinWith{T}()`, outer + inner, at every chain level. Where the slot is a `QueryResults` (the rows resolved by `JoinManyRightListIndexResolver` / `JoinManyCollectionResolver` below) it also emits `.CountJoinWith{T}()` / `.InnerCountJoinWith{T}()` — same overloads and same sorted twin, an `int` slot, resolver `JoinCountResolver` over that family's bucket read ([`joins.md`](joins.md) § Count join). Three overloads each: no-filter, filter lambda, filter + user-state `TArg` — forwarding to the lower-level join extensions and their `NoFilter`/`JoinFilter`/`JoinFilterWithArg` strategy structs ([`joins.md`](joins.md)).
 
 Which method lands on which cache, by declared cardinality and FK shape. "Forward" = on the declaring cache; "reverse" = on the target cache. Every row emits all three filter flavors of both `JoinWith{T}` and `InnerJoinWith{T}`; the last column is the `Sort`/`SortBounded` twin, which is **outer and no-filter only** (a `SortedQuery<TInner>` discriminator is `IBaseJoinable` but not `ICacheCarrier`, so `InnerJoinWith` and the filtered flavors cannot bind — eager too).
 
 | FK declaration | Direction | Auto index | Resolver | `Sort →` twin |
 |---|---|---|---|---|
-| `OneToMany` on a scalar | reverse (target cache) | `CacheKeyValueListIndex` on the declaring cache | `JoinManyRightListIndexResolver` | yes |
+| `OneToMany` on a scalar | reverse (target cache) | `CacheKeyValueListIndex` on the declaring cache | `JoinManyRightListIndexResolver`; `CountJoinWith{T}` → `JoinCountResolver` + `JoinManyRightListBuckets` | yes |
 | `OneToOne` on a scalar | reverse (target cache) | `CacheUniqueIndex` / `CacheSymmetricUniqueIndex` on the declaring cache | `JoinOneRightUniqueIndexResolver` | yes |
 | `ManyToOne` on a scalar | forward | `CacheSymmetricKeyValueListIndex` | `JoinOneLeftSymResolver` (shape A1) | yes (#92) |
 | `OneToOne` on a scalar, **not** the PK | forward (#92) | `CacheSymmetricUniqueIndex` | `JoinOneLeftUniqueIndexResolver` (shape L1) | yes (#92) |
 | `OneToOne` on the **PK** property | forward (#92) | plain `CacheUniqueIndex` (unused by the join) | `JoinOneResolver` (PK-to-PK, no index step) | yes (#92) |
-| `ManyToOne` on a `List<TKey>` | forward + reverse | `CacheCollectionSymmetricKeyValueListIndex` | `JoinManyCollectionResolver` | yes (both directions) |
+| `ManyToOne` on a `List<TKey>` | forward + reverse | `CacheCollectionSymmetricKeyValueListIndex` | `JoinManyCollectionResolver`; `CountJoinWith{T}` → `JoinCountResolver` + `JoinManyCollectionBuckets` (reverse) / `JoinManyCollectionForwardBuckets` (forward) | yes (both directions) |
 | selector `OneToOne` on the PK | forward | none | `JoinOneResolver` + `KeySelector` (static method group) | no |
 | selector `OneToOne` on a non-PK | forward | `CacheSymmetricUniqueIndex` (raw FK type) | `JoinOneLeftUniqueIndexResolver` + `KeySelector` | no |
 | selector `ManyToOne` | forward | `CacheSymmetricKeyValueListIndex` (raw FK type) | `JoinOneLeftSymResolver` + `KeySelector` | no |

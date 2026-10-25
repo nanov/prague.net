@@ -130,6 +130,7 @@ InvoiceNumber (Unique), sort "ByPriority":
     UpdatedAfter(long|DateTime|DateTimeOffset [, out long max]) / UpdatedAfter(after, untilInclusive)
                                                     only when a global last-update index sits on the PK
     JoinWith{T}() / InnerJoinWith{T}()              from FKs, 3 overloads each (no filter, filter, filter+arg)
+    CountJoinWith{T}() / InnerCountJoinWith{T}()    for every JoinWith{T} with a QueryResults slot: slot is int (right count), same 3 overloads
   partial class Order : ICacheEquatable<Order>, ICacheClonable<Order>
     bool CacheEquals(Order? other); int CacheGetHashCode(); Order Clone()
   With Prague.Kafka referenced, extension methods:
@@ -212,9 +213,13 @@ Declare on the FK-holding property. Which cache gets which method:
 Result rows: JoinResult<TLeft, T1 [, T2, ...]> with fields `Left`, `Right` (FIRST joined slot — not
 Right1), `Right2`, `Right3`, ... Outer join → slot null / empty when no match; InnerJoinWith{T}
 drops the row instead.
+Count form: where JoinWith{T} yields QueryResults<TRight>, CountJoinWith{T}() yields the count as int
+(InnerCountJoinWith{T}() drops zero counts); same filter overloads; eager, prepared and frozen alike;
+unfiltered it is one index-bucket read per left, no rights materialised. No nested-continuation form.
 Filter overloads: .JoinWith{T}(q => q.WithStatus(x)) and .JoinWith{T}(static (q, arg) => ..., arg).
 The callback gets a NON-executable builder: only WithXxx / UseIndex / Or; no Where, no Execute.
-Lower level for raw caches: .JoinOne(rightCache, ...) / .InnerJoinOne / .JoinMany / .InnerJoinMany —
+Lower level for raw caches: .JoinOne(rightCache, ...) / .InnerJoinOne / .JoinMany / .InnerJoinMany /
+.CountJoin / .InnerCountJoin (+ Collection / CollectionForward variants) —
 pass the cache WRAPPER, not rightCache.Query().
 Wiring: caches built by DataCacheRegistryBuilder or AddKafkaCaches are joined automatically;
 `new XxxCache()` instances need `left.AddJoinedCaches(right, ...)` once before joining.
