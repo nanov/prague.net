@@ -11,7 +11,7 @@ public interface IJoinResult<TLeft> : IJoinResult {
 
 
 /// <summary>
-/// Cloner for JoinResult<TLeft, T1> with pluggable cloners for each field.
+/// Cloner for <see cref="JoinResult{TLeft, T1}"/> with pluggable cloners for each field.
 /// </summary>
 public struct JoinResultCloner<TLeft, T1, TLeftCloner, T1Cloner> : ICloner<JoinResult<TLeft, T1>>
 	where TLeftCloner : struct, ICloner<TLeft>

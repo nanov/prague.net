@@ -10,7 +10,7 @@ using Utils;
 // ── Filter strategy interface and structs ────────────────────────────────────
 
 /// <summary>
-/// Zero-virtual-dispatch filter strategy for <see cref="JoinOneResolver{TLeftKey,TLeftValue,TRightCache,TRightKey,TRightValue,TFilter}"/>.
+/// Zero-virtual-dispatch filter strategy for <see cref="JoinOneResolver{TLeftKey,TLeftValue,TRightCache,TRightKey,TRightValue,TFilter,TSelector}"/>.
 /// The JIT devirtualizes <see cref="Apply"/> per closed generic — no virtual dispatch overhead.
 /// </summary>
 public interface IJoinFilter<TBuilder> {
@@ -26,7 +26,7 @@ public interface IJoinFilter<TBuilder> {
 }
 
 /// <summary>
-/// Identity filter — no narrowing applied. <see cref="Apply"/> returns <paramref name="q"/> unchanged;
+/// Identity filter — no narrowing applied. <see cref="Apply"/> returns its argument unchanged;
 /// the JIT elides the call entirely in release builds.
 /// </summary>
 public readonly struct NoFilter<TBuilder> : IJoinFilter<TBuilder> {
@@ -384,7 +384,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	/// Ensures the outer-query's left candidate set is initialized before the chain's
 	/// <c>Init(candidates.Count)</c> sizes <c>_results</c>. Calling <c>GetCandidates</c>
 	/// triggers the executor's auto-populate-from-leftCache when no prior <c>UseIndex</c>
-	/// narrowed the set; subsequent narrowing happens in <see cref="UnsafeExecuteIndexedInner"/>
+	/// narrowed the set; subsequent narrowing happens in <see cref="IJoinResolver.UnsafeExecuteIndexedInner{TAccessor, TExecutor}"/>
 	/// once we know which lefts actually have a right match.
 	/// </summary>
 	void IJoinResolver.PrepareIndexedInner<TExecutor>(
@@ -500,7 +500,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	}
 
 	/// <summary>
-	/// Narrow-only twin of <see cref="UnsafeExecuteIndexedInner"/>: phases 1-3 (pair seeding via
+	/// Narrow-only twin of <see cref="IJoinResolver.UnsafeExecuteIndexedInner{TAccessor, TExecutor}"/>: phases 1-3 (pair seeding via
 	/// KeyIndex, empty-intersect early-out, filter application) are identical; the terminal phase
 	/// collects surviving left keys and retains the checked values in a pooled map. Fill copies
 	/// those values to page rows without a second cache lookup, selector call or predicate call.
@@ -1002,7 +1002,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 /// </para>
 /// <para>
 /// Each left entity's primary key is used to look up the right entity via
-/// <paramref name="RightIndex"/> — a <see cref="CacheKeyValueIndex{TKey,TValue,TIndexKey}"/>
+/// <see cref="_rightIndex"/> — a <see cref="CacheKeyValueIndex{TKey,TValue,TIndexKey}"/>
 /// keyed by <typeparamref name="TLeftKey"/> that returns the corresponding
 /// <typeparamref name="TRightKey"/>.  This is the natural Book → BookInfo pattern where
 /// <c>BookInfo.BookId</c> has a <c>[DataCacheIndex(DataCacheIndexType.Unique)]</c> attribute.
@@ -1257,7 +1257,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 
 	/// <summary>
 	/// Triggers the outer-executor's auto-populate-from-leftCache when no prior
-	/// <c>UseIndex</c> narrowed the candidate set — see <see cref="JoinOneResolver{TLeftKey,TLeftValue,TRightCache,TRightKey,TRightValue,TFilter,TSelector}.PrepareIndexedInner"/>.
+	/// <c>UseIndex</c> narrowed the candidate set — see the <c>PrepareIndexedInner</c> of <see cref="JoinOneResolver{TLeftKey,TLeftValue,TRightCache,TRightKey,TRightValue,TFilter,TSelector}"/>.
 	/// </summary>
 	void IJoinResolver.PrepareIndexedInner<TExecutor>(
 		ref TExecutor leftQuery,

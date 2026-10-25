@@ -33,7 +33,7 @@ public sealed class
 
 	/// <summary>
 	/// Shape A: build (set-of-lefts, lookupKey) pairs from a candidate
-	/// <see cref="ValueSet{TKey}"/>. Used by <c>JoinOneLeftSymResolver</c>
+	/// <see cref="ValueSet{T, TKeyComparer}"/>. Used by <c>JoinOneLeftSymResolver</c>
 	/// when <c>TLookupKey == TRightKey</c> (identity).
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

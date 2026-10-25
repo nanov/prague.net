@@ -14,6 +14,13 @@ public class CacheGenerator : IIncrementalGenerator {
 	/// </summary>
 	private const int MaxJoinLevels = 5;
 
+	/// <summary>
+	/// Escapes text interpolated into a generated XML doc comment. Type names reach the docs in
+	/// fully qualified form, and a closed generic (<c>global::Ns.Envelope&lt;global::Ns.Order&gt;</c>)
+	/// would otherwise emit raw angle brackets, which a consumer with doc generation on rejects as CS1570.
+	/// </summary>
+	private static string DocText(string text) => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
 	public void Initialize(IncrementalGeneratorInitializationContext context) {
 		var classDeclarations = context.SyntaxProvider
 			.CreateSyntaxProvider(
@@ -2688,7 +2695,7 @@ public class CacheGenerator : IIncrementalGenerator {
 	}
 
 	/// <summary>
-	///   Returns <c>true</c> when a <see cref="DataCacheIndexAttribute"/> has <c>Symmetric = true</c>.
+	///   Returns <c>true</c> when a <c>[DataCacheIndex]</c> attribute has <c>Symmetric = true</c>.
 	/// </summary>
 	private static bool GetIndexSymmetric(AttributeData indexAttribute) {
 		var arg = indexAttribute.NamedArguments.FirstOrDefault(kvp => kvp.Key == "Symmetric");
@@ -2697,7 +2704,7 @@ public class CacheGenerator : IIncrementalGenerator {
 
 	/// <summary>
 	///   Returns the <c>InitialCapacity</c> sizing hint of a
-	///   <see cref="DataCacheIndexAttribute"/>, or 0 when unset (list-index buckets then
+	///   <c>[DataCacheIndex]</c> attribute, or 0 when unset (list-index buckets then
 	///   use PooledSet's own default first capacity).
 	/// </summary>
 	private static int GetIndexInitialCapacity(AttributeData indexAttribute) {
@@ -3043,9 +3050,9 @@ public class CacheGenerator : IIncrementalGenerator {
 				sb.AppendLine();
 				sb.AppendLine("        /// <summary>");
 				sb.AppendLine(
-					$"        /// Polymorphic clone for {fullTypeName} hierarchy.");
+					$"        /// Polymorphic clone for {DocText(fullTypeName)} hierarchy.");
 				sb.AppendLine("        /// Uses runtime type discrimination to dispatch to concrete type clone.");
-				sb.AppendLine($"        /// Supports: {fullTypeName} and all derived types.");
+				sb.AppendLine($"        /// Supports: {DocText(fullTypeName)} and all derived types.");
 				sb.AppendLine("        /// </summary>");
 				sb.AppendLine($"        public static T ClonePolymorphic_{methodSuffix}<T>(T source)");
 				// Only add 'class' constraint for interfaces (classes already imply it)
@@ -4287,9 +4294,9 @@ public class CacheGenerator : IIncrementalGenerator {
 				sb.AppendLine();
 				sb.AppendLine("        /// <summary>");
 				sb.AppendLine(
-					$"        /// Polymorphic equality for {fullTypeName} hierarchy.");
+					$"        /// Polymorphic equality for {DocText(fullTypeName)} hierarchy.");
 				sb.AppendLine("        /// Uses runtime type discrimination to dispatch to concrete type equality.");
-				sb.AppendLine($"        /// Supports: {fullTypeName} and all derived types.");
+				sb.AppendLine($"        /// Supports: {DocText(fullTypeName)} and all derived types.");
 				sb.AppendLine("        /// </summary>");
 				sb.AppendLine($"        public static bool EqualsPolymorphic_{methodSuffix}<T1, T2>(T1? left, T2? right, bool forceDeep = false)");
 				sb.AppendLine($"            where T1 : {fullTypeName}");
@@ -4345,7 +4352,7 @@ public class CacheGenerator : IIncrementalGenerator {
 				sb.AppendLine();
 				sb.AppendLine("        /// <summary>");
 				sb.AppendLine(
-					$"        /// Polymorphic GetHashCode for {fullTypeName} hierarchy.");
+					$"        /// Polymorphic GetHashCode for {DocText(fullTypeName)} hierarchy.");
 				sb.AppendLine("        /// </summary>");
 				sb.AppendLine($"        public static int GetHashCodePolymorphic_{methodSuffix}<T>(T obj)");
 				sb.AppendLine($"            where T : {fullTypeName}");
@@ -5406,7 +5413,7 @@ public class CacheGenerator : IIncrementalGenerator {
 			// Generate specialization method - constrain TValue to the specific value type
 			sb.AppendLine();
 			sb.AppendLine("        /// <summary>");
-			sb.AppendLine($"        /// Gets the enricher for {fullTypeName}.");
+			sb.AppendLine($"        /// Gets the enricher for {DocText(fullTypeName)}.");
 			sb.AppendLine("        /// </summary>");
 			sb.AppendLine("        public static Enricher<TValue> GetEnricher<TCache, TKey, TValue>(TCache cache)");
 			sb.AppendLine("            where TCache : Prague.Core.IDataCache<TKey, TValue>");
@@ -5426,7 +5433,7 @@ public class CacheGenerator : IIncrementalGenerator {
 
 		sb.AppendLine();
 		sb.AppendLine("        /// <summary>");
-		sb.AppendLine($"        /// Enriches the {typeName.Split('.').Last()} instance with Kafka message metadata.");
+		sb.AppendLine($"        /// Enriches the {DocText(typeName.Split('.').Last())} instance with Kafka message metadata.");
 		sb.AppendLine("        /// </summary>");
 		sb.AppendLine(
 			"        internal static void Enrich<TEntity>(this TEntity entity, Headers headers, Timestamp timestamp)");
@@ -6925,20 +6932,20 @@ public class CacheGenerator : IIncrementalGenerator {
 					var fkJoinArgsColl = $"cache.{otherFieldName}!, cache.{otherFieldName}!.{foreignKeyIndexName}";
 
 					EmitFkJoinWithOverloads(sb,
-						$"Join with {otherTypeFullName} via reverse collection FK (many-to-many) - owners referencing this element.",
+						$"Join with {DocText(otherTypeFullName)} via reverse collection FK (many-to-many) - owners referencing this element.",
 						methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, newResultTypeColl, nonExecBuilderColl, resolverColl,
 						"JoinManyCollection", fkJoinArgsColl);
 
 					// Sort->JoinWith parallel - outer, no-filter only.
 					EmitFkSortedJoinWithOverload(sb,
-						$"Join with {otherTypeFullName} via reverse collection FK (many-to-many) after a Sort.",
+						$"Join with {DocText(otherTypeFullName)} via reverse collection FK (many-to-many) after a Sort.",
 						methodName, joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
 						keyTypeName, documentTypeName, newResultTypeColl, nonExecBuilderColl, resolverColl,
 						"JoinManyCollection", fkJoinArgsColl);
 
 					EmitFkJoinWithOverloads(sb,
-						$"Inner join with {otherTypeFullName} via reverse collection FK (many-to-many) - drops lefts with no matching owners.",
+						$"Inner join with {DocText(otherTypeFullName)} via reverse collection FK (many-to-many) - drops lefts with no matching owners.",
 						$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, newResultTypeColl, nonExecBuilderColl, resolverColl,
 						"InnerJoinManyCollection", fkJoinArgsColl);
@@ -6948,17 +6955,17 @@ public class CacheGenerator : IIncrementalGenerator {
 					var countResultTypeColl = CountJoinResultType(level, documentTypeName);
 					Func<string, string> countResolverColl = f => $"JoinCountResolver<{keyTypeName}, {documentTypeName}, {collCacheFqn}, {otherKeyTypeName}, {otherTypeFullName}, JoinManyCollectionBuckets<{keyTypeName}, {otherKeyTypeName}, {otherTypeFullName}>, {f}>";
 					EmitFkJoinWithOverloads(sb,
-						$"Count of {otherTypeFullName} owners per element via reverse collection FK (many-to-many), without materialising them.",
+						$"Count of {DocText(otherTypeFullName)} owners per element via reverse collection FK (many-to-many), without materialising them.",
 						$"CountJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, countResultTypeColl, nonExecBuilderColl, countResolverColl,
 						"CountJoinCollection", fkJoinArgsColl);
 					EmitFkSortedJoinWithOverload(sb,
-						$"Count of {otherTypeFullName} owners per element via reverse collection FK (many-to-many) after a Sort.",
+						$"Count of {DocText(otherTypeFullName)} owners per element via reverse collection FK (many-to-many) after a Sort.",
 						$"CountJoin{methodName.Substring(4)}", joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
 						keyTypeName, documentTypeName, countResultTypeColl, nonExecBuilderColl, countResolverColl,
 						"CountJoinCollection", fkJoinArgsColl);
 					EmitFkJoinWithOverloads(sb,
-						$"Count of {otherTypeFullName} owners per element via reverse collection FK (many-to-many) - drops elements with a zero count.",
+						$"Count of {DocText(otherTypeFullName)} owners per element via reverse collection FK (many-to-many) - drops elements with a zero count.",
 						$"InnerCountJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, countResultTypeColl, nonExecBuilderColl, countResolverColl,
 						"InnerCountJoinCollection", fkJoinArgsColl);
@@ -6987,21 +6994,21 @@ public class CacheGenerator : IIncrementalGenerator {
 
 				// JoinWith{TOther} — no-filter / filter / filter+arg flavors.
 				EmitFkJoinWithOverloads(sb,
-					$"Join with {otherTypeFullName} via reverse FK (one-to-many).",
+					$"Join with {DocText(otherTypeFullName)} via reverse FK (one-to-many).",
 					methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeRev, nonExecBuilderRev, resolverRev,
 					"JoinMany", fkJoinArgsRev);
 
 				// Sort→JoinWith parallel — accepts SortedQuery<TInner>-wrapped discriminator. Outer, no-filter only.
 				EmitFkSortedJoinWithOverload(sb,
-					$"Join with {otherTypeFullName} via reverse FK (one-to-many) after a Sort.",
+					$"Join with {DocText(otherTypeFullName)} via reverse FK (one-to-many) after a Sort.",
 					methodName, joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
 					keyTypeName, documentTypeName, newResultTypeRev, nonExecBuilderRev, resolverRev,
 					"JoinMany", fkJoinArgsRev);
 
 				// InnerJoinWith{TOther} — drops lefts whose per-left QueryResults is empty. No-filter / filter / filter+arg flavors.
 				EmitFkJoinWithOverloads(sb,
-					$"Inner join with {otherTypeFullName} via reverse FK (one-to-many) — drops lefts with no matching rights.",
+					$"Inner join with {DocText(otherTypeFullName)} via reverse FK (one-to-many) — drops lefts with no matching rights.",
 					$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeRev, nonExecBuilderRev, resolverRev,
 					"InnerJoinMany", fkJoinArgsRev);
@@ -7011,17 +7018,17 @@ public class CacheGenerator : IIncrementalGenerator {
 				var countResultTypeRev = CountJoinResultType(level, documentTypeName);
 				Func<string, string> countResolverRev = f => $"JoinCountResolver<{keyTypeName}, {documentTypeName}, {otherCacheClassFqn}, {otherKeyTypeName}, {otherTypeFullName}, JoinManyRightListBuckets<{keyTypeName}, {otherKeyTypeName}, {otherTypeFullName}, {keyTypeName}, IdentitySelector<{keyTypeName}>>, {f}>";
 				EmitFkJoinWithOverloads(sb,
-					$"Count of {otherTypeFullName} per left via reverse FK (one-to-many), without materialising the rights.",
+					$"Count of {DocText(otherTypeFullName)} per left via reverse FK (one-to-many), without materialising the rights.",
 					$"CountJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, countResultTypeRev, nonExecBuilderRev, countResolverRev,
 					"CountJoin", fkJoinArgsRev);
 				EmitFkSortedJoinWithOverload(sb,
-					$"Count of {otherTypeFullName} per left via reverse FK (one-to-many) after a Sort.",
+					$"Count of {DocText(otherTypeFullName)} per left via reverse FK (one-to-many) after a Sort.",
 					$"CountJoin{methodName.Substring(4)}", joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
 					keyTypeName, documentTypeName, countResultTypeRev, nonExecBuilderRev, countResolverRev,
 					"CountJoin", fkJoinArgsRev);
 				EmitFkJoinWithOverloads(sb,
-					$"Count of {otherTypeFullName} per left via reverse FK (one-to-many) — drops lefts with a zero count.",
+					$"Count of {DocText(otherTypeFullName)} per left via reverse FK (one-to-many) — drops lefts with a zero count.",
 					$"InnerCountJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, countResultTypeRev, nonExecBuilderRev, countResolverRev,
 					"InnerCountJoin", fkJoinArgsRev);
@@ -7035,12 +7042,12 @@ public class CacheGenerator : IIncrementalGenerator {
 					? $"JoinResult<{documentTypeName}, QueryResults<TInnerResult>>"
 					: $"JoinResult<{documentTypeName}, {string.Join(", ", Enumerable.Range(1, level).Select(i => $"T{i}"))}, QueryResults<TInnerResult>>";
 				EmitFkNestedJoinWithOverload(sb,
-					$"Nested join with {otherTypeFullName} via reverse FK (one-to-many) — each {otherTypeFullName} is itself joined via the continuation.",
+					$"Nested join with {DocText(otherTypeFullName)} via reverse FK (one-to-many) — each {DocText(otherTypeFullName)} is itself joined via the continuation.",
 					methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, otherCacheClassFqn, otherKeyTypeName, otherTypeFullName,
 					nestedResultType, "JoinMany", fkJoinArgsRev);
 				EmitFkNestedJoinWithOverload(sb,
-					$"Nested inner join with {otherTypeFullName} via reverse FK (one-to-many) — drops parents whose nested collection is empty.",
+					$"Nested inner join with {DocText(otherTypeFullName)} via reverse FK (one-to-many) — drops parents whose nested collection is empty.",
 					$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, otherCacheClassFqn, otherKeyTypeName, otherTypeFullName,
 					nestedResultType, "InnerJoinMany", fkJoinArgsRev);
@@ -7076,21 +7083,21 @@ public class CacheGenerator : IIncrementalGenerator {
 
 				// JoinWith{TOther} — no-filter / filter / filter+arg flavors.
 				EmitFkJoinWithOverloads(sb,
-					$"Join with {otherTypeFullName} via reverse FK (one-to-one).",
+					$"Join with {DocText(otherTypeFullName)} via reverse FK (one-to-one).",
 					methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeRev1, nonExecBuilderRev1, resolverRev1,
 					"JoinOne", fkJoinArgsRev1);
 
 				// Sort→JoinWith parallel — outer, no-filter only.
 				EmitFkSortedJoinWithOverload(sb,
-					$"Join with {otherTypeFullName} via reverse FK (one-to-one) after a Sort.",
+					$"Join with {DocText(otherTypeFullName)} via reverse FK (one-to-one) after a Sort.",
 					methodName, joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
 					keyTypeName, documentTypeName, newResultTypeRev1, nonExecBuilderRev1, resolverRev1,
 					"JoinOne", fkJoinArgsRev1);
 
 				// InnerJoinWith{TOther} — drops lefts whose right slot is null. No-filter / filter / filter+arg flavors.
 				EmitFkJoinWithOverloads(sb,
-					$"Inner join with {otherTypeFullName} via reverse FK (one-to-one) — drops lefts with no matching right.",
+					$"Inner join with {DocText(otherTypeFullName)} via reverse FK (one-to-one) — drops lefts with no matching right.",
 					$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeRev1, nonExecBuilderRev1, resolverRev1,
 					"InnerJoinOne", fkJoinArgsRev1);
@@ -7149,20 +7156,20 @@ public class CacheGenerator : IIncrementalGenerator {
 					var fkJoinArgsFwdColl = $"cache.{fwdReferencedFieldName}!, cache.{fwdIndexFieldName}";
 
 					EmitFkJoinWithOverloads(sb,
-						$"Join with {fwdReferencedTypeFullName} via {fwdForeignKeyPropertyName} (collection many-to-one) - each referenced element per owner.",
+						$"Join with {DocText(fwdReferencedTypeFullName)} via {fwdForeignKeyPropertyName} (collection many-to-one) - each referenced element per owner.",
 						fwdMethodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, newResultTypeFwdColl, nonExecBuilderFwdColl, resolverFwdColl,
 						"JoinManyCollectionForward", fkJoinArgsFwdColl);
 
 					// Sort->JoinWith parallel - outer, no-filter only.
 					EmitFkSortedJoinWithOverload(sb,
-						$"Join with {fwdReferencedTypeFullName} via {fwdForeignKeyPropertyName} (collection many-to-one) after a Sort.",
+						$"Join with {DocText(fwdReferencedTypeFullName)} via {fwdForeignKeyPropertyName} (collection many-to-one) after a Sort.",
 						fwdMethodName, joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
 						keyTypeName, documentTypeName, newResultTypeFwdColl, nonExecBuilderFwdColl, resolverFwdColl,
 						"JoinManyCollectionForward", fkJoinArgsFwdColl);
 
 					EmitFkJoinWithOverloads(sb,
-						$"Inner join with {fwdReferencedTypeFullName} via {fwdForeignKeyPropertyName} (collection many-to-one) - drops owners with no referenced elements.",
+						$"Inner join with {DocText(fwdReferencedTypeFullName)} via {fwdForeignKeyPropertyName} (collection many-to-one) - drops owners with no referenced elements.",
 						$"InnerJoin{fwdMethodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, newResultTypeFwdColl, nonExecBuilderFwdColl, resolverFwdColl,
 						"InnerJoinManyCollectionForward", fkJoinArgsFwdColl);
@@ -7172,17 +7179,17 @@ public class CacheGenerator : IIncrementalGenerator {
 					var countResultTypeFwdColl = CountJoinResultType(level, documentTypeName);
 					Func<string, string> countResolverFwdColl = f => $"JoinCountResolver<{keyTypeName}, {documentTypeName}, {fwdReferencedCacheClassFqn}, {fwdReferencedKeyTypeName}, {fwdReferencedTypeFullName}, JoinManyCollectionForwardBuckets<{keyTypeName}, {fwdReferencedKeyTypeName}, {documentTypeName}>, {f}>";
 					EmitFkJoinWithOverloads(sb,
-						$"Count of {fwdReferencedTypeFullName} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner, without materialising them.",
+						$"Count of {DocText(fwdReferencedTypeFullName)} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner, without materialising them.",
 						$"CountJoin{fwdMethodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, countResultTypeFwdColl, nonExecBuilderFwdColl, countResolverFwdColl,
 						"CountJoinCollectionForward", fkJoinArgsFwdColl);
 					EmitFkSortedJoinWithOverload(sb,
-						$"Count of {fwdReferencedTypeFullName} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner after a Sort.",
+						$"Count of {DocText(fwdReferencedTypeFullName)} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner after a Sort.",
 						$"CountJoin{fwdMethodName.Substring(4)}", joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
 						keyTypeName, documentTypeName, countResultTypeFwdColl, nonExecBuilderFwdColl, countResolverFwdColl,
 						"CountJoinCollectionForward", fkJoinArgsFwdColl);
 					EmitFkJoinWithOverloads(sb,
-						$"Count of {fwdReferencedTypeFullName} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner - drops owners with a zero count.",
+						$"Count of {DocText(fwdReferencedTypeFullName)} referenced via {fwdForeignKeyPropertyName} (collection many-to-one) per owner - drops owners with a zero count.",
 						$"InnerCountJoin{fwdMethodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, countResultTypeFwdColl, nonExecBuilderFwdColl, countResolverFwdColl,
 						"InnerCountJoinCollectionForward", fkJoinArgsFwdColl);
@@ -7264,21 +7271,21 @@ public class CacheGenerator : IIncrementalGenerator {
 
 				// JoinWith{TOther} — no-filter / filter / filter+arg flavors.
 				EmitFkJoinWithOverloads(sb,
-					$"Join with {referencedTypeFullName} via {foreignKeyPropertyName} ({joinKindLabelFwd}).",
+					$"Join with {DocText(referencedTypeFullName)} via {foreignKeyPropertyName} ({joinKindLabelFwd}).",
 					methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeFwd, nonExecBuilder, resolverFwd,
 					"JoinOne", fkJoinArgsFwd);
 
 				// Sort→JoinWith parallel — outer, no-filter only.
 				EmitFkSortedJoinWithOverload(sb,
-					$"Join with {referencedTypeFullName} via {foreignKeyPropertyName} ({joinKindLabelFwd}) after a Sort.",
+					$"Join with {DocText(referencedTypeFullName)} via {foreignKeyPropertyName} ({joinKindLabelFwd}) after a Sort.",
 					methodName, joinGenericParamsSorted, joinBuilderParamSorted, joinConstraintsSorted, getCacheCodeSorted,
 					keyTypeName, documentTypeName, newResultTypeFwd, nonExecBuilder, resolverFwd,
 					"JoinOne", fkJoinArgsFwd);
 
 				// InnerJoinWith{TOther} — reuses the IBaseJoinable constraint (Inner semantics are carried by the resolver, not the discriminator). No-filter / filter / filter+arg flavors.
 				EmitFkJoinWithOverloads(sb,
-					$"Inner join with {referencedTypeFullName} via {foreignKeyPropertyName} ({joinKindLabelFwd}), filtering out null results.",
+					$"Inner join with {DocText(referencedTypeFullName)} via {foreignKeyPropertyName} ({joinKindLabelFwd}), filtering out null results.",
 					$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeFwd, nonExecBuilder, resolverFwd,
 					"InnerJoinOne", fkJoinArgsFwd);
@@ -7343,14 +7350,14 @@ public class CacheGenerator : IIncrementalGenerator {
 
 					// JoinWith{TOther} — no-filter / filter / filter+arg flavors.
 					EmitFkJoinWithOverloads(sb,
-						$"Join with {referencedTypeFullName} via {foreignKeyPropertyName} (selector form, PK).",
+						$"Join with {DocText(referencedTypeFullName)} via {foreignKeyPropertyName} (selector form, PK).",
 						methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, newResultTypePk, nonExecBuilderPk, resolverPk,
 						"JoinOne", fkJoinArgsPk);
 
 					// InnerJoinWith{TOther} — no-filter / filter / filter+arg flavors.
 					EmitFkJoinWithOverloads(sb,
-						$"Inner join with {referencedTypeFullName} via {foreignKeyPropertyName} (selector form, PK), filtering out null results.",
+						$"Inner join with {DocText(referencedTypeFullName)} via {foreignKeyPropertyName} (selector form, PK), filtering out null results.",
 						$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 						keyTypeName, documentTypeName, newResultTypePk, nonExecBuilderPk, resolverPk,
 						"InnerJoinOne", fkJoinArgsPk);
@@ -7393,14 +7400,14 @@ public class CacheGenerator : IIncrementalGenerator {
 
 				// JoinWith{TOther} — no-filter / filter / filter+arg flavors.
 				EmitFkJoinWithOverloads(sb,
-					$"Join with {referencedTypeFullName} via {foreignKeyPropertyName} ({joinKindLabel}).",
+					$"Join with {DocText(referencedTypeFullName)} via {foreignKeyPropertyName} ({joinKindLabel}).",
 					methodName, joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeSel, nonExecSel, resolverSel,
 					"JoinOne", fkJoinArgsSel);
 
 				// InnerJoinWith{TOther} — no-filter / filter / filter+arg flavors.
 				EmitFkJoinWithOverloads(sb,
-					$"Inner join with {referencedTypeFullName} via {foreignKeyPropertyName} ({joinKindLabel}), filtering out null results.",
+					$"Inner join with {DocText(referencedTypeFullName)} via {foreignKeyPropertyName} ({joinKindLabel}), filtering out null results.",
 					$"InnerJoin{methodName.Substring(4)}", joinGenericParams, joinBuilderParam, joinConstraints, getCacheCode,
 					keyTypeName, documentTypeName, newResultTypeSel, nonExecSel, resolverSel,
 					"InnerJoinOne", fkJoinArgsSel);
@@ -7751,6 +7758,10 @@ public class CacheGenerator : IIncrementalGenerator {
 	/// <summary>
 	/// Generates the SortedQueryBuilder struct that is shared between regular and external cache classes.
 	/// </summary>
+	/// <param name="sb">The builder the struct source is appended to.</param>
+	/// <param name="keyTypeName">The cache's primary-key type name.</param>
+	/// <param name="documentTypeName">The cached document type name; the element type of the comparer and of the results.</param>
+	/// <param name="newBuilderType">The type of the query builder the struct wraps.</param>
 	/// <param name="includeMapMethod">Whether to include the Map method (for regular cache classes with MappedSortedQueryBuilder)</param>
 	private static void GenerateSortedQueryBuilderStruct(StringBuilder sb, string keyTypeName, string documentTypeName, string newBuilderType, bool includeMapMethod = false) {
 		sb.AppendLine();

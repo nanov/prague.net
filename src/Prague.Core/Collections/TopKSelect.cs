@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 ///   <list type="bullet">
 ///     <item>
 ///       <b>Small prefix</b> (K = skip + take far below N): <see cref="Push{T,TComparer}"/> keeps the K
-///       smallest items per <typeparamref name="TComparer"/> in a max-heap (root = worst kept item).
+///       smallest items per <c>TComparer</c> in a max-heap (root = worst kept item).
 ///       Candidates not better than the root are rejected in O(1); accepted candidates replace the
 ///       root and sift down in O(log K). <see cref="DrainAscending{T,TComparer}"/> heapsorts the kept
 ///       items in place, ascending. O(M log K) for M candidates, O(K log K) drain.
