@@ -5762,7 +5762,7 @@ public class CacheGenerator : IIncrementalGenerator {
 			w.Class("public static class DataCachesJsonExtensions", (ref CodeWriter w) => {
 				w.Summary(
 					"Configures JSON options to support Data Caches serialization by adding the DataCachesResolver.",
-					"This enables serialization of QueryResults<T> for all cache document types.");
+					"This enables serialization of <see cref=\"QueryResults{T}\"/> for all cache document types.");
 				w.Param("services", "The service collection.");
 				w.Param("configure", "Optional action to configure the JSON serializer options.");
 				w.Returns("The service collection for chaining.");
