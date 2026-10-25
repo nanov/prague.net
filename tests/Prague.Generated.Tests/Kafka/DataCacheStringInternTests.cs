@@ -87,6 +87,21 @@ public class DataCacheStringInternTests {
 	}
 
 	[Test]
+	public void CustomChain_SourceGeneratedFormattersFirst_SuppressSourceGenerationRestoresOptOut() {
+		// The documented workaround: no source-generated formatter, so the type falls through to Prague's composite.
+		var options = MessagePackSerializerOptions.Standard.WithResolver(
+			CompositeResolver.Create(GeneratedMessagePackResolver.Instance, PragueMessagePack.CreateDefaultComposite()));
+		var bytes = MessagePackSerializer.Serialize(
+			new SuppressedInternModel { Code = "suppressed-code", Note = "suppressed-note" }, options);
+
+		var a = MessagePackSerializer.Deserialize<SuppressedInternModel>(bytes, options);
+		var b = MessagePackSerializer.Deserialize<SuppressedInternModel>(bytes, options);
+
+		Assert.That(b.Note, Is.Not.SameAs(a.Note));
+		Assert.That(b.Code, Is.SameAs(a.Code));
+	}
+
+	[Test]
 	public void OptedOutProperty_WireFormat_IsUnchanged() {
 		var model = new ContractlessInternModel { Code = "c", Note = "n", Explicit = "e" };
 		var plain = new PlainInternModel { Code = "c", Note = "n", Explicit = "e" };
@@ -139,6 +154,16 @@ public partial class KeyedInternModel {
 
 [MessagePackObject(AllowPrivate = true)]
 public partial class PrivateKeyedInternModel {
+	[Key(0)]
+	public string Code { get; set; } = "";
+
+	[Key(1)]
+	[DataCacheStringIntern(false)]
+	public partial string Note { get; set; }
+}
+
+[MessagePackObject(SuppressSourceGeneration = true)]
+public partial class SuppressedInternModel {
 	[Key(0)]
 	public string Code { get; set; } = "";
 
