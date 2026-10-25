@@ -35,7 +35,7 @@ public class StringInterningTests {
 
 	[Test]
 	public void Deserialize_LongString_IsNotInterned() {
-		var bytes = MessagePackSerializer.Serialize(new string('x', 5000), PragueMessagePack.Options);
+		var bytes = MessagePackSerializer.Serialize(new string('x', 300), PragueMessagePack.Options);
 
 		var a = MessagePackSerializer.Deserialize<string>(bytes, PragueMessagePack.Options);
 		var b = MessagePackSerializer.Deserialize<string>(bytes, PragueMessagePack.Options);
@@ -114,6 +114,30 @@ public class StringInterningTests {
 		Assert.That(pool.GetOrAdd(Encoding.UTF8.GetBytes("ünïcødé")), Is.SameAs(a));
 		Assert.That(pool.GetOrAdd(Encoding.UTF8.GetBytes("ünïcødë")), Is.EqualTo("ünïcødë"));
 		Assert.That(pool.GetOrAdd(Encoding.UTF8.GetBytes("unicode")), Is.EqualTo("unicode"));
+	}
+
+	[Test]
+	public void Pool_ConcurrentChurn_AlwaysReturnsMatchingContent() {
+		using var pool = new Utf8WeakInternPool();
+		var keys = new byte[5000][];
+		for (var i = 0; i < keys.Length; i++)
+			keys[i] = Encoding.UTF8.GetBytes(i % 7 == 0 ? "ключ-" + i : "key-" + i);
+		var failures = 0;
+
+		// Overlapping key ranges across threads: racing misses, hits, rebuilds, and collection of unrooted strings.
+		Parallel.For(0, 8, t => {
+			for (var round = 0; round < 20; round++) {
+				for (var n = 0; n < keys.Length; n++) {
+					var key = keys[(t * 613 + n) % keys.Length];
+					if (pool.GetOrAdd(key) != Encoding.UTF8.GetString(key))
+						Interlocked.Increment(ref failures);
+				}
+				if (t == 0 && round % 5 == 0)
+					GC.Collect();
+			}
+		});
+
+		Assert.That(failures, Is.Zero);
 	}
 
 	[MethodImpl(MethodImplOptions.NoInlining)]

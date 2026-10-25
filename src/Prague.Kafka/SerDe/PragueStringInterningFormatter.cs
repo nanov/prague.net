@@ -13,7 +13,7 @@ using SerializerFoundation;
 #pragma warning disable MsgPack104
 internal sealed partial class PragueStringInterningFormatter<TWriteBuffer, TReadBuffer> : IMessagePackFormatter<TWriteBuffer, TReadBuffer, string?> {
 	// Long strings are rarely repeated values; interning them would only pin a byte[] copy per entry.
-	private const int MaxInternedBytes = 4096;
+	private const int MaxInternedBytes = 256;
 
 	private readonly Utf8WeakInternPool _pool;
 
