@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MessagePack.Annotations" Version="$(MessagePackVersion)"/>
+    <PackageReference Include="MessagePack" Version="$(MessagePackVersion)"/>
   </ItemGroup>
 
   <ItemGroup>

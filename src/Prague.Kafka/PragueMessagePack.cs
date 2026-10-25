@@ -10,25 +10,20 @@ using SerDe;
 ///   process-wide mutable default, so host code cannot change Prague's wire format.
 /// </summary>
 public static class PragueMessagePack {
-	private static readonly StringInterningFormatterFactory _stringInterningFactory = new();
+	private static readonly PragueStringInterningFormatterFactory _stringInterningFactory = new();
 
 	/// <summary>
-	///   Builds Prague's default factory chain. <see cref="StringInterningFormatterFactory"/>
-	///   interns every deserialized string (a strong-reference pool owned by this
-	///   factory); <see cref="PragueDateTimeFormatterFactory"/> intercepts DateTime;
-	///   the typeless chain handles everything else for byte-for-byte compatibility
-	///   with topics produced under the historical host-side
-	///   <c>TypelessContractlessStandardResolver</c> composite.
+	///   Builds Prague's default factory chain. <see cref="PragueStringInterningFormatterFactory"/>
+	///   weakly interns every deserialized string by its UTF-8 bytes;
+	///   <see cref="PragueDateTimeFormatterFactory"/> intercepts DateTime; the contractless default
+	///   chain handles everything else. Polymorphic members must carry <c>[UnionTag]</c>: the typeless
+	///   mode (payload-supplied .NET type names) is deliberately not on the chain.
 	/// </summary>
-	// LoadAnyType keeps v3 TypelessContractlessStandardResolver parity: payload type names
-	// go through Type.GetType. v4 marks it obsolete; an allow-list loader is the safer choice.
-#pragma warning disable CS0618
 	internal static MessagePackFormatterFactory CreateDefaultFactory() =>
 		MessagePackFormatterFactory.Combine(
 			_stringInterningFactory,
 			PragueDateTimeFormatterFactory.Instance,
-			MessagePackFormatterFactory.Default.WithTypeless(TypelessTypeLoader.LoadAnyType()));
-#pragma warning restore CS0618
+			MessagePackFormatterFactory.Default.WithContractless(allowPrivate: true));
 
 	internal static MessagePackSerializerOptions CreateOptions(MessagePackFormatterFactory factory) =>
 		new(new MessagePackFormatterResolver(factory));

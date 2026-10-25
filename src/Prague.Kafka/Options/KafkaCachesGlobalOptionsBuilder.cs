@@ -13,7 +13,7 @@ public sealed class KafkaCachesGlobalOptionsBuilder {
 
 	/// <summary>
 	///   Compose a custom formatter factory on top of Prague's default chain
-	///   (<c>StringInterningFormatterFactory</c> + <c>PragueDateTimeFormatterFactory</c> + typeless default chain).
+	///   (<c>PragueStringInterningFormatterFactory</c> + <c>PragueDateTimeFormatterFactory</c> + contractless default chain).
 	///   The lambda receives the Prague chain as <c>defaultFactory</c> and
 	///   returns the final factory to use, typically
 	///   <c>MessagePackFormatterFactory.Combine(myFactory, defaultFactory)</c>.
