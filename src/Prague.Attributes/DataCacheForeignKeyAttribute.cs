@@ -13,7 +13,7 @@ namespace Prague.Core;
 ///     </item>
 ///     <item>
 ///       <b>Dual form</b> — placed on a property of the "anchor" side (typically the PK of the
-///       referenced entity), with <paramref name="rightProperty"/> naming the FK property on
+///       referenced entity), with the <c>rightProperty</c> constructor argument naming the FK property on
 ///       <typeparamref name="T"/>. Use <c>nameof(T.SomeProperty)</c> for compile-time safety.
 ///       Example: <c>[DataCacheForeignKey&lt;Book&gt;(OneToMany, nameof(Book.AuthorId))]</c> on <c>Author.Id</c>.
 ///       Produces the same indexes and JoinWith{Entity} sugar as the direct form on

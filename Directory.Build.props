@@ -15,6 +15,13 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+        <!-- XML doc comments are compiled everywhere, so a malformed comment (CS1570), a bad cref
+             (CS1574) or a param mismatch (CS1572/CS1573) fails the build. This also covers doc text the
+             source generator emits into consuming projects: consumers with doc generation on compile it
+             under the same checks. Missing-comment warnings (CS1591) stay off; they would be noise. -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
     </PropertyGroup>
 
     <!-- Microsoft runtime-aligned package versions, floating per target framework.

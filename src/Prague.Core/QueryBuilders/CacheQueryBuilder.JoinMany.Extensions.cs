@@ -1401,7 +1401,7 @@ public static class CacheQueryBuilder_JoinMany_Extensions {
 	}
 
 	/// <summary>
-	/// Nested InnerJoinMany — like the nested <see cref="JoinMany"/> but drops parents whose inner
+	/// Nested InnerJoinMany — like the nested <c>JoinMany</c> overload but drops parents whose inner
 	/// collection is empty (no children, or all children dropped by the inner join/filter). Same
 	/// drop-empty-parent semantics as the flat <c>InnerJoinMany</c> (via <c>isInner: true</c> →
 	/// post-walk <c>RetainNonEmptyManySlots</c>).

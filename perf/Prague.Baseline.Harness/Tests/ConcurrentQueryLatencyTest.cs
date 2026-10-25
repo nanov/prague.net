@@ -13,7 +13,7 @@ using Prague.Core;
 ///   (<see cref="StopwatchUtil" /> ticks -> nanoseconds) into its OWN <see cref="LongHistogram" /> —
 ///   HdrHistogram is not safe for concurrent <c>RecordValue</c>. After the window closes and all
 ///   threads join, every per-thread histogram is merged into <c>ctx.Histogram</c> via
-///   <see cref="LongHistogram.Add" />, yielding contended p50/p99/p999.
+///   <see cref="HistogramBase.Add(HistogramBase)" />, yielding contended p50/p99/p999.
 /// </summary>
 public sealed class ConcurrentQueryLatencyTest : ILatencyTest {
 	// See ConcurrentReadThroughputTest: 16 readers oversubscribe by design; require only 2 physical CPUs.

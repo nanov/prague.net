@@ -21702,7 +21702,7 @@ public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue
 #region Generated JoinResultCloner Types
 
 /// <summary>
-/// Cloner for JoinResult<TLeft, T1, T2> with pluggable cloners for each field.
+/// Cloner for <see cref="JoinResult{TLeft, T1, T2}"/> with pluggable cloners for each field.
 /// </summary>
 public struct JoinResultCloner<TLeft, T1, T2, TLeftCloner, T1Cloner, T2Cloner> : ICloner<JoinResult<TLeft, T1, T2>>
 	where TLeftCloner : struct, ICloner<TLeft>
@@ -21728,7 +21728,7 @@ public struct JoinResultCloner<TLeft, T1, T2, TLeftCloner, T1Cloner, T2Cloner> :
 }
 
 /// <summary>
-/// Cloner for JoinResult<TLeft, T1, T2, T3> with pluggable cloners for each field.
+/// Cloner for <see cref="JoinResult{TLeft, T1, T2, T3}"/> with pluggable cloners for each field.
 /// </summary>
 public struct JoinResultCloner<TLeft, T1, T2, T3, TLeftCloner, T1Cloner, T2Cloner, T3Cloner> : ICloner<JoinResult<TLeft, T1, T2, T3>>
 	where TLeftCloner : struct, ICloner<TLeft>
@@ -21758,7 +21758,7 @@ public struct JoinResultCloner<TLeft, T1, T2, T3, TLeftCloner, T1Cloner, T2Clone
 }
 
 /// <summary>
-/// Cloner for JoinResult<TLeft, T1, T2, T3, T4> with pluggable cloners for each field.
+/// Cloner for <see cref="JoinResult{TLeft, T1, T2, T3, T4}"/> with pluggable cloners for each field.
 /// </summary>
 public struct JoinResultCloner<TLeft, T1, T2, T3, T4, TLeftCloner, T1Cloner, T2Cloner, T3Cloner, T4Cloner> : ICloner<JoinResult<TLeft, T1, T2, T3, T4>>
 	where TLeftCloner : struct, ICloner<TLeft>
@@ -21792,7 +21792,7 @@ public struct JoinResultCloner<TLeft, T1, T2, T3, T4, TLeftCloner, T1Cloner, T2C
 }
 
 /// <summary>
-/// Cloner for JoinResult<TLeft, T1, T2, T3, T4, T5> with pluggable cloners for each field.
+/// Cloner for <see cref="JoinResult{TLeft, T1, T2, T3, T4, T5}"/> with pluggable cloners for each field.
 /// </summary>
 public struct JoinResultCloner<TLeft, T1, T2, T3, T4, T5, TLeftCloner, T1Cloner, T2Cloner, T3Cloner, T4Cloner, T5Cloner> : ICloner<JoinResult<TLeft, T1, T2, T3, T4, T5>>
 	where TLeftCloner : struct, ICloner<TLeft>

@@ -33,7 +33,7 @@ public class FrozenPipelineArityTests {
 		Assert.That(shape.MaxPosition, Is.EqualTo(joins), "the shape reports the deepest position it saw");
 	}
 
-	/// <summary>A chain of <see cref="Joins" /> outer fusable joins at positions 1..n, position 0 the left slot.</summary>
+	/// <summary>A chain of <paramref name="joins" /> outer fusable joins at positions 1..n, position 0 the left slot.</summary>
 	private readonly struct FixedDepthChain(int joins) : IResolvers {
 		private readonly int _joins = joins;
 

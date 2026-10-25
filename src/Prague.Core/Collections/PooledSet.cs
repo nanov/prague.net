@@ -536,7 +536,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	///   yields them — as one bulk pass: the generation is read once, its <c>LastIndex</c> once (an
 	///   acquire load), and the slots <c>[0, LastIndex)</c> are walked with plain loads under one gate
 	///   pin. Measured at 0.72× the enumerator on a dense 1k bucket (546 vs 761 ns; 0.77× at 300), whose
-	///   per-slot <see cref="Volatile.Read(ref int)" /> is an acquire load on ARM — the walk is near the
+	///   per-slot <see cref="Volatile.Read(ref readonly int)" /> is an acquire load on ARM — the walk is near the
 	///   sequential-read floor either way, so the gain is the acquire loads, not a copy-vs-walk order.
 	///   Reader safety, inside the documented staleness model: the pin keeps the generation's arrays
 	///   alive for the whole walk; the acquire load of <c>LastIndex</c> orders every slot below it after

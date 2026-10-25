@@ -191,7 +191,7 @@ public ref struct QueryStringParser {
 	/// <summary>
 	///   Finds the first operator in the segment.
 	///   Returns (index, length, operator) or (-1, 0, Eq) if not found.
-	///   Supports: >=, =>, <=, =<, >, <, =
+	///   Supports: &gt;=, =&gt;, &lt;=, =&lt;, &gt;, &lt;, =
 	/// </summary>
 	private static (int Index, int Length, QueryComparisonOp Op) FindOperator(ReadOnlySpan<char> segment) {
 		for (var i = 0; i < segment.Length; i++) {
