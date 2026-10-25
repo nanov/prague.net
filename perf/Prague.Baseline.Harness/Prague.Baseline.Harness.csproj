@@ -18,7 +18,7 @@
          namespace) arrives transitively through the Prague.Kafka ProjectReference — adding an explicit
          Confluent.Kafka package would collide with it. -->
     <PackageReference Include="HdrHistogram" Version="2.5.0" />
-    <PackageReference Include="Testcontainers.Kafka" Version="4.11.0" />
+    <PackageReference Include="Testcontainers.Kafka" Version="4.16.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="$(MicrosoftRuntimeVersion)" />
   </ItemGroup>
   <ItemGroup>
