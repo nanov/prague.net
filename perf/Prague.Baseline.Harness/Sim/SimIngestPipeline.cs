@@ -3,20 +3,20 @@ namespace Prague.Baseline.Harness.Sim;
 using System.Runtime.InteropServices;
 using Nanov.Kafka;
 using Prague.Baseline.Scenario;
-using Prague.Kafka.Internal;
+using Nanov.HighPerformance.Threading.Workers;
 using Prague.Kafka.SerDe;
 
 /// <summary>
 ///   In-process replay of the REAL managed Kafka ingest tail — no broker, no librdkafka. Pre-encoded
 ///   MessagePack value bytes are pinned in native memory (mirroring librdkafka's buffer), deserialized
 ///   zero-copy via <see cref="CacheSerde{T}.DeserializeFromSpan"/>, enriched from empty raw headers +
-///   the message timestamp, then published into a <see cref="AsyncValueBufferedWorker{T}"/> ring whose
-///   worker thread applies <c>AddOrUpdate</c> (with indexing) to the generated cache.
+///   the message timestamp, then published into an <see cref="AsyncValueSpWorker{T, THandler}"/> ring whose
+///   worker loop applies <c>AddOrUpdate</c> (with indexing) to the generated cache.
 ///   <para>
 ///     Each phase (products, infos, offers) is an explicit, delegate-free typed loop: the payloads are
 ///     pinned once before the loop, the enricher is cached in a local, and no per-iteration allocation
 ///     occurs on the measured path. The native block is freed in a <c>finally</c>; the worker is drained
-///     (<see cref="ValueBufferedWorkerBase{T}.TryComplete"/> + <c>Completion</c>) before the phase returns.
+///     (<c>TryComplete</c> + <c>Completion</c>) before the phase returns.
 ///   </para>
 /// </summary>
 internal static class SimIngestPipeline {
@@ -34,7 +34,7 @@ internal static class SimIngestPipeline {
 
 	private static unsafe long DriveProducts(EncodedEntity[] items, BaselineProductCache cache) {
 		var count = items.Length;
-		var worker = new ProductApplyWorker(cache, ScenarioSpec.RingCapacity);
+		var worker = new AsyncValueSpWorker<Slot<BaselineProduct>, ProductApply>(new ProductApply(cache), ScenarioSpec.RingCapacity);
 		worker.Start();
 
 		var block = (byte*)NativeMemory.Alloc((nuint)TotalValueBytes(items));
@@ -65,7 +65,7 @@ internal static class SimIngestPipeline {
 
 	private static unsafe long DriveInfos(EncodedEntity[] items, BaselineProductInfoCache cache) {
 		var count = items.Length;
-		var worker = new InfoApplyWorker(cache, ScenarioSpec.RingCapacity);
+		var worker = new AsyncValueSpWorker<Slot<BaselineProductInfo>, InfoApply>(new InfoApply(cache), ScenarioSpec.RingCapacity);
 		worker.Start();
 
 		var block = (byte*)NativeMemory.Alloc((nuint)TotalValueBytes(items));
@@ -96,7 +96,7 @@ internal static class SimIngestPipeline {
 
 	private static unsafe long DriveOffers(EncodedEntity[] items, BaselineOfferCache cache) {
 		var count = items.Length;
-		var worker = new OfferApplyWorker(cache, ScenarioSpec.RingCapacity);
+		var worker = new AsyncValueSpWorker<Slot<BaselineOffer>, OfferApply>(new OfferApply(cache), ScenarioSpec.RingCapacity);
 		worker.Start();
 
 		var block = (byte*)NativeMemory.Alloc((nuint)TotalValueBytes(items));
@@ -145,7 +145,9 @@ internal static class SimIngestPipeline {
 		return offsets;
 	}
 
-	private static void Drain<T>(AsyncValueBufferedWorker<T> worker) where T : struct {
+	private static void Drain<T, THandler>(AsyncValueSpWorker<T, THandler> worker)
+		where T : struct
+		where THandler : struct, IAsyncValueWorkerHandler<T> {
 		worker.TryComplete(null);
 		worker.Completion.GetAwaiter().GetResult();
 		worker.Dispose();

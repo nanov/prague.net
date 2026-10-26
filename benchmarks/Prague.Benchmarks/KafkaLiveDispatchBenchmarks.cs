@@ -6,7 +6,7 @@ using Nanov.Kafka;
 using MessagePack;
 using Prague.Core;
 using Prague.Kafka;
-using Prague.Kafka.Internal;
+using Nanov.HighPerformance.Threading.Workers;
 using Prague.Kafka.SerDe;
 
 /// <summary>
@@ -33,7 +33,7 @@ public class KafkaLiveDispatchBenchmarks {
 	private byte[] _keyBytes = null!;
 	private byte[] _producerId = null!;
 	private Prague.Kafka.Internal.Enricher<LiveDispatchEntity> _enricher = null!;
-	private NoOpWorker _worker = null!;
+	private AsyncValueSpWorker<Slot, NoOpHandler> _worker = null!;
 
 	// Native copy of the value payload — mirrors librdkafka's buffer for the zero-copy path.
 	private unsafe byte* _nativeValue;
@@ -51,7 +51,7 @@ public class KafkaLiveDispatchBenchmarks {
 		_nativeValue = (byte*)NativeMemory.Alloc((nuint)_nativeValueLen);
 		_valueBytes.AsSpan().CopyTo(new Span<byte>(_nativeValue, _nativeValueLen));
 
-		_worker = new NoOpWorker(64);
+		_worker = new AsyncValueSpWorker<Slot, NoOpHandler>(default, 64);
 		_worker.Start();
 	}
 
@@ -124,14 +124,18 @@ public class KafkaLiveDispatchBenchmarks {
 		public LiveDispatchEntity Value;
 	}
 
-	/// <summary>No-op ring-buffer worker — reads the slot and releases it; measures pure handoff cost.</summary>
-	private sealed class NoOpWorker : AsyncValueBufferedWorker<Slot> {
-		public NoOpWorker(int capacity) : base(capacity, "BenchRawWorker") { }
-
-		protected override ValueTask ProcessAsync(ref ConsumeScope<Slot> scope, CancellationToken cancellationToken) {
+	/// <summary>No-op ring-buffer handler — releases the slot; measures pure handoff cost.</summary>
+	private readonly struct NoOpHandler : IAsyncValueWorkerHandler<Slot> {
+		public ValueTask HandleAsync(ref HandleScope<Slot> scope, CancellationToken cancellationToken) {
 			scope.Release();
 			return default;
 		}
+
+		public void Clear(ref Slot value) => value.Value = null!;
+
+		public void OnError(Exception error) { }
+
+		public ValueTask OnCompletedAsync(Exception? error) => default;
 	}
 }
 
