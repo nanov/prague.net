@@ -208,7 +208,7 @@ Locks win only with a single reader (0.67–0.81 of the lock-free time); with ei
 
 ## Kafka consume path
 
-`KafkaLiveDispatchBenchmarks` compares the per-message managed allocation of the consumer's live dispatch — the original typed-channel path against the `RawConsumer` + zero-copy + ring-buffer-worker path — and `KafkaProduceSerializeBenchmarks` the typed vs scratch-buffer serialize on the producer side. **Neither has a table in the log yet.** The only ingestion-side table recorded is `# v0.0.9` "RingBuffer ArrayPool", from a benchmark class that is no longer in the project (the ring buffer that became the consumer's `AsyncValueBufferedWorker`, against `ArrayPool` rentals):
+`KafkaLiveDispatchBenchmarks` compares the per-message managed allocation of the consumer's live dispatch — the original typed-channel path against the `RawConsumer` + zero-copy + ring-buffer-worker path — and `KafkaProduceSerializeBenchmarks` the typed vs scratch-buffer serialize on the producer side. **Neither has a table in the log yet.** The only ingestion-side table recorded is `# v0.0.9` "RingBuffer ArrayPool", from a benchmark class that is no longer in the project (the ring buffer the consumer's live worker grew out of, against `ArrayPool` rentals):
 
 | KeySize | RingBuffer, single thread | ArrayPool, single thread | RingBuffer, SPSC via `Channel` | ArrayPool, SPSC via `Channel` |
 |---:|---:|---:|---:|---:|

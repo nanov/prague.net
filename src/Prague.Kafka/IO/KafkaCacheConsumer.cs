@@ -8,6 +8,7 @@ using Core;
 using Filters;
 using Internal;
 using Microsoft.Extensions.Logging;
+using Nanov.HighPerformance.Threading.Workers;
 using Options;
 using SerDe;
 using Utils;
@@ -170,7 +171,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 	private const byte RAW_KIND_FILTERED = 2;
 	private const int RAW_WORKER_CAPACITY = 64;
 
-	private RawLiveWorker? _rawWorker;
+	private AsyncValueSpWorker<RawWorkItem, RawLiveHandler>? _rawWorker;
 	private ValueCompactingBuffer<TKey, TVlaue>? _rawLoadBuffer;
 
 	internal override void DispatchRaw(in RawMessage raw, bool isLoading) {
@@ -337,7 +338,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		_logger.CacheLoaded(Name, offset, loadTime.TotalMilliseconds);
 		_statistics.SetInitialLoad(loadTime);
 		countdownEvent.Signal(loadTime);
-		_rawWorker = new RawLiveWorker(this, RAW_WORKER_CAPACITY);
+		_rawWorker = new AsyncValueSpWorker<RawWorkItem, RawLiveHandler>(new RawLiveHandler(this), RAW_WORKER_CAPACITY);
 		_rawWorker.Start(ct);
 	}
 
@@ -373,23 +374,30 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		public long TimestampMs;
 	}
 
-	private sealed class RawLiveWorker : AsyncValueBufferedWorker<RawWorkItem> {
-		private readonly KafkaCacheHandler<TCacheEntity, TKey, TVlaue> _owner;
-
-		public RawLiveWorker(KafkaCacheHandler<TCacheEntity, TKey, TVlaue> owner, int capacity)
-			: base(capacity, $"PragueRawWorker<{typeof(TCacheEntity).Name}>") {
-			_owner = owner;
-		}
-
-		protected override ValueTask ProcessAsync(ref ConsumeScope<RawWorkItem> scope, CancellationToken cancellationToken) {
+	/// <summary>
+	///   Live-phase apply on <see cref="AsyncValueSpWorker{T, THandler}"/>: the loop runs on the ThreadPool and holds
+	///   no thread while the ring is empty. A cache without after-handlers completes every item synchronously.
+	/// </summary>
+	private readonly struct RawLiveHandler(KafkaCacheHandler<TCacheEntity, TKey, TVlaue> owner) : IAsyncValueWorkerHandler<RawWorkItem> {
+		public ValueTask HandleAsync(ref HandleScope<RawWorkItem> scope, CancellationToken cancellationToken) {
 			ref var slot = ref scope.Event();
 			var kind = slot.Kind;
 			var key = slot.Key;
 			var value = slot.Value;
 			var ts = slot.TimestampMs;
 			scope.Release();
-			return _owner.ApplyRawLiveAsync(kind, key, value, ts);
+			return owner.ApplyRawLiveAsync(kind, key, value, ts);
 		}
+
+		// Released slots drop their references, so the ring does not keep the last applied values alive.
+		public void Clear(ref RawWorkItem value) {
+			value.Key = default!;
+			value.Value = null;
+		}
+
+		public void OnError(Exception error) => owner._logger.LiveApplyError(error, owner.Name);
+
+		public ValueTask OnCompletedAsync(Exception? error) => default;
 	}
 
 	internal override void SetHighWatermarkOffset(long offset) {
@@ -725,6 +733,10 @@ internal static partial class KafkaCacheConsumerLog {
 	[LoggerMessage(Level = LogLevel.Warning,
 		Message = "[Prague] Key ring buffer for {CacheName} calculated size {CalculatedSize} exceeds max {MaxSize}, large keys will fall back to heap allocation")]
 	public static partial void KeyRingBufferExceedsMax(this ILogger logger, string cacheName, int calculatedSize, int maxSize);
+
+	[LoggerMessage(Level = LogLevel.Error,
+		Message = "[Prague] Error applying a live message to {CacheName}")]
+	public static partial void LiveApplyError(this ILogger logger, Exception exception, string cacheName);
 
 	[LoggerMessage(Level = LogLevel.Error, Message = "Error executing after handler")]
 	public static partial void AfterHandlerError(this ILogger logger, Exception exception);

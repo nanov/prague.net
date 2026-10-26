@@ -18,7 +18,7 @@ Five configs, each measuring a progressively larger slice of the stack:
   In-process replay of the **managed** Kafka ingest tail with **no broker and no
   librdkafka**: pre-encoded MessagePack value bytes pinned in native memory →
   `CacheSerde.DeserializeFromSpan` (zero-copy) → `Enricher.Enrich` →
-  `AsyncValueBufferedWorker` ring → worker-thread `cache.AddOrUpdate`. It does
+  `AsyncValueSpWorker` ring (Nanov.HighPerformance.Threading.Workers) → worker-loop `cache.AddOrUpdate`. It does
   **not** exercise the `RawConsumer` topic/poll loop or any librdkafka path —
   that boundary is deliberate, so full-sim stays deterministic and Docker-free.
 - **concurrent** — harness (`--config concurrent`). Read-under-write: N readers run the
