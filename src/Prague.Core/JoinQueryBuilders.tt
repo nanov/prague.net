@@ -4390,7 +4390,7 @@ public struct ResolveChainCloner<TLeftCloner, TResultChain, TLeftKey, TLeftValue
 		var resultType = $"JoinResult<{string.Join(", ", valueTypeParams)}>";
 #>
 /// <summary>
-/// Cloner for <#= resultType #> with pluggable cloners for each field.
+/// Cloner for <see cref="JoinResult{<#= string.Join(", ", valueTypeParams) #>}"/> with pluggable cloners for each field.
 /// </summary>
 public struct JoinResultCloner<<#= typeParamsStr #>> : ICloner<<#= resultType #>>
 	<#= constraintsStr #> {

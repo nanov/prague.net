@@ -8,6 +8,9 @@
     <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <RootNamespace>Prague.Samples</RootNamespace>
+    <!-- Doc generation is on solution-wide (Directory.Build.props). This project references ASP.NET Core,
+         so it compiles the full generated surface (incl. DataCachesJsonExtensions) under the XML-doc checks,
+         which keeps generator doc text from regressing. -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>

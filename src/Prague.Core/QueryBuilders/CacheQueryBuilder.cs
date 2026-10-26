@@ -937,7 +937,7 @@ public struct CacheQueryBuilderCoreCombined<TKey, TValue>
 
 /// <summary>
 /// Paired variant of <see cref="CacheQueryBuilderCoreCombined{TKey,TValue}"/> that stores
-/// candidates as <see cref="ValueSet{T}"/> of <see cref="JoinedKeyPair{TLeft,TKey}"/>.
+/// candidates as <see cref="ValueSet{T, TKeyComparer}"/> of <see cref="JoinedKeyPair{TLeft,TKey}"/>.
 /// After construction the candidate set is pre-seeded (typically via <c>UseIndexAsPairs</c>)
 /// and all subsequent <c>UseIndex</c> calls are intersect-only — they never add new pairs.
 /// </summary>
@@ -1643,7 +1643,7 @@ void ICandidatesExecutor<TKey, TValue>.ExecuteBase<TContainer>(ref TContainer c)
 	/// <summary>
 	/// Executes the paired query. Projects the paired candidates to an unpaired
 	/// <c>ValueSet&lt;TKey&gt;</c> and delegates to the standard unpaired
-	/// <see cref="InMemoryDataCache{TKey,TValue}.TryGet"/> path, which calls the plain
+	/// <see cref="InMemoryDataCache{TKey,TValue}.TryGet(ref ValueSet{TKey, DefaultKeyComparer{TKey}}, Predicate{TValue})"/> path, which calls the plain
 	/// <c>IResultContainerInitializer&lt;TKey, TValue&gt;</c> contract already held by
 	/// <typeparamref name="TContainer"/>.
 	/// Auto-disposes after execution.
@@ -1786,7 +1786,7 @@ public void Dispose() {
 
 	/// <summary>
 	/// Aggregator that marks matching slots directly in <c>_candidates</c> via an
-	/// <see cref="ValueSet{T}.IncrementalIntersecter{TFrom, TInto}"/> — no temp <see cref="ValueSet{TKey}"/>
+	/// <see cref="ValueSet{T, TKeyComparer}.IncrementalIntersecter{TFrom, TInto}"/> — no temp <see cref="ValueSet{T, TKeyComparer}"/>
 	/// allocation. Each B-tree result calls <c>_intersecter.IntersectWith(value)</c> which marks
 	/// the slot whose pair has <c>.Key == value</c>.
 	/// <para>
@@ -2674,6 +2674,7 @@ public static class CacheQueryBuilderCombinedSortExtensions {
 	///   size skip+take (or introselect over the collected candidates) instead of materializing and
 	///   full-sorting every matched row. Deep and narrow pages are dramatically cheaper — measured
 	///   16-29× on a 10k-500k cache.
+	///   </para>
 	///   <para>
 	///   Differences from <see cref="Sort{TDiscriminator,TExecutor,TResult,TKey,TValue,TComparer}"/>,
 	///   which is why this is a separate call and never inferred:

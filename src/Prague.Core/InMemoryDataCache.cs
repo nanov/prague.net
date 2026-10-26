@@ -293,7 +293,7 @@ public abstract class CacheKeyValueIndex<TKey, TValue, TIndexKey>
 	}
 
 	/// <summary>
-	/// <see cref="ValueSet{T}"/>-sourced struct-selector overload. Companion to the
+	/// <see cref="ValueSet{T, TKeyComparer}"/>-sourced struct-selector overload. Companion to the
 	/// identity <c>IntersectValues(ref ValueSet&lt;TIndexKey&gt;, ...)</c> already defined
 	/// above; struct-dispatched selector transforms each source value to
 	/// <typeparamref name="TIndexKey"/>, then probes the index. Used by
@@ -318,10 +318,10 @@ public abstract class CacheKeyValueIndex<TKey, TValue, TIndexKey>
 	}
 
 	/// <summary>
-	/// <see cref="ValueSet{T}"/>-sourced tail-selector chain overload — companion to
+	/// <see cref="ValueSet{T, TKeyComparer}"/>-sourced tail-selector chain overload — companion to
 	/// the <see cref="ReadOnlySpan{T}"/> <c>IntersectValuesChain</c> above. Used by
 	/// <c>InnerJoinOne</c> on left-unique-index resolvers where the input candidate
-	/// set is a <see cref="ValueSet{T}"/>.
+	/// set is a <see cref="ValueSet{T, TKeyComparer}"/>.
 	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal void IntersectValuesChain<TOutKey, TSelector>(
@@ -724,10 +724,10 @@ public sealed class CacheKeySetIndex<TKey, TValue> : ICacheIndex<TKey, TValue>, 
 	}
 
 	/// <summary>
-	/// Intersects a paired <see cref="ValueSet{T}"/> of <see cref="JoinedKeyPair{TLeft,TKey}"/>
+	/// Intersects a paired <see cref="ValueSet{T, TKeyComparer}"/> of <see cref="JoinedKeyPair{TLeft,TKey}"/>
 	/// directly against the index's stored key set — no temp allocation. Caller's pair set
 	/// is mutated in place; pairs whose <c>.Key</c> is not in this index are removed.
-	/// Lock-protected because the underlying <see cref="PooledSet{T}"/> may be concurrently mutated.
+	/// Lock-protected because the underlying <see cref="PooledSet{T, TKeyComparer}"/> may be concurrently mutated.
 	/// </summary>
 	internal void IntersectWithPaired<TLeft>(ref ValueSet<JoinedKeyPair<TLeft, TKey>, DefaultKeyComparer<JoinedKeyPair<TLeft, TKey>>> target)
 		where TLeft : notnull {

@@ -527,7 +527,7 @@ internal class KafkaCacheConsumer : IDisposable {
 	///   <para>
 	///     <paramref name="cancellationToken" /> is the host's shutdown token: when it fires the host has
 	///     stopped waiting, which is not a Prague fault, so the wait is abandoned rather than thrown out
-	///     of <see cref="IHostedService.StopAsync" />. The caller reports what was still draining.
+	///     of <see cref="Microsoft.Extensions.Hosting.IHostedService.StopAsync(CancellationToken)" />. The caller reports what was still draining.
 	///   </para>
 	/// </summary>
 	internal async Task WaitForCompletionAsync(CancellationToken cancellationToken = default) {

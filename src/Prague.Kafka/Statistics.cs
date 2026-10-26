@@ -48,7 +48,7 @@ public sealed class KafkaCachesConsumerStatistics {
 
 	/// <summary>
 	/// Number of brokers currently in "UP" state (from librdkafka stats).
-	/// Populated when <see cref="KafkaCachesGlobalOptions.StatisticsEnabled"/>
+	/// Populated when <see cref="Options.KafkaCachesGlobalOptions.StatisticsEnabled"/>
 	/// is <c>true</c> (the default); stays 0 if statistics are disabled.
 	/// </summary>
 	internal int BrokerUpCount;

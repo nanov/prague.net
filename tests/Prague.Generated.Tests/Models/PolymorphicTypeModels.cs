@@ -41,6 +41,28 @@ public sealed class NodeC : IntermediateNode {
 	public int ValueC { get; set; }
 }
 
+// ========== Closed-generic polymorphic base ==========
+
+// The generated polymorphic clone / equality helpers name the base type in their doc comments. A closed
+// generic base (GenericBaseNode<int>) puts angle brackets in that text; this project builds with doc
+// generation on, so unescaped brackets fail the build with CS1570.
+[DataCache]
+public partial class GenericPolymorphicCache : IDataCacheItem<int, GenericPolymorphicCache> {
+	[DataCacheKey] public int Id { get; set; }
+
+	public GenericBaseNode<int> Node { get; set; }
+
+	public int GetKey() => Id;
+}
+
+public abstract class GenericBaseNode<T> {
+	public T Value { get; set; }
+}
+
+public sealed class IntNode : GenericBaseNode<int> {
+	public int Extra { get; set; }
+}
+
 // ========== Interface Test Models ==========
 
 // Interface for polymorphic types
