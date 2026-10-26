@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <PackageReference Include="Nanov.Kafka" Version="2.16.0.2" />
+    <PackageReference Include="Nanov.HighPerformance.Threading.Workers" Version="0.0.1-preview.2" />
     <PackageReference Include="MessagePack" Version="$(MessagePackVersion)"/>
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="$(MicrosoftRuntimeVersion)"/>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="$(MicrosoftRuntimeVersion)"/>
