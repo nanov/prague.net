@@ -1,9 +1,15 @@
 namespace Prague.Tests.Models;
 
+using MessagePack;
+
 /// <summary>
 ///   Interface for polymorphic types defined in a separate assembly.
 ///   This tests that the code generator can find derived types from referenced assemblies.
 /// </summary>
+[MessagePackObject]
+[UnionTag<ExternalElectronicsTelemetry>(0)]
+[UnionTag<ExternalSensorTelemetry>(1)]
+[UnionTag<ExternalAudioTelemetry>(2)]
 public interface IExternalTelemetry {
 	string DeviceKind { get; }
 	int Score { get; set; }
@@ -12,7 +18,11 @@ public interface IExternalTelemetry {
 /// <summary>
 ///   Base class implementing the interface.
 /// </summary>
-public class ExternalBaseTelemetry : IExternalTelemetry {
+[MessagePackObject(true)]
+[UnionTag<ExternalElectronicsTelemetry>(0)]
+[UnionTag<ExternalSensorTelemetry>(1)]
+[UnionTag<ExternalAudioTelemetry>(2)]
+public abstract class ExternalBaseTelemetry : IExternalTelemetry {
 	public string? ListingId { get; set; }
 	public virtual string DeviceKind => "Unknown";
 	public int Score { get; set; }

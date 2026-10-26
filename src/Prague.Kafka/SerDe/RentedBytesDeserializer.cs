@@ -19,9 +19,6 @@ public static class CacheSerde<T> {
 	///   <c>byte[]</c> — the produce path rents a pooled writer and hands its span to RawProduce
 	///   (which copies synchronously).
 	/// </summary>
-	internal static void SerializeInto(T value, IBufferWriter<byte> writer) {
-		var mpWriter = new MessagePackWriter(writer);
-		MessagePackSerializer.Serialize(ref mpWriter, value, PragueMessagePack.Options);
-		mpWriter.Flush();
-	}
+	internal static void SerializeInto(T value, IBufferWriter<byte> writer)
+		=> MessagePackSerializer.Serialize(writer, value, PragueMessagePack.Options);
 }

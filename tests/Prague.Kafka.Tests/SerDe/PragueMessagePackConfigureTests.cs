@@ -1,7 +1,6 @@
 namespace Prague.Kafka.Tests.SerDe;
 
 using MessagePack;
-using MessagePack.Resolvers;
 using NUnit.Framework;
 
 [TestFixture]
@@ -13,7 +12,7 @@ public class PragueMessagePackConfigureTests {
 	public void ResetAfterTest() => PragueMessagePack.ResetForTests();
 
 	[Test]
-	public void DefaultOptions_UsesPragueDateTimeResolverAndTypelessContractless() {
+	public void DefaultOptions_UsesPragueDateTimeFactoryAndTypeless() {
 		var opts = PragueMessagePack.Options;
 
 		Assert.That(opts, Is.Not.Null);
@@ -26,7 +25,7 @@ public class PragueMessagePackConfigureTests {
 
 	[Test]
 	public void Configure_FirstCall_SetsOptions() {
-		var custom = MessagePackSerializerOptions.Standard.WithResolver(StandardResolver.Instance);
+		var custom = MessagePackSerializerOptions.Default;
 		PragueMessagePack.Configure(custom);
 
 		Assert.That(PragueMessagePack.Options, Is.SameAs(custom));
@@ -34,7 +33,7 @@ public class PragueMessagePackConfigureTests {
 
 	[Test]
 	public void Configure_SameReferenceTwice_IsNoOp() {
-		var custom = MessagePackSerializerOptions.Standard.WithResolver(StandardResolver.Instance);
+		var custom = MessagePackSerializerOptions.Default;
 		PragueMessagePack.Configure(custom);
 
 		Assert.DoesNotThrow(() => PragueMessagePack.Configure(custom));
@@ -43,8 +42,8 @@ public class PragueMessagePackConfigureTests {
 
 	[Test]
 	public void Configure_ConflictingSecondCall_Throws() {
-		var a = MessagePackSerializerOptions.Standard.WithResolver(StandardResolver.Instance);
-		var b = MessagePackSerializerOptions.Standard.WithResolver(TypelessContractlessStandardResolver.Instance);
+		var a = MessagePackSerializerOptions.Default;
+		var b = MessagePackSerializerOptions.DotNetOptimized;
 		PragueMessagePack.Configure(a);
 
 		var ex = Assert.Throws<InvalidOperationException>(() => PragueMessagePack.Configure(b));

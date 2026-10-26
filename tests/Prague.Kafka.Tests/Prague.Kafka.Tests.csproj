@@ -33,10 +33,4 @@
     <ProjectReference Include="..\..\perf\Prague.Baseline.Scenario\Prague.Baseline.Scenario.csproj"/>
   </ItemGroup>
 
-
-  <PropertyGroup>
-    <!-- MessagePack generates a per-assembly resolver; Prague.Kafka exposes its copy via
-         InternalsVisibleTo, so this project sees two same-named types (benign CS0436). -->
-    <NoWarn>$(NoWarn);CS0436</NoWarn>
-  </PropertyGroup>
 </Project>

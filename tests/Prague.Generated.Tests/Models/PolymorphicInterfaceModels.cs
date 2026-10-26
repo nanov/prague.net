@@ -13,9 +13,10 @@ public sealed partial class LiveObjectCacheItem {
 	[Key(1)] public IBaseTelemetry? LiveObject { get; set; }
 }
 
-[Union(0, typeof(DefaultTelemetry))]
-[Union(1, typeof(GaugeTelemetry))]
-[Union(2, typeof(SensorTelemetry))]
+[MessagePackObject]
+[UnionTag<DefaultTelemetry>(0)]
+[UnionTag<GaugeTelemetry>(1)]
+[UnionTag<SensorTelemetry>(2)]
 public interface IBaseTelemetry {
 	DeviceType DeviceKind { get; }
 	List<PeriodReading>? PeriodScore { get; set; }

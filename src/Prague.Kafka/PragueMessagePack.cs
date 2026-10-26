@@ -1,40 +1,34 @@
 namespace Prague.Kafka;
 
 using MessagePack;
-using MessagePack.Formatters;
-using MessagePack.Resolvers;
 using SerDe;
 
 /// <summary>
 ///   Carries the MessagePack serializer options used by every internal
 ///   Prague SerDe call site. Designed to be set once at startup (via
-///   AddKafkaCaches) and read on every hot path. Independent of
-///   <see cref="MessagePackSerializer.DefaultOptions"/> so host mutations
-///   of that static do not affect Prague's wire format.
+///   AddKafkaCaches) and read on every hot path. MessagePack v4 has no
+///   process-wide mutable default, so host code cannot change Prague's wire format.
 /// </summary>
 public static class PragueMessagePack {
-	private static readonly StringInterningFormatter _stringInterningFormatter = new();
+	private static readonly PragueStringInterningFormatterFactory _stringInterningFactory = new();
 
 	/// <summary>
-	///   Builds Prague's default resolver composite. The built-in MessagePack
-	///   <see cref="StringInterningFormatter"/> sits in the formatter slot
-	///   (uses a <c>ConditionalWeakTable</c> internally so interned entries
-	///   are reclaimed by the GC when no other references exist — no
-	///   intern-table leak); <see cref="PragueDateTimeResolver"/> intercepts
-	///   DateTime/DateTime?; <see cref="TypelessContractlessStandardResolver"/>
-	///   handles everything else for byte-for-byte compatibility with topics
-	///   produced under the historical host-side composite.
+	///   Builds Prague's default factory chain. <see cref="PragueStringInterningFormatterFactory"/>
+	///   weakly interns every deserialized string by its UTF-8 bytes;
+	///   <see cref="PragueDateTimeFormatterFactory"/> intercepts DateTime; the contractless default
+	///   chain handles everything else. Polymorphic members must carry <c>[UnionTag]</c>: the typeless
+	///   mode (payload-supplied .NET type names) is deliberately not on the chain.
 	/// </summary>
-	internal static IFormatterResolver CreateDefaultComposite() =>
-		CompositeResolver.Create(
-			new IMessagePackFormatter[] { _stringInterningFormatter },
-			new IFormatterResolver[] {
-				PragueDateTimeResolver.Instance,
-				TypelessContractlessStandardResolver.Instance
-			});
+	internal static MessagePackFormatterFactory CreateDefaultFactory() =>
+		MessagePackFormatterFactory.Combine(
+			_stringInterningFactory,
+			PragueDateTimeFormatterFactory.Instance,
+			MessagePackFormatterFactory.Default.WithContractless(allowPrivate: true));
 
-	private static readonly MessagePackSerializerOptions _defaultSentinel =
-		MessagePackSerializerOptions.Standard.WithResolver(CreateDefaultComposite());
+	internal static MessagePackSerializerOptions CreateOptions(MessagePackFormatterFactory factory) =>
+		new(new MessagePackFormatterResolver(factory));
+
+	private static readonly MessagePackSerializerOptions _defaultSentinel = CreateOptions(CreateDefaultFactory());
 
 	private static MessagePackSerializerOptions _options = _defaultSentinel;
 

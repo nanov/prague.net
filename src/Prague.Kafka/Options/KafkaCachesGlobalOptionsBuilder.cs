@@ -5,36 +5,37 @@ using MessagePack;
 
 /// <summary>
 ///   Builder for library-wide options. Today carries one option
-///   (<see cref="WithMessagePackResolver"/>); future global knobs land here
+///   (<see cref="WithMessagePackFormatterFactory"/>); future global knobs land here
 ///   without growing the AddKafkaCaches signature.
 /// </summary>
 public sealed class KafkaCachesGlobalOptionsBuilder {
-	private Func<IFormatterResolver, IFormatterResolver>? _resolverCompose;
+	private Func<MessagePackFormatterFactory, MessagePackFormatterFactory>? _factoryCompose;
 
 	/// <summary>
-	///   Compose a custom resolver on top of Prague's default composite
-	///   (<c>StringInterningFormatter</c> + <c>PragueDateTimeResolver</c> + <c>TypelessContractlessStandardResolver</c>).
-	///   The lambda receives the Prague composite as <c>defaultResolver</c> and
-	///   returns the final resolver to use.
+	///   Compose a custom formatter factory on top of Prague's default chain
+	///   (<c>PragueStringInterningFormatterFactory</c> + <c>PragueDateTimeFormatterFactory</c> + contractless default chain).
+	///   The lambda receives the Prague chain as <c>defaultFactory</c> and
+	///   returns the final factory to use, typically
+	///   <c>MessagePackFormatterFactory.Combine(myFactory, defaultFactory)</c>.
 	/// </summary>
 	/// <remarks>
 	///   Calling this method more than once on the same builder replaces the
 	///   previous compose delegate (last-wins). The lambda must not return null.
 	/// </remarks>
-	public KafkaCachesGlobalOptionsBuilder WithMessagePackResolver(
-		Func<IFormatterResolver, IFormatterResolver> compose) {
+	public KafkaCachesGlobalOptionsBuilder WithMessagePackFormatterFactory(
+		Func<MessagePackFormatterFactory, MessagePackFormatterFactory> compose) {
 		ArgumentNullException.ThrowIfNull(compose);
-		_resolverCompose = compose;
+		_factoryCompose = compose;
 		return this;
 	}
 
 	internal MessagePackSerializerOptions Build() {
-		if (_resolverCompose is null)
+		if (_factoryCompose is null)
 			return PragueMessagePack.DefaultOptions();
-		var composed = _resolverCompose(PragueMessagePack.CreateDefaultComposite());
+		var composed = _factoryCompose(PragueMessagePack.CreateDefaultFactory());
 		if (composed is null)
 			throw new InvalidOperationException(
-				"WithMessagePackResolver compose delegate returned null. Return a non-null IFormatterResolver.");
-		return MessagePackSerializerOptions.Standard.WithResolver(composed);
+				"WithMessagePackFormatterFactory compose delegate returned null. Return a non-null MessagePackFormatterFactory.");
+		return PragueMessagePack.CreateOptions(composed);
 	}
 }

@@ -5,7 +5,6 @@ using Prague.Kafka.SerDe;
 using Nanov.Kafka;
 using Entities;
 using MessagePack;
-using MessagePack.Resolvers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -87,54 +86,13 @@ public class MessagePackIsolationTests {
 	}
 
 	[Test]
-	public async Task HostMutatedDefaultOptions_DoesNotBreakProduction() {
-		// Simulate the host snippet that historically broke things.
-		var original = MessagePackSerializer.DefaultOptions;
-		MessagePackSerializer.DefaultOptions = MessagePackSerializerOptions.Standard
-			.WithResolver(CompositeResolver.Create(
-				TypelessContractlessStandardResolver.Instance,
-				StandardResolver.Instance));
-
-		try {
-			using var producer = DualKafkaClusterFixture.NewProducer(DualKafkaClusterFixture.BootstrapServersA);
-			var sent = new EntityWithDateTime {
-				Id = 2,
-				Name = "mutated-default",
-				CreatedAt = DateTime.UtcNow,
-				CorrelationId = Guid.NewGuid()
-			};
-
-			producer.Produce(_topic, new Message<byte[], byte[]> {
-				Key = MessagePackSerializer.Serialize(sent.Id, PragueMessagePack.Options),
-				Value = MessagePackSerializer.Serialize(sent, PragueMessagePack.Options)
-			});
-			producer.Flush(TimeSpan.FromSeconds(10));
-
-			var (sp, hosted) = BuildServiceProvider();
-			using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-			await hosted.StartAsync(cts.Token);
-			var loader = sp.GetRequiredService<KafkaCachesLoader>();
-			await loader.StartAsync(cts.Token);
-
-			var cache = sp.GetRequiredService<EntityWithDateTimeCache>();
-			Assert.That(cache.Cache.TryGet(2, out var received), Is.True,
-				"Cache must work even when DefaultOptions has been mutated by host");
-			Assert.That(received!.CreatedAt, Is.EqualTo(sent.CreatedAt).Within(TimeSpan.FromMilliseconds(1)));
-
-			await hosted.StopAsync(CancellationToken.None);
-		} finally {
-			MessagePackSerializer.DefaultOptions = original;
-		}
-	}
-
-	[Test]
 	public async Task LegacyTopicData_StandardTimestampExt_StillDecodes() {
 		using var producer = DualKafkaClusterFixture.NewProducer(DualKafkaClusterFixture.BootstrapServersA);
 
 		var instantUtc = new DateTime(2026, 5, 17, 12, 0, 0, DateTimeKind.Utc);
 
-		// Use plain StandardResolver to force DateTime → standard ext format on the wire.
-		var pureStandard = MessagePackSerializerOptions.Standard.WithResolver(StandardResolver.Instance);
+		// Plain default options write DateTime in the standard ext format.
+		var pureStandard = MessagePackSerializerOptions.Default;
 
 		var sent = new EntityWithDateTime {
 			Id = 3,
