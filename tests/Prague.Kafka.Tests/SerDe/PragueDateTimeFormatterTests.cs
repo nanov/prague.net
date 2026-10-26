@@ -63,8 +63,8 @@ public class PragueDateTimeFormatterTests {
 	}
 }
 
-[TestFixture]
 /// <summary>v4's generic nullable formatter must resolve Prague's DateTime formatter through the chain.</summary>
+[TestFixture]
 public class PragueNullableDateTimeFormatterTests {
 	private static readonly MessagePackSerializerOptions Options =
 		new(new MessagePackFormatterResolver(
