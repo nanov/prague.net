@@ -8,6 +8,8 @@
     <Authors>Dimitar Nanov</Authors>
     <IsPackable>true</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Nanov.HighPerformance.Threading.Workers has no stable release yet; drop once it does. -->
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
