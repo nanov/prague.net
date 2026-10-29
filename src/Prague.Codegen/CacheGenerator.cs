@@ -6083,6 +6083,8 @@ public class CacheGenerator : IIncrementalGenerator {
 			"        private static bool TryParseSpanDateTime(System.ReadOnlySpan<char> value, out System.DateTime result) => System.DateTime.TryParse(value, out result);");
 		sb.AppendLine(
 			"        private static bool TryParseSpanDateTimeOffset(System.ReadOnlySpan<char> value, out System.DateTimeOffset result) => System.DateTimeOffset.TryParse(value, out result);");
+		sb.AppendLine(
+			"        private static bool TryParseSpanGuid(System.ReadOnlySpan<char> value, out System.Guid result) => System.Guid.TryParse(value, out result);");
 
 		// Generate enum-specific parsers for indexed enum properties
 		foreach (var prop in indexedProps)
@@ -6103,6 +6105,7 @@ public class CacheGenerator : IIncrementalGenerator {
 		if (fullTypeName.Contains("System.Boolean") || fullTypeName == "bool") return "Boolean";
 		if (fullTypeName.Contains("DateTime") && !fullTypeName.Contains("Offset")) return "DateTime";
 		if (fullTypeName.Contains("DateTimeOffset")) return "DateTimeOffset";
+		if (fullTypeName.Contains("System.Guid")) return "Guid";
 		return "String"; // fallback
 	}
 
