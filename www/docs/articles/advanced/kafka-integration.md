@@ -62,6 +62,11 @@ Per-cluster options live in `KafkaCachesOptions` (namespace `Prague.Kafka.Option
 | `BootstrapServers` | Required. Comma-separated broker list. |
 | `ClientSettings` | Forwarded to librdkafka (`group.id`, `auto.offset.reset`, SASL settings, etc.). |
 | `Vars` | String-string map; values are substituted into topic names as `[v:key]`. |
+| `OAuthBearerTokenRefreshHandler` | Optional. SASL/OAUTHBEARER token refresh callback, attached to the cluster's consumer and producer. |
+
+Brokers that authenticate clients with SASL/OAUTHBEARER need a token refresh callback, which `ClientSettings` cannot carry. librdkafka invokes the handler whenever it needs a token, passing the client and the `sasl.oauthbearer.config` value. The handler must call `OAuthBearerSetToken` or `OAuthBearerSetTokenFailure` on the client. The consumer invokes it on its consume thread and the producer on its own poll thread, so two calls can overlap. Keep it fast, for example by returning a token that is refreshed in the background: while the handler runs, no cache in that section consumes:
+
+[!code-csharp[](../../../../samples/Prague.Samples/Advanced/KafkaIntegration.cs#oauthbearer)]
 
 Multiple clusters are supported by calling `AddKafkaCaches` more than once with different `configsSectionName` arguments (the default section is `"kafkaCaches"`); each cluster has its own consumer + producer + handler set.
 

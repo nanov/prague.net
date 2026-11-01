@@ -28,6 +28,8 @@ public class KafkaCacheProducer : IDisposable {
 				// TODO: propersetup
 			});
 		builder.SetErrorHandler((_, e) => { _logger.LogError("Kafka caches consumer error: {Error}", e.Reason); });
+		if (configuration.OAuthBearerTokenRefreshHandler is not null)
+			builder.SetOAuthBearerTokenRefreshHandler(configuration.OAuthBearerTokenRefreshHandler);
 		// TODO: add logging and error handling
 
 		_producer = builder.BuildRaw();
