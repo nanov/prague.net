@@ -1,10 +1,17 @@
 name: Publish to NuGet
-run-name: Publish ${{ github.ref_name }}
+run-name: Publish ${{ inputs.tag || github.ref_name }}
 
 on:
   push:
     tags:
       - 'v*'
+  # Re-publish an existing tag with the current workflow, e.g. after a failed push. Re-running
+  # a failed tag run replays the workflow file as it was at that tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish (e.g. v0.8.3)
+        required: true
 
 permissions:
   contents: read
@@ -15,8 +22,13 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for NuGet trusted publishing
     steps:
-      - uses: actions/checkout@v4   # checks out the pushed tag (already tested in release.yml)
+      - uses: actions/checkout@v4   # checks out the tag (already tested in release.yml)
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -27,7 +39,14 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            echo "Not a release tag: $TAG" >&2
+            exit 1
+          fi
+          echo "VERSION=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Restore
         run: dotnet restore Prague.Publish.slnf
@@ -44,7 +63,18 @@ jobs:
           dotnet pack Prague.Publish.slnf -c Release --no-build --output artifacts \
             -p:PackageVersion=${{ steps.version.outputs.VERSION }}
 
+      # Trusted publishing: exchanges the job's OIDC token for an API key valid for one hour, so
+      # it runs right before the push. Policy on nuget.org: owner nanov, repo prague.net,
+      # workflow publish.yml. NUGET_USER is the nuget.org profile name, not an email.
+      - name: NuGet login (OIDC)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push to NuGet
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -57,7 +87,7 @@ jobs:
             echo "Pushing $f"
             dotnet nuget push "$f" \
               --source "https://api.nuget.org/v3/index.json" \
-              --api-key "${{ secrets.NUGET_API_KEY }}" \
+              --api-key "$NUGET_API_KEY" \
               --skip-duplicate
           done
 
