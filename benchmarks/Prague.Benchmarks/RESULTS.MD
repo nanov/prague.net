@@ -2170,3 +2170,46 @@ no fan-out — what is left is the 1k-row narrowing both sides pay.
 
 Every delta is inside the run-to-run spread at these loads (the eager collection +3.7% ran at the higher
 load; the first tree run above, 95.02 us, is under base).
+
+# String interning — `Utf8WeakInternPool`
+
+`StringInternBenchmarks` (category `StringIntern`), ns per string. Corpus: 1024 short values (codes,
+statuses; 1 in 16 non-ASCII). `Hit` = warm, rooted corpus; `Churn` = every string new and unrooted (miss,
+insert, collection, rebuild). `×8` = the same total work split over 8 threads (wall time per string).
+`Decode` is plain `Encoding.UTF8.GetString` (no interning); `StringToolsV3` is v3's interner
+(Microsoft.NET.StringTools 17.11.4 `Strings.WeakIntern` over stack-decoded chars).
+
+Measured on the MessagePack v4 experiment branch (PR #115); the pool does not depend on MessagePack, and
+the same code backs `PragueStringInterningFormatter` on 3.x. The locked and hash variants were removed after
+these runs.
+
+BenchmarkDotNet v0.15.8, macOS 27.0, Apple M4 Pro (12 cores), .NET 10.0.13 (SDK 10.0.402), `--inProcess`.
+**Machine load was high** (Spotlight indexing):
+run 1 load average 7.3 → 13–16, run 2 started at 5.2 and ended at 14. Single-threaded rows are stable
+(StdDev ≤ 7 ns); `×8` rows carry noise (up to 18 ns StdDev) but the gaps that drove decisions are larger.
+
+## Run 1 — hash and baseline (lock-free pool *without* in-place slot reuse)
+
+| Method | Hit | Hit ×8 | Churn | Churn ×8 | Churn alloc |
+|---|---:|---:|---:|---:|---:|
+| Decode | 10.7 | 10.1 | 10.6 | 7.5 | 75 B |
+| StringToolsV3 | 33.8 | 18.1 | 326.2 | 1195.5 | 139 B |
+| Locked, `HashCode` | 17.8 | 5.3 | 67.9 | 163.8 | 75 B |
+| Lock-free, `HashCode` | 17.2 | 5.9 | 94.2 | 202.7 | 137 B |
+| Lock-free, XxHash3 (seeded) | 16.8 | 5.7 | 92.0 | 201.5 | 137 B |
+| Lock-free, XxHash32 (seeded) | 17.1 | 5.0 | 91.0 | 188.9 | 145 B |
+
+Hash choice: all three within ~3% — `HashCode` kept (per-process seed, no `System.IO.Hashing` dependency).
+The lock-free variant lost on churn because it only claimed empty slots (more rebuilds, rebuild arrays
+allocated per op); the locked one re-targeted collected slots in place.
+
+## Run 2 — lock vs lock-free, both reusing collected slots in place
+
+| Method | Hit | Hit ×8 | Churn | Churn ×8 | Churn alloc |
+|---|---:|---:|---:|---:|---:|
+| Decode | 10.8 | 7.0 | 10.5 | 6.1 | 75 B |
+| Locked, `HashCode` | 16.8 | 5.2 | 80.7 | 157.5 | 75 B |
+| **Lock-free, `HashCode`** | **15.8** | 5.7 | **68.7** | **44.7** | 75 B |
+
+Kept: lock-free. Same hit cost, 15% faster single-threaded misses, 3.5× faster contended misses, no
+allocation beyond the string itself. Versus v3's interner: ~2× faster hits, ~5× faster misses.
