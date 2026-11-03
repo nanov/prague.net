@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Nanov.Kafka;
 using NUnit.Framework;
 using OpenTelemetry.Metrics;
 using Prague.Core;
@@ -109,6 +110,35 @@ public class KafkaIntegration {
 		using var provider = services.BuildServiceProvider();
 
 		Assert.That(provider.GetRequiredService<IOptions<KafkaCachesGlobalOptions>>().Value.StatisticsIntervalSeconds, Is.EqualTo(60u));
+	}
+
+	[Test]
+	public void OAuthBearer() {
+		var services = NewServices();
+
+		#region oauthbearer
+		services.AddKafkaCaches(
+			o => {
+				o.BootstrapServers = "kafka:9092";
+				o.ClientSettings["security.protocol"] = "SASL_SSL";
+				o.ClientSettings["sasl.mechanism"] = "OAUTHBEARER";
+				o.OAuthBearerTokenRefreshHandler = (client, _) => {
+					try {
+						var (token, expiresAt) = CurrentAccessToken();
+						client.OAuthBearerSetToken(token, expiresAt.ToUnixTimeMilliseconds(), "orders-view");
+					}
+					catch (Exception e) {
+						client.OAuthBearerSetTokenFailure(e.Message);
+					}
+				};
+			},
+			builder => builder.AddCache<OrderCache, string, Order>());
+		#endregion
+
+		using var provider = services.BuildServiceProvider();
+		var options = provider.GetRequiredService<IOptionsMonitor<KafkaCachesOptions>>().Get("kafkaCaches");
+
+		Assert.That(options.OAuthBearerTokenRefreshHandler, Is.Not.Null);
 	}
 
 	[Test]
@@ -339,6 +369,9 @@ public class KafkaIntegration {
 		services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());   // a host registers this for you
 		return services;
 	}
+
+	private static (string Token, DateTimeOffset ExpiresAt) CurrentAccessToken()
+		=> ("token", DateTimeOffset.UtcNow.AddHours(1));
 
 	private sealed class TopicNames {
 		public string Shipments { get; init; } = "shipments";

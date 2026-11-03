@@ -481,7 +481,7 @@ internal class KafkaCacheConsumer : IDisposable {
 		_handlersByName = _handlers
 			.ToFrozenDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal)
 			.GetAlternateLookup<ReadOnlySpan<char>>();
-		_rawConsumer = BuildRawConsumer(kafkaCacheBuilderProvider, config);
+		_rawConsumer = BuildRawConsumer(kafkaCacheBuilderProvider, config, configuration.OAuthBearerTokenRefreshHandler);
 	}
 
 	public Task WaitForInitialLoadAsync(CancellationToken ct = default) {
@@ -558,8 +558,11 @@ internal class KafkaCacheConsumer : IDisposable {
 		_cts.Dispose();
 	}
 
-	private IRawConsumer BuildRawConsumer(IKafkaCacheBuilderProvider provider, ConsumerConfig config) {
+	private IRawConsumer BuildRawConsumer(IKafkaCacheBuilderProvider provider, ConsumerConfig config,
+		Action<IClient, string>? oAuthBearerTokenRefreshHandler) {
 		var rawBuilder = provider.NewRawConsumerBuilder(config);
+		if (oAuthBearerTokenRefreshHandler is not null)
+			rawBuilder.SetOAuthBearerTokenRefreshHandler(oAuthBearerTokenRefreshHandler);
 		rawBuilder.SetPartitionsAssignedHandler((c, partitions) => {
 			_assignedPartitions += partitions.Count;
 			_statistics.SetAssignedPartitions(_assignedPartitions);
