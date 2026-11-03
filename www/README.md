@@ -123,8 +123,10 @@ Every C# block on a docs page is pulled out of `samples/Prague.Samples/`, an NUn
 being true without a test going red. The articles contain no hand-written C#.
 
 - `samples/Prague.Samples/Models/` is the one domain every page uses (`Order`, `Customer`, `OrderLine`,
-  `Shipment`, `Product`, `CustomerActivityIndex`). Add attributes to these models rather than inventing
-  new entities; each file opens with a `// docs:` line saying what it demonstrates.
+  `Shipment`, `Product`, `CustomerActivityIndex`, `OrderSearchRow`). `OrderSearchRow` is the only
+  attribute-form model with settable fields: the enrich-from-another-cache how-to uses it because enriched
+  fields cannot be `init`-only. Add attributes to these models rather than inventing new entities; each
+  file opens with a `// docs:` line saying what it demonstrates.
 - One folder per docs section (`GettingStarted/`, …), one test class per article. Each block is a
   `#region kebab-name` … `#endregion` containing exactly the code the reader should see; assertions and
   set-up stay outside the region. Region names are unique within a file and describe the block, not

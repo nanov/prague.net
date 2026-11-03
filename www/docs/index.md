@@ -33,6 +33,7 @@ Task-shaped pages: a prerequisite, the steps, the pitfalls.
 - [**Incremental Sync**](articles/how-to/incremental-sync.md) — send only what changed since a client's watermark.
 - [**Write a Filter**](articles/how-to/write-a-filter.md) — header, key and value filters; soft deletes; predicates with DI state.
 - [**React to Changes**](articles/how-to/react-to-changes.md) — `ICacheAfterHandler` and every `UpdateType`.
+- [**Enrich from Another Cache**](articles/how-to/enrich-from-another-cache.md) — `ICacheEnricher`: fill a value from the host's state before it is stored and indexed.
 - [**Host with DI**](articles/how-to/host-with-di.md) — registration, options binding, topic placeholders, several clusters, clean shutdown.
 - [**Inspect over HTTP**](articles/how-to/inspect-over-http.md) — `Prague.Api` endpoints and query-string syntax.
 - [**Map, Clone, Batch**](articles/how-to/map-clone-batch.md) — project results, copy rows, read many keys at once.

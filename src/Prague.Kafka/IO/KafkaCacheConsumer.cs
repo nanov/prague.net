@@ -132,6 +132,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 	ICacheClonable<TVlaue>
 	where TCacheEntity : IDataCache<TKey, TVlaue> {
 	private readonly ICacheAfterHandler<TKey, TVlaue>[] _afterHandlers;
+	private readonly ICacheEnricher<TKey, TVlaue>[] _enrichers;
 	private readonly TCacheEntity _cache;
 	private readonly Enricher<TVlaue> _enricher;
 	private readonly KafkaKeyFilters<TKey> _keyFilters;
@@ -148,6 +149,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		KafkaKeyFilters<TKey> keyFilters,
 		KafkaValueFilters<TVlaue> valueFilters,
 		IEnumerable<ICacheAfterHandler<TKey, TVlaue>> afterHandlers,
+		ICacheEnricher<TKey, TVlaue>[] enrichers,
 		ILogger logger) : base(filtes) {
 		_cache = cache;
 		_statistics = statistics;
@@ -156,6 +158,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		_logger = logger;
 		_enricher = TVlaue.GetEnricher();
 		_afterHandlers = afterHandlers.ToArray();
+		_enrichers = enrichers;
 	}
 
 	public override KafkaDataCacheStatistics Statistics => _statistics;
@@ -251,6 +254,8 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 
 			value.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
 			_enricher.Enrich(value, raw.Headers, timestamp);
+			if (_enrichers.Length != 0)
+				RunEnrichers(key, value, offset);
 			var buffer = _rawLoadBuffer ??= new ValueCompactingBuffer<TKey, TVlaue>(COMPACTING_BUFFER_CAPACITY);
 			buffer.AddOrReplace(key, value, timestamp.UnixTimestampMs);
 			if (buffer.IsFull(COMPACTING_BUFFER_CAPACITY))
@@ -284,7 +289,24 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 
 		liveValue.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
 		_enricher.Enrich(liveValue, raw.Headers, timestamp);
+		if (_enrichers.Length != 0)
+			RunEnrichers(key, liveValue, offset);
 		PublishRaw(RAW_KIND_UPDATE, key, liveValue, timestamp.UnixTimestampMs);
+	}
+
+	/// <summary>
+	///   Runs the host's enrichers over a value that is not yet in the cache. Kept out of <see cref="DispatchRaw" />
+	///   and not inlined so that the per-enricher EH region and loop locals stay out of that method. A throw is logged
+	///   and the value keeps whatever the enrichers set before it; the remaining enrichers still run.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private void RunEnrichers(TKey key, TVlaue value, long offset) {
+		foreach (var enricher in _enrichers)
+			try {
+				enricher.Enrich(key, value);
+			} catch (Exception e) {
+				_logger.EnricherError(e, Name, offset);
+			}
 	}
 
 	internal override void PublishRawFiltered()
@@ -768,6 +790,10 @@ internal static partial class KafkaCacheConsumerLog {
 	[LoggerMessage(Level = LogLevel.Error,
 		Message = "[Prague] Value filter predicate threw for {CacheName} - {Offset}")]
 	public static partial void ValueFilterError(this ILogger logger, Exception exception, string cacheName, long offset);
+
+	[LoggerMessage(Level = LogLevel.Error,
+		Message = "[Prague] Enricher threw for {CacheName} - {Offset}; value stored as enriched so far")]
+	public static partial void EnricherError(this ILogger logger, Exception exception, string cacheName, long offset);
 
 	[LoggerMessage(Level = LogLevel.Error,
 		Message = "[Prague] Error processing message {CacheName} - {Offset}")]

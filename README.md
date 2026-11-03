@@ -669,6 +669,10 @@ var orders = provider.GetRequiredService<OrderCache>();
   `UpdateType`; `Filtered` carries neither key nor value.
 - **Enrichment:** `[DataCacheFromTimestamp]` fills a property from the message timestamp,
   `[DataCacheHeader("tenant-id")]` from a header.
+- **Host enrichers** (`WithEnricher<T>()`, `ICacheEnricher<TKey, TValue>`) change a consumed value from the
+  host's own state, such as another cache, before it is cached and indexed; they run in both phases and are
+  bound to the cache that registered them. See
+  [`www/docs/articles/how-to/enrich-from-another-cache.md`](www/docs/articles/how-to/enrich-from-another-cache.md).
 
 **Producer.** Registered as a keyed singleton under the section name:
 

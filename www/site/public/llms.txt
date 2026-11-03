@@ -33,6 +33,7 @@ How-to guides (task-shaped, every code block compiled and tested):
 - [Incremental Sync](https://nanov.github.io/prague.net/docs/articles/how-to/incremental-sync.html): "what changed since my watermark" from a global last-update index, across caches, with ties and deletes.
 - [Write a Filter](https://nanov.github.io/prague.net/docs/articles/how-to/write-a-filter.html): header, key and value filters, treatAsDelete, predicates with DI state.
 - [React to Changes](https://nanov.github.io/prague.net/docs/articles/how-to/react-to-changes.html): ICacheAfterHandler, each UpdateType, what makes a write Same rather than Update.
+- [Enrich from Another Cache](https://nanov.github.io/prague.net/docs/articles/how-to/enrich-from-another-cache.html): ICacheEnricher: fill a value from the host's state before it is stored and indexed.
 - [Host with DI](https://nanov.github.io/prague.net/docs/articles/how-to/host-with-di.html): generic host or ASP.NET Core registration, options binding, topic placeholders, several clusters, clean shutdown.
 - [Inspect over HTTP](https://nanov.github.io/prague.net/docs/articles/how-to/inspect-over-http.html): Prague.Api endpoints, statistics, query-string syntax, keeping them off the public surface.
 - [Map, Clone, Batch](https://nanov.github.io/prague.net/docs/articles/how-to/map-clone-batch.html): project results without a second buffer, private copies of rows, many keys in one call.

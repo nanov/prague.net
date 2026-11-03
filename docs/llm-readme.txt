@@ -297,7 +297,9 @@ global indices between the registered caches.
               .WithValueFilter(static o => o.Active, treatAsDelete: true)
               .WithKeyFilter(static sp => <state>, static (state, k) => ...)     // DI state, resolved ONCE at build
               .WithValueFilter<IPolicy>(static (policy, o) => ...)             // TService must be spelled
-              .WithAfterHandler<OrderProjector>();                             // ICacheAfterHandler<string,Order>
+              .WithAfterHandler<OrderProjector>()                              // ICacheAfterHandler<string,Order>
+              .WithEnricher<CustomerEnricher>()                                // ICacheEnricher<string,Order>
+              .WithEnricher(static sp => new RegionEnricher(...));             // Func<IServiceProvider, TEnricher>
           b.AddCache<CustomerCache, int, Customer>("customers-[v:env]");      // explicit topic
           b.AddCache<X, K, V>(sp => <topic from options>);
           b.AddInternalCache<ViewCache, int, View>();                           // in registry, not consumed
@@ -320,6 +322,10 @@ Facts:
     the producer self-filter drops them.
   * After-handlers fire on the LIVE phase only. UpdateType: Filtered=0 (no key/values), Same=1,
     Add=2, Update=3, Delete=4. Signature: ValueTask Handle(UpdateType, TKey key, TValue? newValue, TValue? oldValue).
+  * Enrichers (ICacheEnricher<TKey,TValue>.Enrich(key, value)) run on consumed values in BOTH phases, after the
+    generated header/timestamp enricher and before the value is stored, so indexes see the enriched value.
+    Registered keyed by the cache type: bound to the cache that registered them (a plain AddSingleton is ignored);
+    several run in registration order. A throw is logged (EnricherError) and the value is stored as enriched so far.
   * Producer: keyed singleton KafkaCacheProducer under the section name ("kafkaCaches" default):
     [FromKeyedServices("kafkaCaches")] KafkaCacheProducer p; p.Produce(topic, key, value); p.Delete(topic, key).
     Fire-and-forget (no delivery report; failures logged). librdkafka defaults acks=all, idempotence off.

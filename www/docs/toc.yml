@@ -36,6 +36,8 @@
       href: articles/how-to/write-a-filter.md
     - name: React to Changes
       href: articles/how-to/react-to-changes.md
+    - name: Enrich from Another Cache
+      href: articles/how-to/enrich-from-another-cache.md
     - name: Host with DI
       href: articles/how-to/host-with-di.md
     - name: Inspect over HTTP

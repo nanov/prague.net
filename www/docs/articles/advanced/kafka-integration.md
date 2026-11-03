@@ -159,6 +159,8 @@ The supported way to re-admit them is a **process restart**, and it works out of
 
 Two property attributes fill fields from the message rather than its payload: `[DataCacheFromTimestamp]` on a `long` property stores the Kafka message timestamp, and `[DataCacheHeader("tenant-id")]` stores a header value (MessagePack-first numeric SerDe for `int` / `long`).
 
+This enrichment is generated and copies message metadata (`[DataCacheHeader]`, `[DataCacheFromTimestamp]`) into the value. A host enricher is the other kind: registered with `WithEnricher<T>()` as an `ICacheEnricher<TKey, TValue>`, it runs right after the generated one, in both phases, and fills fields from the host's own state — for example another cache — before the value is stored and indexed. See [Enrich from Another Cache](../how-to/enrich-from-another-cache.md).
+
 ## Awaiting initial load
 
 `AddKafkaCaches` registers a hosted service whose `StartAsync` returns only once every cache has reached its initial-load EOF, so a generic host does not finish starting (and an ASP.NET Core host does not start serving) before the caches are loaded. A load that stalls fails startup with a `TimeoutException` naming the caches still waiting, when the host's startup token fires.

@@ -55,6 +55,32 @@ public class KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> : KafkaCacheHa
 	}
 
 	/// <summary>
+	///   Registers <typeparamref name="TEnricher" /> as a singleton <see cref="ICacheEnricher{TKey,TValue}" /> bound to
+	///   this cache: the registration is keyed by <typeparamref name="TCacheEntity" />, so another cache with the
+	///   same key and value types does not receive it. Several registrations run in registration order. See
+	///   <see cref="ICacheEnricher{TKey,TValue}" /> for when and where it runs.
+	/// </summary>
+	/// <typeparam name="TEnricher">The enricher; the host's container constructs it.</typeparam>
+	public KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> WithEnricher<TEnricher>()
+		where TEnricher : class, ICacheEnricher<TKey, TValue> {
+		Services.AddKeyedSingleton<ICacheEnricher<TKey, TValue>, TEnricher>(typeof(TCacheEntity));
+		return this;
+	}
+
+	/// <summary>
+	///   Registers a singleton <see cref="ICacheEnricher{TKey,TValue}" /> bound to this cache and built by
+	///   <paramref name="builder" />, for enrichers with constructor arguments the container cannot supply on its own.
+	/// </summary>
+	/// <typeparam name="TEnricher">The enricher.</typeparam>
+	/// <param name="builder">Builds the enricher from the root provider, once.</param>
+	public KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> WithEnricher<TEnricher>(
+		Func<IServiceProvider, TEnricher> builder)
+		where TEnricher : class, ICacheEnricher<TKey, TValue> {
+		Services.AddKeyedSingleton<ICacheEnricher<TKey, TValue>>(typeof(TCacheEntity), (sp, _) => builder(sp));
+		return this;
+	}
+
+	/// <summary>
 	/// Allowing messages to be filtered by header using a custom predicate.
 	/// The predicate is invoked on every message with the deserialized header value.
 	/// Supports dynamic expressions (e.g. it =&gt; it &gt;= DateTime.UtcNow.AddSeconds(-24)).
@@ -539,6 +565,14 @@ public class KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> : KafkaCacheHa
 		return KafkaValueFilters<TValue>.Create(filters);
 	}
 
+	/// <summary>
+	///   The enrichers registered for this cache, in registration order; empty when none. Keyed by the cache type,
+	///   so a cache with the same key and value types in this or another section has its own set. Resolved once,
+	///   when the handler is built — nothing is resolved on the ingestion path.
+	/// </summary>
+	internal ICacheEnricher<TKey, TValue>[] BuildEnrichers(IServiceProvider sp)
+		=> sp.GetKeyedServices<ICacheEnricher<TKey, TValue>>(typeof(TCacheEntity)).ToArray();
+
 	internal override KeyValuePair<string, KafkaCacheHandler> Build(IServiceProvider sp,
 		IReadOnlyDictionary<string, string> vars) {
 		var cache = sp.GetRequiredService<TCacheEntity>();
@@ -558,6 +592,7 @@ public class KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> : KafkaCacheHa
 				BuildKeyFilters(sp),
 				BuildValueFilters(sp),
 				sp.GetServices<ICacheAfterHandler<TKey, TValue>>(),
+				BuildEnrichers(sp),
 				sp.GetRequiredService<ILogger<KafkaCacheHandler<TCacheEntity, TKey, TValue>>>()));
 	}
 }
