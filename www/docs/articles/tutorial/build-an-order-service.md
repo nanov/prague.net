@@ -89,7 +89,7 @@ It was registered in step 2 with `.WithAfterHandler<ShipmentNotifier>()`. Handle
 
 ## 8. Health checks and an HTTP endpoint
 
-Two checks ship with `Prague.Kafka`: liveness (the consumer is polling and no handler is stuck) and readiness (loaded, assigned, brokers up). Map them on separate paths, and map `Degraded` to 503; the default returns 200.
+Two checks ship with `Prague.Kafka`: liveness (the consumer is polling and no handler is stuck) and readiness (loaded, assigned, brokers up). Map them on separate paths, and map `Degraded` to 503; the default returns 200. Both endpoints stay silent until the initial load completes; before deploying to Kubernetes, read [probes during the initial load](../how-to/health-and-metrics.md#2-probes-during-the-initial-load).
 
 [!code-csharp[](../../../../samples/Prague.Samples/Tutorial/BuildAnOrderService.cs#tutorial-health)]
 

@@ -66,14 +66,25 @@ orders.RemoveAndProduce(order.OrderId);            // local remove + tombstone
 
 ```csharp
 services.AddHealthChecks()
-	.AddPragueKafkaLiveness(tags: ["live"])
-	.AddPragueKafkaReadiness(tags: ["ready"]);
-meterProviderBuilder.AddPragueKafkaInstrumentation();
+	.AddPragueKafkaLiveness(tags: ["live"])     // Unhealthy: the consumer is dead or stuck
+	.AddPragueKafkaReadiness(tags: ["ready"]);  // Degraded: loading, no partition, brokers down
+services.AddOpenTelemetry().WithMetrics(m => m.AddPragueKafkaInstrumentation());   // meter "Prague.Kafka"
+
+app.MapHealthChecks("/health/live", new() { Predicate = r => r.Tags.Contains("live") });
+app.MapHealthChecks("/health/ready", new() {
+	Predicate = r => r.Tags.Contains("ready"),
+	ResultStatusCodes = { [HealthStatus.Healthy] = 200, [HealthStatus.Degraded] = 503, [HealthStatus.Unhealthy] = 503 },
+});
 ```
 
-- `KafkaCachesHealthOptions`: `PollLoopHeartbeatTimeout` 3 s, `HandlerProcessingTimeout` 5 s, `MinBrokersUp` 1. `MinBrokersUp` needs librdkafka statistics (on by default); set it to 0 if you disable them.
-- ASP.NET's `MapHealthChecks` returns 200 for Degraded. Map Degraded to 503 for a Kubernetes readiness probe.
-- Metrics: `prague.kafka.consumer.{partitions.assigned, broker.rtt.p99, health}`, `prague.kafka.cache.{size, messages.received, health, index.size}`.
+- `MapHealthChecks` serves Degraded as 200, so a readiness probe would keep routing to a loading pod: map Degraded to 503 as above, or pass `failureStatus: HealthStatus.Unhealthy` to `AddPragueKafkaReadiness`.
+- Liveness fails on `FatalLatched`, `PollLoopStalled` (the consume thread silent for `PollLoopHeartbeatTimeout`, 3 s: a slow filter or deserializer does it), `HandlerLoopFaulted`, `HandlerProcessingTimeout` (one message in an after-handler for 5 s). A restart reloads every topic from the start: fix the slow code rather than raising the timeout.
+- Readiness fails on `InitialLoadIncomplete`, `NoPartitionAssigned`, `BrokersDown`, `PartitionsLost`, and is Unhealthy when liveness fails too. Give Prague its own tagged endpoints: a database check on the same endpoint makes a long replay look like an outage.
+- `MinBrokersUp` (1) and `broker.rtt.p99` need librdkafka statistics, on by default; with them off, set `MinBrokersUp = 0` or readiness never passes.
+- **The endpoints are silent during the initial load.** The Kafka worker's `StartAsync` returns after the load, and ASP.NET starts its server after every hosted service has started, so `/health/*` refuses connections until the data is in. A Kubernetes liveness probe then restarts the pod mid-load and the new pod reloads from scratch, again. Pick one:
+  - a `startupProbe` on `/health/live` whose `failureThreshold × periodSeconds` exceeds the worst-case load time;
+  - `services.Configure<HostOptions>(o => o.ServicesStartConcurrently = true)`: the server answers during the load, liveness judges the consumer, and readiness reports `InitialLoadIncomplete` until the data is in. Every hosted service then also starts before the load, so each one awaits `LoadingCompletion` in `ExecuteAsync`, as above.
+- Instruments (prefix with `AddPragueKafkaInstrumentation("acme")`): `prague.kafka.consumer.{partitions.assigned, broker.rtt.p99, health}` tagged `consumer`; `prague.kafka.cache.{size, messages.received, health}` tagged `consumer`, `cache`; `prague.kafka.cache.index.{size, capacity}` tagged also `index` (size also `kind` = keys/values). The `health` gauges are 1/0 from the same predicates as the checks, so an alert and the probe agree.
 
 ## Testing
 
@@ -94,6 +105,9 @@ Query and handler logic needs no broker; Kafka paths need Testcontainers with on
 | a shared `group.id` across instances | leave the default, or one id per instance |
 | mutating `MessagePackSerializer.DefaultOptions` | `WithMessagePackResolver(...)` on `AddKafkaCaches` |
 | a consumer producing from its own partial copy of the contract | only the topic's owner produces, from the full contract |
+| a liveness probe with no `startupProbe` on a default host | a `startupProbe` sized to the load, or `ServicesStartConcurrently = true` |
+| readiness mapped with the default status codes | Degraded → 503, or `failureStatus: HealthStatus.Unhealthy` |
+| raising `HandlerProcessingTimeout` for a slow handler | enqueue the slow work and return (see `prague-handlers`) |
 
 ## Read next
 

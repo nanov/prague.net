@@ -332,9 +332,13 @@ Facts:
   * Health: services.AddHealthChecks().AddPragueKafkaLiveness(tags: [...]).AddPragueKafkaReadiness(tags: [...]);
     KafkaCachesHealthOptions { PollLoopHeartbeatTimeout=3s, HandlerProcessingTimeout=5s, MinBrokersUp=1 }.
     MinBrokersUp needs KafkaCachesGlobalOptions.StatisticsEnabled (default true); set 0 if disabled.
-    Default MapHealthChecks returns 200 for Degraded — map Degraded → 503 for k8s readiness.
+    Default MapHealthChecks returns 200 for Degraded — map Degraded → 503 for k8s readiness, or pass
+    failureStatus: HealthStatus.Unhealthy to AddPragueKafkaReadiness (failureStatus is honoured by both checks).
+    Default host: the server starts after the Kafka worker's StartAsync, i.e. after the load — /health/* refuses
+    connections while loading. k8s: a startupProbe sized to the load, or HostOptions.ServicesStartConcurrently = true
+    (then readiness reports InitialLoadIncomplete during the load).
   * OTel: meterProviderBuilder.AddPragueKafkaInstrumentation([prefix]) → prague.kafka.consumer.{partitions.assigned,
-    broker.rtt.p99, health}, prague.kafka.cache.{size, messages.received, health, index.size}.
+    broker.rtt.p99, health}, prague.kafka.cache.{size, messages.received, health, index.size, index.capacity}.
   * Testing: no in-memory broker substitute (TestAdaptor was removed); use Testcontainers; give each
     consumer under test its own group.id.
 
