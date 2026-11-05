@@ -65,7 +65,7 @@ public sealed class OrderProjector : ICacheAfterHandler<string, Order> {
 			case UpdateType.Add: Apply(newValue!, +1); break;
 			case UpdateType.Update: Apply(oldValue!, -1); Apply(newValue!, +1); break;
 			case UpdateType.Delete: Apply(oldValue!, -1); break;
-			case UpdateType.Same:          // re-emit of the resident value
+			case UpdateType.Same:          // re-emit of an equal value
 			case UpdateType.Filtered:      // no key, no values
 				break;
 		}
@@ -82,7 +82,7 @@ b.AddCache<OrderCache, string, Order>()
 |---|---|---|---|---|
 | `Add` | set | set | null | key was not resident |
 | `Update` | set | set | set | resident, `CacheEquals` said different |
-| `Same` | set | set (resident) | null | resident, `CacheEquals` said equal |
+| `Same` | set | set (the incoming copy; the cache keeps its resident instance) | null | resident, `CacheEquals` said equal |
 | `Delete` | set | null | set | tombstone or `treatAsDelete`; only if the key was resident |
 | `Filtered` | **default** | null | null | a filter skipped the message |
 
@@ -92,7 +92,7 @@ Rules:
 - **Live phase only.** The initial replay never calls handlers. To derive state that includes the loaded data, seed it from the cache after the load in a dedicated `BackgroundService` whose `ExecuteAsync` opens with `await registry.LoadingCompletion.WaitAsync(stoppingToken)` (see `prague-kafka`), never as a side effect of an unrelated job. Live messages can arrive between the load and the seed, so make both paths idempotent: keep each key's contribution (`key → (group, amount)`) and write absolute values under one lock, rather than adding deltas.
 - **Never read `key` on `Filtered`.** It is `default` (null for a string key). Return early.
 - **Keep `Handle` short.** Every message of that cache waits behind it; the liveness check fails after `HandlerProcessingTimeout` (5 s default). Enqueue slow work (`Channel<T>`) and return.
-- **Treat `newValue`/`oldValue` as read-only.** They are the instances the cache holds and queries return; `Clone()` before changing.
+- **Treat `newValue`/`oldValue` as read-only.** On `Add`/`Update` `newValue` is the instance the cache now holds and queries return, and `oldValue` the one it replaced. To derive a new row from one, clone it (`prague-modeling`, Changing a cached row).
 - Several handlers per cache run one after the other; an exception is caught and logged and does not skip the others.
 - State written by a handler is written from the live worker thread; readers on other threads need a thread-safe structure.
 
@@ -109,7 +109,7 @@ The cache compares the incoming value with the resident one using the generated 
 | relying on registration order to run "after the load" | `await registry.LoadingCompletion.WaitAsync(stoppingToken)` first in `ExecuteAsync` |
 | awaiting IO in `Handle` | enqueue and return |
 | expecting handlers during the initial load | build from the cache after load, then apply deltas |
-| mutating `newValue` | `Clone()` it |
+| changing `newValue` in place | clone it, change the clone |
 | a default (skip) filter for "no longer qualifies" | `treatAsDelete: true` |
 | `treatAsDelete` filter after a plain filter that rejects the same messages | put the `treatAsDelete` filter first |
 | IO or a DB call inside a filter predicate | snapshot via the factory overload, or a live in-memory service |

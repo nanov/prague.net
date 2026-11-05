@@ -77,7 +77,7 @@ Two rules the code follows: lanes take `static` selectors over the argument stru
 
 ## 7. React to live updates
 
-An `ICacheAfterHandler<TKey, TValue>` runs after a message has been applied to the cache during the live phase; the initial replay never calls it. `UpdateType` tells you what happened: `Add`, `Update` (with `oldValue`), `Delete` (with `oldValue`), `Same` (a re-emit of the resident value) or `Filtered` (rejected by a filter: no key, no values).
+An `ICacheAfterHandler<TKey, TValue>` runs after a message has been applied to the cache during the live phase; the initial replay never calls it. `UpdateType` tells you what happened: `Add`, `Update` (with `oldValue`), `Delete` (with `oldValue`), `Same` (an equal re-emit; `newValue` is the incoming copy, the cache keeps its resident instance) or `Filtered` (rejected by a filter: no key, no values).
 
 [!code-csharp[](../../../../samples/Prague.Samples/Tutorial/BuildAnOrderService.cs#tutorial-shipment-notifier)]
 

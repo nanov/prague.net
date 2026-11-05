@@ -117,10 +117,10 @@ public class TestWithoutABroker {
 	public void TheKafkaContainerBuildsWithoutAConnection() {
 		#region test-di-container
 		var services = new ServiceCollection();
-		services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
-		services.AddLogging();
-		services.AddKafkaCaches(o => o.BootstrapServers = "unreachable:9092",   // never contacted: no hosted service starts
-			b => b.AddCache<OrderCache, string, Order>().WithAfterHandler<OrderProjector>());
+		services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());   // required by the options binder
+		services.AddSingleton<OrderProjector>();                                      // one instance: the cache's handler and what readers inject
+		services.AddKafkaCaches(o => o.BootstrapServers = "unreachable:9092",   // never contacted: no consumer is created
+			b => b.AddCache<OrderCache, string, Order>().WithAfterHandler(sp => sp.GetRequiredService<OrderProjector>()));
 		// CustomerCache rides in through the FK: it is in the registry but not a DI service until you expose it.
 		services.AddSingleton(sp => sp.GetRequiredService<IDataCacheRegistry>().GetCache<CustomerCache>());
 		services.AddSingleton<CustomerStatement>();
@@ -129,7 +129,9 @@ public class TestWithoutABroker {
 		var orders = provider.GetRequiredService<OrderCache>();
 		orders.AddOrUpdate(NewOrder("ORD-001", 42, OrderStatus.Paid, 10m));   // seed the real singleton the app would use
 
-		Assert.That(provider.GetRequiredService<ICacheAfterHandler<string, Order>>(), Is.TypeOf<OrderProjector>());
+		var projector = provider.GetRequiredService<OrderProjector>();
+		Assert.That(provider.GetRequiredService<ICacheAfterHandler<string, Order>>(), Is.SameAs(projector));
+		Assert.That(projector.OpenTotalByCustomer, Is.Empty);   // seeding runs no after-handler: only the consumer calls them
 		Assert.That(provider.GetRequiredService<CustomerStatement>().Describe(42), Is.Null);   // no customer seeded
 		#endregion
 	}

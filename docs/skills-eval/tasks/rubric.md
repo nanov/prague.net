@@ -11,7 +11,7 @@ Score each item 0 (missing or wrong), 1 (partial), 2 (correct). Quote the file:l
 - `Prepare<TArgs>()...BuildFrozen()` plans once; must be built once and stored (field), not per call. Unsorted frozen output has no order guarantee.
 - Joins come from `[DataCacheForeignKey<T>(DataCacheJoinType.ManyToOne)]`; row fields are `Left`, `Right`. Hand-built caches need `AddJoinedCaches`; registry/AddKafkaCaches wire automatically.
 - Filters: header filters `WithHeaderEqualsFilter`; a rejected message is SKIPPED by default (resident row stays); `treatAsDelete: true` removes it.
-- After-handlers (`ICacheAfterHandler`) run in the LIVE phase only — NOT during the initial load. `UpdateType.Filtered` carries a default key and null values. `Same` means no change; on `Same` the key is set, `newValue` is the resident value and `oldValue` is null. Handlers run on a single worker; state read from other threads needs thread safety.
+- After-handlers (`ICacheAfterHandler`) run in the LIVE phase only — NOT during the initial load. `UpdateType.Filtered` carries a default key and null values. `Same` means no change; on `Same` the key is set, `newValue` is the incoming equal copy (not the resident instance) and `oldValue` is null. Handlers run on a single worker; state read from other threads needs thread safety.
 - Gate work on the initial load by awaiting `registry.LoadingCompletion` (with the stopping token) inside `BackgroundService.ExecuteAsync`, or `await host.DataCachesLoadCompletion()`. Waiting in a hosted service's `StartAsync` deadlocks the host when that service is registered before `AddKafkaCaches`; in 0.6.0 `KafkaCachesBackgroundService` waits there.
 - Unit tests need no broker: `new XxxCache()` / `DataCacheRegistryBuilder`, seed with `AddOrUpdate`.
 

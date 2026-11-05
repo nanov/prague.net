@@ -9,7 +9,10 @@ metadata:
 
 # Prague: testing
 
-Almost everything that touches a Prague cache is testable without Kafka: the consumer only calls `AddOrUpdate` / `Remove` on the same cache your code reads. Verified against Prague 0.6.0. Examples use NUnit; the patterns are framework-neutral.
+Two layers, two kinds of test. Verified against Prague 0.6.0. Examples use NUnit; the patterns are framework-neutral.
+
+- **Your code, no broker:** queries, after-handler logic called by hand, the DI wiring, the wire format of a copied contract.
+- **The pipeline, real broker:** filters, `treatAsDelete`, tombstones, which `UpdateType` a message produces, handlers skipped during the initial load. The consumer decides all of these. A write through `AddOrUpdate` runs no filter and no after-handler, so no broker-free test reaches them.
 
 ## Design for the seam
 
@@ -22,6 +25,7 @@ The suite is complete when every item below that applies has a test; each names 
 - **Every range query**: a row on each edge (`Gte` keeps it, `Lt` drops it), an empty window, and for a sentinel-keyed index (`?? long.MinValue`, see `prague-modeling`) a null row counted by no query, including one whose lower bound is `long.MinValue`.
 - **Every frozen query**: the differential against eager below.
 - **Every after-handler**: the five `UpdateType`s in a realistic sequence, and, when another service reads its state, the DI identity assertion below.
+- **Every filter and `treatAsDelete`**: a broker test that produces an accepted and a rejected message and asserts the cache and the `UpdateType` the handler received.
 - **Every copied contract**: each property through the wire test below.
 - **Every paged endpoint**: consecutive pages partition the result, `TotalCount` matches the whole.
 
@@ -83,19 +87,19 @@ For a sequence assertion, build the frozen side with `new FrozenOptions { Preser
 
 ## The real container, not started
 
-`AddKafkaCaches` contacts no broker until its hosted service starts. Build the provider, resolve the cache singletons, seed them, and test the services the app would inject:
+`AddKafkaCaches` creates no consumer until the hosted service is resolved. Build the provider, resolve the cache singletons, seed them, and test the services the app would inject. This proves the wiring, not the flow: seeding goes around the consumer, so the handler receives nothing.
 
 ```csharp
 services.AddSingleton<OpenTotals>();                     // read by an endpoint, fed by the cache
 services.AddKafkaCaches(o => o.BootstrapServers = "unreachable:9092",
 	b => b.AddCache<OrderCache, string, Order>().WithAfterHandler(sp => sp.GetRequiredService<OpenTotals>()));
 services.AddSingleton(sp => sp.GetRequiredService<IDataCacheRegistry>().GetCache<CustomerCache>());   // FK-pulled caches are not DI services
-using var provider = services.BuildServiceProvider();    // build and stop: resolving or starting IHostedService needs a broker
+using var provider = services.BuildServiceProvider();    // build and stop: resolving IHostedService creates the Kafka consumer
 provider.GetRequiredService<OrderCache>().AddOrUpdate(order);
 Assert.That(provider.GetRequiredService<ICacheAfterHandler<string, Order>>(), Is.SameAs(provider.GetRequiredService<OpenTotals>()));
 ```
 
-The last line is the DI identity assertion: the handler the cache calls is the instance readers inject (`WithAfterHandler<T>()` beside `AddSingleton<T>()` makes two, see `prague-handlers`). The container needs `IConfiguration` and logging registered (`services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build()); services.AddLogging();`).
+The last line is the DI identity assertion: the handler the cache calls is the instance readers inject (`WithAfterHandler<T>()` beside `AddSingleton<T>()` makes two, see `prague-handlers`). The container needs `IConfiguration` registered: `services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());`.
 
 ## A copied contract against producer bytes
 
@@ -112,11 +116,12 @@ Assert.That(parcel.Carrier, Is.EqualTo("DHL"));
 
 ## When a broker is needed
 
-Deserialization end to end, topic semantics, filters on real headers, initial load and health need Kafka. There is no in-memory broker. Use Testcontainers and:
+The pipeline, deserialization end to end, initial load and health need Kafka. There is no in-memory broker. Use Testcontainers (Docker); once the container is up, a test takes about a second. Then:
 - give each consumer under test its own `group.id` (the default is shared by every consumer in the process, so two providers would split partitions);
 - produce fixtures with a plain Kafka producer: a process drops messages carrying its own `X-Producer-Id`, so it never consumes what Prague produced in the same process;
 - create cache topics compacted, with one partition;
-- `await host.DataCachesLoadCompletion()` before asserting.
+- `await host.DataCachesLoadCompletion()` before producing live messages;
+- poll for the result with a deadline (the live worker applies messages asynchronously), never assert right after producing.
 
 ## Common mistakes
 
@@ -127,6 +132,8 @@ Deserialization end to end, topic semantics, filters on real headers, initial lo
 | `Is.TypeOf<T>` as the only check on a handler whose state is read elsewhere | `Is.SameAs` the injected instance |
 | `ExecutePooled()` without `using` in a test | `using var rows = ...` |
 | starting the hosted service in a unit test | build the provider and stop there |
+| expecting `AddOrUpdate` on a seeded cache to call the after-handler | call `Handle` by hand; test the flow with a broker |
+| a filter or `treatAsDelete` with only unit tests | one broker test per filter |
 | resolving an FK-pulled cache from DI | register a factory from `IDataCacheRegistry` |
 | Kafka test reading what the same process produced via Prague | produce fixtures with a plain producer |
 | two consumers in one test run sharing a group | one `group.id` per consumer |
