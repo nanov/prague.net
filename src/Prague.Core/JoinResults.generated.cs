@@ -1817,6 +1817,37 @@ internal ref struct UnsafeRightAccessor<TKey, TJoinResult>
 	}
 
 	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — either no rights matched the leftKey, or filter rejected them all),
@@ -1945,6 +1976,37 @@ internal ref struct UnsafeRight2Accessor<TKey, TJoinResult>
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
 	}
+
+	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
 
 	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
@@ -2077,6 +2139,37 @@ internal ref struct UnsafeRight3Accessor<TKey, TJoinResult>
 	}
 
 	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — either no rights matched the leftKey, or filter rejected them all),
@@ -2205,6 +2298,37 @@ internal ref struct UnsafeRight4Accessor<TKey, TJoinResult>
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
 	}
+
+	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
 
 	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
@@ -2337,6 +2461,37 @@ internal ref struct UnsafeRight5Accessor<TKey, TJoinResult>
 	}
 
 	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — either no rights matched the leftKey, or filter rejected them all),
@@ -2465,6 +2620,37 @@ internal ref struct UnsafeRight6Accessor<TKey, TJoinResult>
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
 	}
+
+	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
 
 	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
@@ -2597,6 +2783,37 @@ internal ref struct UnsafeRight7Accessor<TKey, TJoinResult>
 	}
 
 	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — either no rights matched the leftKey, or filter rejected them all),
@@ -2725,6 +2942,37 @@ internal ref struct UnsafeRight8Accessor<TKey, TJoinResult>
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
 	}
+
+	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
 
 	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
@@ -2857,6 +3105,37 @@ internal ref struct UnsafeRight9Accessor<TKey, TJoinResult>
 	}
 
 	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — either no rights matched the leftKey, or filter rejected them all),
@@ -2985,6 +3264,37 @@ internal ref struct UnsafeRight10Accessor<TKey, TJoinResult>
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
 	}
+
+	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
 
 	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
@@ -3117,6 +3427,37 @@ internal ref struct UnsafeRight11Accessor<TKey, TJoinResult>
 	}
 
 	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — either no rights matched the leftKey, or filter rejected them all),
@@ -3245,6 +3586,37 @@ internal ref struct UnsafeRight12Accessor<TKey, TJoinResult>
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
 	}
+
+	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
 
 	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
@@ -3377,6 +3749,37 @@ internal ref struct UnsafeRight13Accessor<TKey, TJoinResult>
 	}
 
 	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — either no rights matched the leftKey, or filter rejected them all),
@@ -3507,6 +3910,37 @@ internal ref struct UnsafeRight14Accessor<TKey, TJoinResult>
 	}
 
 	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — either no rights matched the leftKey, or filter rejected them all),
@@ -3635,6 +4069,37 @@ internal ref struct UnsafeRight15Accessor<TKey, TJoinResult>
 		var keys = _results.Keys;
 		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
 	}
+
+	/// <summary>
+	/// The inner post-walk by key: drops result-map entries whose key <paramref name="keep"/> rejects, then
+	/// narrows <paramref name="candidates"/> to the surviving keys — <see cref="RetainNonNullSlots"/> for a slot
+	/// that cannot be null (a struct right value). Struct-dispatched filter; the slot is not read.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void RetainRows<TKey1, TKeep>(TKeep keep, ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1> {
+		_results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>
+	/// The first inner join's post-walk: narrows <paramref name="candidates"/> to the result keys without a
+	/// filter pass — every row the first inner join created is a match.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void NarrowCandidatesToRows<TKey1>(ref ValueSet<TKey1, DefaultKeyComparer<TKey1>> candidates) where TKey1 : IEquatable<TKey1> {
+		var keys = _results.Keys;
+		Unsafe.As<ValueSet<TKey1, DefaultKeyComparer<TKey1>>, ValueSet<TKey, DefaultKeyComparer<TKey>>>(ref candidates).IntersectWith(keys);
+	}
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots"/> for a struct right value.</summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public void PruneRows<TKey1, TKeep>(TKeep keep)
+		where TKey1 : IEquatable<TKey1>
+		where TKeep : struct, IRowKeyPredicate<TKey1>
+		=> _results.Filter(new RowKeyFilter<TKey, TJoinResult, TKey1, TKeep>(keep));
 
 	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries

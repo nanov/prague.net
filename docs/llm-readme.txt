@@ -213,6 +213,8 @@ Declare on the FK-holding property. Which cache gets which method:
   OneToMany on scalar FK   → target cache only: TargetCache.JoinWith{Holder}(); slot QueryResults<THolder>
   ManyToOne on scalar FK   → holder: JoinWith{Target}() slot TRight?; target: JoinWith{Holder}() slot QueryResults
   ManyToOne on List<TKey>  → both directions, slot QueryResults<TRight>
+OneToOne means each target row has at most one holder. Several holders on one target key (games of
+one sport type) is ManyToOne; a OneToOne index keeps one holder per key, so its joins drop the rest.
 Result rows: JoinResult<TLeft, T1 [, T2, ...]> with fields `Left`, `Right` (FIRST joined slot — not
 Right1), `Right2`, `Right3`, ... Outer join → slot null / empty when no match; InnerJoinWith{T}
 drops the row instead.

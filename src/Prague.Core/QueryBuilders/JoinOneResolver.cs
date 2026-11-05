@@ -227,6 +227,59 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	}
 
 	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
+		// A struct right has no null slot to prune an inner join's misses by (JIT constant): prune them by key.
+		if (typeof(TRightValue).IsValueType && _isInner)
+			return FillRowsPruningMisses(ref accessor, cloneOnAdd);
+		var misses = FillRows(ref accessor, cloneOnAdd);
+		if (!_isInner || misses == 0)
+			return false;
+		accessor.PruneNullSlots<TRightValue>();
+		return true;
+	}
+
+	/// <summary>
+	/// The inner fused fill for a struct right value: <see cref="FillRows{TAccessor}"/> recording the lefts it
+	/// missed, then dropping their rows by key — a default struct slot is not null, so
+	/// <c>PruneNullSlots</c> would keep them.
+	/// </summary>
+	/// <returns>True when rows were dropped.</returns>
+	private bool FillRowsPruningMisses<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
+		var keys = accessor.GetKeys<TLeftKey>();
+		var missed = default(ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>>);
+		try {
+			for (var i = 0; i < keys.Length; i++) {
+				ref var slot = ref accessor.GetSlotAt<TRightValue>(i);
+				if (LookupRight(keys[i], out var right)) {
+					slot = cloneOnAdd ? right.Clone() : right;
+					continue;
+				}
+
+				slot = default!;
+				if (!missed.IsInitlized)
+					missed = new ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>>(keys.Length);
+				missed.Add(keys[i]);
+			}
+
+			if (!missed.IsInitlized)
+				return false;
+			accessor.PruneRows<TLeftKey, DropRowsInSet<TLeftKey>>(new DropRowsInSet<TLeftKey>(missed));
+			return true;
+		} finally {
+			if (missed.IsInitlized)
+				missed.Dispose();
+		}
+	}
+
+	/// <summary>
+	/// One right lookup per row the accessor holds, written straight into this resolver's slot; a left without
+	/// a right gets the slot's default. The frozen fused fill and the eager outer walk of an unfiltered join
+	/// share it. Each left is answered on its own, so lefts sharing a right all get it.
+	/// </summary>
+	/// <returns>The number of rows that got no right.</returns>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private int FillRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
 		var keys = accessor.GetKeys<TLeftKey>();
 		var misses = 0;
 		for (var i = 0; i < keys.Length; i++) {
@@ -239,10 +292,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			}
 		}
 
-		if (!_isInner || misses == 0)
-			return false;
-		accessor.PruneNullSlots<TRightValue>();
-		return true;
+		return misses;
 	}
 
 	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values) {
@@ -302,7 +352,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 	// ── Core execution loop ──────────────────────────────────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void ExecuteReverse<TContainer>(ref TContainer container, ReadOnlySpan<TLeftKey> leftKeys)
+	private void ExecuteReverse<TContainer>(ref TContainer container, ReadOnlySpan<TLeftKey> leftKeys, ref JoinOneSharedRights<TLeftKey> shared)
 		where TContainer : struct, IJoinedResultContainer<TLeftKey, TRightValue>, allows ref struct {
 
 		if (leftKeys.IsEmpty)
@@ -323,8 +373,10 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 				}
 			}
 			else {
+				// A selector may fold several lefts onto one right key: the set keeps one pair per right,
+				// the others are recorded against it.
 				foreach (var lk in leftKeys)
-					pairs.Add(new JoinedKeyPair<TLeftKey, TRightKey>(lk, Selector.Select(lk)));
+					shared.Add(ref pairs, lk, Selector.Select(lk));
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0)
@@ -347,7 +399,14 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			// ── Apply filter (executor-agnostic) and execute paired ────────────────
 			builder = Filter.Apply(builder);
 			handedOff = true;
-			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
+			// Lefts share a right: each surviving right goes to every left chained to its pair. Only a selector can
+			// fold two lefts onto one right, so the identity instantiation folds the delivery away (JIT constant).
+			if (!TSelector.IsIdentity && shared.Any) {
+				var delivery = shared.Deliver<TRightValue, TContainer>(container);
+				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
+			} else {
+				Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
+			}
 		}
 		finally {
 			if (!handedOff && pairs.IsInitlized)
@@ -357,8 +416,23 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
 		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
-		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
-		ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
+		// Unfiltered outer join: nothing narrows the right side, so the rows are filled one lookup each, as
+		// the frozen fused fill does. The pair set below is keyed by the right key alone and keeps one left
+		// per right, so when several lefts reach one right (a non-injective selector, a repeated value in
+		// a unique left index) only the first of them got it.
+		// TFilter.IsNoOp is JIT-folded: a filtered join compiles to the paired read alone.
+		if (TFilter.IsNoOp && !_isInner) {
+			FillRows(ref accessor, cloneOnAdd);
+			return;
+		}
+
+		var shared = new JoinOneSharedRights<TLeftKey>();
+		try {
+			var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
+			ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>(), ref shared);
+		} finally {
+			shared.Dispose();
+		}
 	}
 
 	void IJoinResolver.UnsafeFillNarrowedInner<TAccessor>(
@@ -415,13 +489,14 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 		if (!candidates.IsInitlized || candidates.Count == 0)
 			return;
 
-		// ── 1. Seed paired set via bulk KeyIndex.IntersectValues (no resolver-side iteration) ──
+		// ── 1. Seed paired set ──
 		// Identity: reinterpret candidates as ValueSet<TRightKey, DefaultKeyComparer<TRightKey>> + pairs as
 		// ValueSet<JoinedKeyPair<TRightKey,TRightKey>, DefaultKeyComparer<JoinedKeyPair<TRightKey,TRightKey>>> via Unsafe.As (TLeftKey == TRightKey
 		// enforced by call-site signature). Single bulk call walks the cache's hash table
-		// once per candidate, emitting pairs only for matches.
-		// Selector: struct-dispatched selector variant — JIT-devirtualizes per closed generic.
+		// once per candidate, emitting pairs only for matches; the identity is injective, so no left
+		// shares a right. Selector: SeedSelectedPairs, which records the lefts sharing a right.
 		var pairs = new ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>(candidates.Count);
+		var shared = new JoinOneSharedRights<TLeftKey>();
 		var handedOff = false;
 		try {
 			var keyIndex = Cache.Cache.KeyIndex;
@@ -433,14 +508,14 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 				keyIndex.IntersectValues(ref candidatesAsRight, ref pairsAsRight, add: true);
 			}
 			else {
-				keyIndex.IntersectValues<TLeftKey, TSelector>(ref candidates, Selector, ref pairs, add: true);
+				SeedSelectedPairs(ref candidates, keyIndex, ref pairs, ref shared);
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0) {
 				// Empty intersect: no left has a right match. The same post-walk as a non-empty one with no
 				// hits: drop the rows an earlier chained inner resolver created (their slot here stays null —
 				// left in place they would be rows without a left) and narrow the candidates to nothing.
-				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
+				JoinOneSharedRows.RetainNoRows<TAccessor, TLeftKey, TRightValue>(ref accessor, ref candidates);
 				return;
 			}
 
@@ -464,6 +539,15 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			// ── 4. Paired execute writes (leftKey, rightValue) directly into _results
 			// for matched-and-filter-passed lefts. Misses (right-cache or predicate)
 			// don't touch _results — slot stays default.
+			// The match map is needed when lefts share a right (the delivery records them) or when a struct right
+			// meets rows an earlier inner join created (no null slot tells a miss there). The FIRST inner join
+			// without shared rights creates a row per match only, so it writes straight into the rows whatever
+			// the right type is.
+			if ((!TSelector.IsIdentity && shared.Any) || (typeof(TRightValue).IsValueType && !isFirst)) {
+				JoinOneSharedRows.ExecuteInner(ref accessor, ref candidates, ref Unsafe.AsRef(in builder._leftQuery), ref shared, cloneOnAdd, isFirst, ref handedOff);
+				return;
+			}
+
 			var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
 			handedOff = true;
 			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
@@ -471,9 +555,13 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			// ── 5. Post-walk: drop _results entries where THIS resolver's slot is
 			// null (= miss or stale-from-prior-chained-resolver), then narrow
 			// candidates to surviving keys. Single struct-dispatched pass. ──
-			accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
+			if (isFirst)
+				accessor.NarrowCandidatesToRows(ref candidates);
+			else
+				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
 		}
 		finally {
+			shared.Dispose();
 			if (!handedOff && pairs.IsInitlized)
 				pairs.Dispose();
 		}
@@ -511,6 +599,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			return;
 
 		var pairs = new ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>(candidates.Count);
+		var shared = new JoinOneSharedRights<TLeftKey>();
 		var handedOff = false;
 		try {
 			var keyIndex = Cache.Cache.KeyIndex;
@@ -521,7 +610,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 					ValueSet<JoinedKeyPair<TRightKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TRightKey, TRightKey>>>>(ref pairs);
 				keyIndex.IntersectValues(ref candidatesAsRight, ref pairsAsRight, add: true);
 			} else {
-				keyIndex.IntersectValues<TLeftKey, TSelector>(ref candidates, Selector, ref pairs, add: true);
+				SeedSelectedPairs(ref candidates, keyIndex, ref pairs, ref shared);
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0) {
@@ -546,14 +635,37 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 
 			builder = Filter.Apply(builder);
 
-			_narrowedValues = new ValueDictionary<TLeftKey, TRightValue, DefaultKeyComparer<TLeftKey>>(true, pairs.Count);
+			// Lefts sharing a right get an entry each: the delivery hands the pair's right to all of them.
+			var anyShared = !TSelector.IsIdentity && shared.Any;
+			_narrowedValues = new ValueDictionary<TLeftKey, TRightValue, DefaultKeyComparer<TLeftKey>>(true, anyShared ? candidates.Count : pairs.Count);
 			var container = new RetainedValuesContainer(ref _narrowedValues);
 			handedOff = true;
-			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
+			if (anyShared) {
+				var delivery = shared.Deliver<TRightValue, RetainedValuesContainer>(container);
+				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
+			} else {
+				Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
+			}
 			candidates.IntersectWith(_narrowedValues.Keys);
 		} finally {
+			shared.Dispose();
 			if (!handedOff && pairs.IsInitlized)
 				pairs.Dispose();
+		}
+	}
+
+	// The selector's pair seeding from a candidate set: a resident right key per left, as the bulk
+	// KeyIndex intersect did, but through the shared-right record — a selector may fold several left keys
+	// onto one right key, and the pair set keeps one left per right.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void SeedSelectedPairs(
+		ref ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> candidates,
+		CachePrimaryKeyIndex<TRightKey, TRightValue> keyIndex,
+		ref ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>> pairs,
+		ref JoinOneSharedRights<TLeftKey> shared) {
+		foreach (var lk in candidates) {
+			if (keyIndex.TryGetValue(Selector.Select(lk), out var rightKey))
+				shared.Add(ref pairs, lk, rightKey);
 		}
 	}
 
@@ -666,17 +778,25 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		return false;
 	}
 
-	// The eager pair seeding's reads for one left: the index's reverse map (left key → lookup key), then
-	// for shape A the selector (elided for the identity) gives the right primary key, for shape B the
-	// right index translates the selected key; then the right store.
+	// The right store read for one left, through TryRightKey.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private bool LookupRightUnfiltered(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightValue right) {
+		if (TryRightKey(leftKey, out var rightKey))
+			return _rightStore.TryGet(rightKey, out right);
+		right = default;
+		return false;
+	}
+
+	// The right key of one left: the index's reverse map (left key → lookup key), then for shape A the
+	// selector (elided for the identity) gives the right primary key, for shape B the right index translates
+	// the selected key.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool TryRightKey(TLeftKey leftKey, [MaybeNullWhen(false)] out TRightKey rightKey) {
 		if (!LeftIndex.Reverse.TryGetValue(leftKey, out var lookup)) {
-			right = default;
+			rightKey = default;
 			return false;
 		}
 
-		TRightKey rightKey;
 		if (RightIndex is null) {
 			if (TSelector.IsIdentity) {
 				rightKey = Unsafe.As<TLookupKey, TRightKey>(ref lookup);
@@ -684,17 +804,67 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 				var selected = Selector.Select(lookup);
 				rightKey = Unsafe.As<TRightIndexKey, TRightKey>(ref selected);
 			}
-		} else if (!RightIndex.TryGetValue(TSelector.IsIdentity ? Unsafe.As<TLookupKey, TRightIndexKey>(ref lookup) : Selector.Select(lookup), out var viaIndex)) {
-			right = default;
-			return false;
-		} else {
-			rightKey = viaIndex;
+
+			return true;
 		}
 
-		return _rightStore.TryGet(rightKey, out right);
+		return RightIndex.TryGetValue(TSelector.IsIdentity ? Unsafe.As<TLookupKey, TRightIndexKey>(ref lookup) : Selector.Select(lookup), out rightKey!);
 	}
 
 	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
+		// A struct right has no null slot to prune an inner join's misses by (JIT constant): prune them by key.
+		if (typeof(TRightValue).IsValueType && _isInner)
+			return FillRowsPruningMisses(ref accessor, cloneOnAdd);
+		var misses = FillRows(ref accessor, cloneOnAdd);
+		if (!_isInner || misses == 0)
+			return false;
+		accessor.PruneNullSlots<TRightValue>();
+		return true;
+	}
+
+	/// <summary>
+	/// The inner fused fill for a struct right value: <see cref="FillRows{TAccessor}"/> recording the lefts it
+	/// missed, then dropping their rows by key — a default struct slot is not null, so
+	/// <c>PruneNullSlots</c> would keep them.
+	/// </summary>
+	/// <returns>True when rows were dropped.</returns>
+	private bool FillRowsPruningMisses<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
+		var keys = accessor.GetKeys<TLeftKey>();
+		var missed = default(ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>>);
+		try {
+			for (var i = 0; i < keys.Length; i++) {
+				ref var slot = ref accessor.GetSlotAt<TRightValue>(i);
+				if (LookupRight(keys[i], out var right)) {
+					slot = cloneOnAdd ? right.Clone() : right;
+					continue;
+				}
+
+				slot = default!;
+				if (!missed.IsInitlized)
+					missed = new ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>>(keys.Length);
+				missed.Add(keys[i]);
+			}
+
+			if (!missed.IsInitlized)
+				return false;
+			accessor.PruneRows<TLeftKey, DropRowsInSet<TLeftKey>>(new DropRowsInSet<TLeftKey>(missed));
+			return true;
+		} finally {
+			if (missed.IsInitlized)
+				missed.Dispose();
+		}
+	}
+
+	/// <summary>
+	/// One right lookup per row the accessor holds, written straight into this resolver's slot; a left without
+	/// a right gets the slot's default. The frozen fused fill and the eager outer walk of an unfiltered join
+	/// share it. Each left is answered on its own, so lefts sharing a right all get it.
+	/// </summary>
+	/// <returns>The number of rows that got no right.</returns>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private int FillRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
 		var keys = accessor.GetKeys<TLeftKey>();
 		var misses = 0;
 		for (var i = 0; i < keys.Length; i++) {
@@ -707,10 +877,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 			}
 		}
 
-		if (!_isInner || misses == 0)
-			return false;
-		accessor.PruneNullSlots<TRightValue>();
-		return true;
+		return misses;
 	}
 
 	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values) {
@@ -745,36 +912,27 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 
 	// ── Container bridges ─────────────────────────────────────────────────────
 
-	/// <summary>
-	/// Outer fan-out: receives <c>(set-of-lefts, rightValue)</c> per pair (where the set
-	/// is borrowed directly from the symmetric index's storage), iterates the set, and
-	/// writes the right value into each existing <c>_results</c> slot via
-	/// <c>GetValueRef</c>. Lefts not in <c>_results</c> are silently skipped — that's the
-	/// outer-attach contract (slots are pre-allocated by the outer base-execute).
-	/// </summary>
-	private ref struct OuterFanOutContainer<TAccessor>
-		: IJoinedResultContainer<LeftKeySetView<TLeftKey>, TRightValue>
-		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
-		private TAccessor _accessor;
-		private readonly bool _cloneOnAdd;
-		public int TotalCount => 1;
+	private const int NoSlot = -1;
 
-		public OuterFanOutContainer(TAccessor accessor, bool cloneOnAdd) {
-			_accessor = accessor;
-			_cloneOnAdd = cloneOnAdd;
+	/// <summary>
+	/// The filtered outer join's delivery: each surviving right parked in the slot of its pair, for the rows
+	/// that recorded that slot to read back. Holds the pooled arrays only; the resolver owns and returns them.
+	/// </summary>
+	private readonly ref struct SlotValueContainer : IJoinedSlotResultContainer<LeftKeySetView<TLeftKey>, TRightValue> {
+		private readonly TRightValue[] _values;
+		private readonly bool[] _delivered;
+
+		public SlotValueContainer(TRightValue[] values, bool[] delivered) {
+			_values = values;
+			_delivered = delivered;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public int Add(LeftKeySetView<TLeftKey> lefts, TRightValue result) {
-			// Reinterpret the public view back to the internal PooledSet — single-field
-			// struct wrapper, identical layout, zero cost.
-			var pooled = Unsafe.As<LeftKeySetView<TLeftKey>, PooledSet<TLeftKey, DefaultKeyComparer<TLeftKey>>>(ref lefts);
-			foreach (var lk in pooled) {
-				ref var slot = ref _accessor.GetValueRef<TLeftKey, TRightValue>(lk);
-				if (!Unsafe.IsNullRef(in slot))
-					slot = _cloneOnAdd ? result.Clone() : result;
-			}
-			return 0;
+		public void Add(LeftKeySetView<TLeftKey> foreignKey, int slot, TRightValue result) {
+			if ((uint)slot >= (uint)_values.Length)
+				return;
+			_values[slot] = result;
+			_delivered[slot] = true;
 		}
 	}
 
@@ -813,57 +971,81 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		}
 	}
 
-	// ── Pair seeding (dispatch by shape × identity/selector) ──────────────────
-	//
-	// All paths emit JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey> via the index's bulk
-	// primitives — no resolver-side iteration. The pair's JoinedKey is a borrowed
-	// reference to the index's internal PooledSet<TLeftKey, DefaultKeyComparer<TLeftKey>>, so multiple lefts sharing
-	// the same lookupKey/rightKey collapse into a single pair naturally (ValueSet dedups
-	// on .Key). At emission, FanOut iterates the borrowed set.
+	/// <summary>
+	/// Inner fan-out into a match map instead of the rows: a struct right value's inner join (no null slot to
+	/// tell a miss by) records each candidate left the delivery reached, and the rows are made from the map.
+	/// </summary>
+	private ref struct InnerFanOutMapContainer
+		: IJoinedResultContainer<LeftKeySetView<TLeftKey>, TRightValue> {
+		private ref ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> _candidates;
+		private ref ValueDictionary<TLeftKey, TRightValue, DefaultKeyComparer<TLeftKey>> _values;
+		public int TotalCount => 1;
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void SeedPairsFromSpan(
-		ReadOnlySpan<TLeftKey> input,
-		ref ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>> pairs) {
-		if (RightIndex is null) {
-			// Shape A: TRightIndexKey == TRightKey at extension call site.
-			if (TSelector.IsIdentity) {
-				// TLookupKey == TRightKey at extension call site — reinterpret the
-				// pair-set's .Key type-arg between TRightKey and TLookupKey (identical
-				// closed type, zero cost).
-				ref var pairsAsLookup = ref Unsafe.As<
-					ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>>,
-					ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TLookupKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TLookupKey>>>>(ref pairs);
-				LeftIndex.IntersectValues(input, ref pairsAsLookup, add: true);
-			}
-			else {
-				// Selector emits TRightIndexKey == TRightKey at call site — same reinterpret.
-				ref var pairsAsRight = ref Unsafe.As<
-					ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>>,
-					ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightIndexKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightIndexKey>>>>(ref pairs);
-				LeftIndex.IntersectValues<TRightIndexKey, TSelector>(input, Selector, ref pairsAsRight, add: true);
-			}
+		public InnerFanOutMapContainer(ref ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> candidates, ref ValueDictionary<TLeftKey, TRightValue, DefaultKeyComparer<TLeftKey>> values) {
+			_candidates = ref candidates;
+			_values = ref values;
 		}
-		else {
-			// Shape B: RightIndex translates the intermediate key to TRightKey.
-			if (TSelector.IsIdentity) {
-				// Identity at call site: TLookupKey == TRightIndexKey, RightIndex is
-				// keyed by TRightIndexKey. We reinterpret RightIndex's first type-arg
-				// (the index key) to TLookupKey, which matches the bulk method's signature.
-				var rightIndexAsLookup = Unsafe.As<CacheKeyValueIndex<TRightKey, TRightValue, TLookupKey>>(RightIndex);
-				LeftIndex.IntersectValuesVia<TRightKey, TRightValue>(input, rightIndexAsLookup, ref pairs, add: true);
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public int Add(LeftKeySetView<TLeftKey> lefts, TRightValue result) {
+			foreach (var lk in lefts.Set) {
+				if (_candidates.Contains(lk))
+					_values.GetValueRefOrAddDefault(lk, out _) = result;
 			}
-			else {
-				LeftIndex.IntersectValuesVia<TRightIndexKey, TSelector, TRightKey, TRightValue>(
-					input, Selector, RightIndex, ref pairs, add: true);
-			}
+			return 0;
 		}
 	}
+
+	// The inner phase for a struct right value: the fan-out delivers into a match map (through the shared-right
+	// chain when buckets share a right), the matched lefts get their rows in candidate order, and the post-walk
+	// keeps exactly those rows. handedOff flips immediately before the execute, as in the row path.
+	private void ExecuteInnerByMap<TAccessor>(
+		ref TAccessor accessor,
+		ref ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> candidates,
+		ref PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue> core,
+		ref JoinOneSharedRights<LeftKeySetView<TLeftKey>> shared,
+		bool cloneOnAdd,
+		ref bool handedOff)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
+		var values = new ValueDictionary<TLeftKey, TRightValue, DefaultKeyComparer<TLeftKey>>(true, candidates.Count);
+		try {
+			var container = new InnerFanOutMapContainer(ref candidates, ref values);
+			handedOff = true;
+			if (!TSelector.IsIdentity && shared.Any) {
+				var delivery = shared.Deliver<TRightValue, InnerFanOutMapContainer>(container);
+				core.ExecutePairedJoined(ref delivery);
+			} else {
+				core.ExecutePaired(ref container);
+			}
+
+			JoinOneSharedRows.FillRowsInCandidateOrder(ref accessor, ref candidates, ref values, cloneOnAdd);
+			accessor.RetainRows<TLeftKey, KeepRowsInMap<TLeftKey, TRightValue>>(new KeepRowsInMap<TLeftKey, TRightValue>(values), ref candidates);
+		} finally {
+			values.Dispose(withValues: true);
+		}
+	}
+
+	// ── Pair seeding (dispatch by shape × identity/selector) ──────────────────
+	//
+	// The inner phase's seeding emits JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>. The pair's JoinedKey
+	// is a borrowed reference to the index's internal PooledSet<TLeftKey, DefaultKeyComparer<TLeftKey>>, so
+	// multiple lefts sharing the same lookupKey collapse into a single pair naturally (ValueSet dedups on .Key).
+	// At emission, InnerFanOutContainer iterates the borrowed set against the candidates. (The filtered outer
+	// join seeds its own pairs, one per page row, in UnsafeExecuteWithAccessor.) The identity shapes use the index's bulk primitives: distinct lookup
+	// keys reach distinct rights. A selector can fold several lookup keys onto one right, i.e. two buckets
+	// onto one pair, so the selector shapes seed through SeedSelectedSetPair, which chains the refused bucket
+	// to the pair (JoinOneSharedRights) instead of dropping it.
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private void SeedPairsFromSet(
 		ref ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> input,
-		ref ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>> pairs) {
+		ref ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>> pairs,
+		ref JoinOneSharedRights<LeftKeySetView<TLeftKey>> shared) {
+		if (!TSelector.IsIdentity) {
+			SeedSelectedSetPairs(ref input, ref pairs, ref shared);
+			return;
+		}
+
 		if (RightIndex is null) {
 			if (TSelector.IsIdentity) {
 				ref var pairsAsLookup = ref Unsafe.As<
@@ -890,20 +1072,86 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		}
 	}
 
+	// The selector shapes' inner seeding. A pair carries a lookup key's whole bucket, and a bucket is met once
+	// per left of it, so each lookup key is seeded once (the seen set; the identity shapes get the same from
+	// the pair set, keyed by the lookup key itself). A bucket whose right another bucket already paired is
+	// chained to that pair: one O(1) record per bucket, however many buckets share the right.
+	private void SeedSelectedSetPairs(
+		ref ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>> input,
+		ref ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>> pairs,
+		ref JoinOneSharedRights<LeftKeySetView<TLeftKey>> shared) {
+		var seen = new ValueSet<TLookupKey, DefaultKeyComparer<TLookupKey>>(input.Count);
+		try {
+			foreach (var lk in input)
+				SeedSelectedSetPair(ref pairs, ref shared, ref seen, lk);
+		} finally {
+			seen.Dispose();
+		}
+	}
+
+	// One left: Reverse, then the lookup key (skipped when already seeded), the selector and (shape B) the right
+	// index: the key chain of LookupRightUnfiltered without the store read.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void SeedSelectedSetPair(
+		ref ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>> pairs,
+		ref JoinOneSharedRights<LeftKeySetView<TLeftKey>> shared,
+		ref ValueSet<TLookupKey, DefaultKeyComparer<TLookupKey>> seen,
+		TLeftKey leftKey) {
+		if (!LeftIndex.Reverse.TryGetValue(leftKey, out var lookup) || !seen.Add(lookup))
+			return;
+		var selected = Selector.Select(lookup);
+		TRightKey rightKey;
+		if (RightIndex is null)
+			rightKey = Unsafe.As<TRightIndexKey, TRightKey>(ref selected);
+		else if (!RightIndex.TryGetValue(selected, out rightKey!))
+			return;
+		shared.Add(ref pairs, new LeftKeySetView<TLeftKey>(LeftIndex.GetValuesUnsafe(lookup)), rightKey);
+	}
+
 	// ── Core execution loop ──────────────────────────────────────────────────
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
 		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
+		// Unfiltered outer join: one reverse-map lookup per row, as the frozen fused fill does. TFilter.IsNoOp
+		// is JIT-folded.
+		if (TFilter.IsNoOp && !_isInner) {
+			FillRows(ref accessor, cloneOnAdd);
+			return;
+		}
+
 		var leftKeys = accessor.GetKeys<TLeftKey>();
 		if (leftKeys.IsEmpty)
 			return;
 
+		// Filtered outer join. The filter callback narrows a pair set, so the rows still seed one — one pair per
+		// distinct right — but every row remembers the slot of its pair: the delivery parks each surviving
+		// right in its slot and the rows read it back. That is the rows plus one store read and one predicate
+		// call per distinct right; nothing walks a right's index bucket (the former fan-out visited every left
+		// of the bucket to find the page's few). Rows whose lookup keys a selector folds onto one right share
+		// the slot, so a shared right needs no chain here.
 		var pairs = new ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>>(leftKeys.Length);
+		var rowSlots = PragueArrayPool<int>.Pool.Rent(leftKeys.Length);
+		TRightValue[]? slotValues = null;
+		bool[]? delivered = null;
 		var handedOff = false;
 		try {
-			SeedPairsFromSpan(leftKeys, ref pairs);
+			for (var i = 0; i < leftKeys.Length; i++) {
+				if (TryRightKey(leftKeys[i], out var rightKey)) {
+					// The pair's JoinedKey is never read on this path: the slot is the join.
+					pairs.AddOrFind(new JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>(default, rightKey), out var slot);
+					rowSlots[i] = slot;
+				} else {
+					rowSlots[i] = NoSlot;
+				}
+			}
+
 			if (pairs.Count == 0)
 				return;
+
+			// Slots are dense while the seeding only adds, so the pair count bounds them.
+			slotValues = PragueArrayPool<TRightValue>.Pool.Rent(pairs.Count);
+			delivered = PragueArrayPool<bool>.Pool.Rent(pairs.Count);
+			Array.Clear(delivered, 0, pairs.Count);
 
 			var pairedCore = new PairedCacheQueryBuilderCoreCombined<LeftKeySetView<TLeftKey>, TRightKey, TRightValue>(RightCache.Cache, pairs);
 			var builder = new CacheQueryBuilderCombined<
@@ -919,11 +1167,23 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 
 			builder = Filter.Apply(builder);
 
-			var wrapper = new OuterFanOutContainer<TAccessor>(accessor, cloneOnAdd);
+			var container = new SlotValueContainer(slotValues, delivered);
 			handedOff = true;
-			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref wrapper);
+			Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref container);
+
+			// A row whose right was missing or rejected keeps the default slot the outer base execute gave it.
+			for (var i = 0; i < leftKeys.Length; i++) {
+				var slot = rowSlots[i];
+				if ((uint)slot < (uint)pairs.Count && delivered[slot])
+					accessor.GetSlotAt<TRightValue>(i) = cloneOnAdd ? slotValues[slot].Clone() : slotValues[slot];
+			}
 		}
 		finally {
+			if (slotValues is not null)
+				PragueArrayPool<TRightValue>.Pool.Return(slotValues, RuntimeHelpers.IsReferenceOrContainsReferences<TRightValue>());
+			if (delivered is not null)
+				PragueArrayPool<bool>.Pool.Return(delivered);
+			PragueArrayPool<int>.Pool.Return(rowSlots);
 			if (!handedOff && pairs.IsInitlized)
 				pairs.Dispose();
 		}
@@ -950,12 +1210,13 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 			return;
 
 		var pairs = new ValueSet<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>, DefaultKeyComparer<JoinedKeyPair<LeftKeySetView<TLeftKey>, TRightKey>>>(candidates.Count);
+		var shared = new JoinOneSharedRights<LeftKeySetView<TLeftKey>>();
 		var handedOff = false;
 		try {
-			SeedPairsFromSet(ref candidates, ref pairs);
+			SeedPairsFromSet(ref candidates, ref pairs, ref shared);
 			if (pairs.Count == 0) {
 				// No left has a right: the post-walk of a walk with no hits (see JoinOneResolver).
-				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
+				JoinOneSharedRows.RetainNoRows<TAccessor, TLeftKey, TRightValue>(ref accessor, ref candidates);
 				return;
 			}
 
@@ -973,11 +1234,27 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 
 			builder = Filter.Apply(builder);
 
+			if (typeof(TRightValue).IsValueType && !isFirst) {
+				// A struct right meeting rows an earlier inner join created: no null slot tells a miss, so match
+				// into a map and keep exactly those rows. The first inner join creates rows on delivery only.
+				ExecuteInnerByMap(ref accessor, ref candidates, ref Unsafe.AsRef(in builder._leftQuery), ref shared, cloneOnAdd, ref handedOff);
+				return;
+			}
+
 			var wrapper = new InnerFanOutContainer<TAccessor>(accessor, ref candidates, cloneOnAdd);
 			handedOff = true;
-			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref wrapper);
+			// Buckets share a right: each surviving right goes to every bucket chained to its pair. The rows come
+			// out grouped by right, as this family's inner rows always do (FusedInnerRegroups). Only a selector
+			// can fold two buckets onto one right, so the identity instantiation folds the delivery away.
+			if (!TSelector.IsIdentity && shared.Any) {
+				var delivery = shared.Deliver<TRightValue, InnerFanOutContainer<TAccessor>>(wrapper);
+				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
+			} else {
+				Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref wrapper);
+			}
 		}
 		finally {
+			shared.Dispose();
 			if (!handedOff && pairs.IsInitlized)
 				pairs.Dispose();
 		}
@@ -987,8 +1264,12 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		// touched only the lefts that matched here) and narrow candidates to the
 		// surviving keys. Single struct-dispatched pass; zero per-pair miss
 		// callback needed (which would be expensive for fan-out — one pair maps
-		// to many lefts).
-		accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
+		// to many lefts). The first inner join created rows for its matches only:
+		// nothing to filter, the candidates just narrow to the rows.
+		if (isFirst)
+			accessor.NarrowCandidatesToRows(ref candidates);
+		else
+			accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
 	}
 
 }
@@ -1101,6 +1382,59 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 	}
 
 	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
+		// A struct right has no null slot to prune an inner join's misses by (JIT constant): prune them by key.
+		if (typeof(TRightValue).IsValueType && _isInner)
+			return FillRowsPruningMisses(ref accessor, cloneOnAdd);
+		var misses = FillRows(ref accessor, cloneOnAdd);
+		if (!_isInner || misses == 0)
+			return false;
+		accessor.PruneNullSlots<TRightValue>();
+		return true;
+	}
+
+	/// <summary>
+	/// The inner fused fill for a struct right value: <see cref="FillRows{TAccessor}"/> recording the lefts it
+	/// missed, then dropping their rows by key — a default struct slot is not null, so
+	/// <c>PruneNullSlots</c> would keep them.
+	/// </summary>
+	/// <returns>True when rows were dropped.</returns>
+	private bool FillRowsPruningMisses<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
+		var keys = accessor.GetKeys<TLeftKey>();
+		var missed = default(ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>>);
+		try {
+			for (var i = 0; i < keys.Length; i++) {
+				ref var slot = ref accessor.GetSlotAt<TRightValue>(i);
+				if (LookupRight(keys[i], out var right)) {
+					slot = cloneOnAdd ? right.Clone() : right;
+					continue;
+				}
+
+				slot = default!;
+				if (!missed.IsInitlized)
+					missed = new ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>>(keys.Length);
+				missed.Add(keys[i]);
+			}
+
+			if (!missed.IsInitlized)
+				return false;
+			accessor.PruneRows<TLeftKey, DropRowsInSet<TLeftKey>>(new DropRowsInSet<TLeftKey>(missed));
+			return true;
+		} finally {
+			if (missed.IsInitlized)
+				missed.Dispose();
+		}
+	}
+
+	/// <summary>
+	/// One right lookup per row the accessor holds, written straight into this resolver's slot; a left without
+	/// a right gets the slot's default. The frozen fused fill and the eager outer walk of an unfiltered join
+	/// share it. Each left is answered on its own, so lefts sharing a right all get it.
+	/// </summary>
+	/// <returns>The number of rows that got no right.</returns>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private int FillRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
 		var keys = accessor.GetKeys<TLeftKey>();
 		var misses = 0;
 		for (var i = 0; i < keys.Length; i++) {
@@ -1113,10 +1447,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 			}
 		}
 
-		if (!_isInner || misses == 0)
-			return false;
-		accessor.PruneNullSlots<TRightValue>();
-		return true;
+		return misses;
 	}
 
 	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values) {
@@ -1175,7 +1506,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 // ── Core execution loop ──────────────────────────────────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void ExecuteReverse<TContainer>(ref TContainer container, ReadOnlySpan<TLeftKey> leftKeys)
+	private void ExecuteReverse<TContainer>(ref TContainer container, ReadOnlySpan<TLeftKey> leftKeys, ref JoinOneSharedRights<TLeftKey> shared)
 		where TContainer : struct, IJoinedResultContainer<TLeftKey, TRightValue>, allows ref struct {
 
 		if (leftKeys.IsEmpty)
@@ -1202,10 +1533,12 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 				_rightIndex.IntersectValues(indexKeys, ref pairsAsIndex, add: true);
 			}
 			else {
-				// Bulk via strategy-struct dispatch. Selector is devirtualized per closed
-				// generic; pairs are built directly with TLeftKey as JoinedKey (preserves
-				// caller identity through the join), TRightKey as Key (right cache PK).
-				_rightIndex.IntersectValues<TLeftKey, TSelector>(leftKeys, _selector, ref pairs, add: true);
+				// A selector may fold several lefts onto one index key, so onto one right: the set keeps one
+				// pair per right (TLeftKey as JoinedKey, TRightKey as Key), the others are recorded against it.
+				foreach (var lk in leftKeys) {
+					if (_rightIndex.TryGetValue(_selector.Select(lk), out var rightKey))
+						shared.Add(ref pairs, lk, rightKey);
+				}
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0)
@@ -1239,7 +1572,14 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 			// via InMemoryDataCache.TryGet<TForeignKey=TLeftKey, TContainer>: looks up by
 			// pair.Key (rightKey) and calls container.Add(pair.JoinedKey=leftKey, rightValue).
 			handedOff = true;
-			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
+			// Lefts share a right: each surviving right goes to every left chained to its pair. Only a selector can
+			// fold two lefts onto one right, so the identity instantiation folds the delivery away (JIT constant).
+			if (!TSelector.IsIdentity && shared.Any) {
+				var delivery = shared.Deliver<TRightValue, TContainer>(container);
+				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
+			} else {
+				Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
+			}
 		}
 		finally {
 			if (!handedOff && pairs.IsInitlized)
@@ -1249,8 +1589,23 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
 		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
-		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
-		ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
+		// Unfiltered outer join: nothing narrows the right side, so the rows are filled one lookup each, as
+		// the frozen fused fill does. The pair set below is keyed by the right key alone and keeps one left
+		// per right, so when several lefts reach one right (a non-injective selector, a repeated value in
+		// a unique left index) only the first of them got it.
+		// TFilter.IsNoOp is JIT-folded: a filtered join compiles to the paired read alone.
+		if (TFilter.IsNoOp && !_isInner) {
+			FillRows(ref accessor, cloneOnAdd);
+			return;
+		}
+
+		var shared = new JoinOneSharedRights<TLeftKey>();
+		try {
+			var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
+			ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>(), ref shared);
+		} finally {
+			shared.Dispose();
+		}
 	}
 
 	// ── IndexedInner ────────────────────────────────────────────────────────
@@ -1279,6 +1634,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 
 		// ── 1. Seed pairs via bulk _rightIndex.IntersectValues (no resolver iteration) ──
 		var pairs = new ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>(candidates.Count);
+		var shared = new JoinOneSharedRights<TLeftKey>();
 		var handedOff = false;
 		try {
 			if (TSelector.IsIdentity) {
@@ -1289,12 +1645,17 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 				_rightIndex.IntersectValues(ref candidatesAsIndex, ref pairsAsIndex, add: true);
 			}
 			else {
-				_rightIndex.IntersectValues<TLeftKey, TSelector>(ref candidates, _selector, ref pairs, add: true);
+				// A selector may fold several lefts onto one index key, so onto one right: the set keeps one
+				// pair per right, the others are recorded against it.
+				foreach (var lk in candidates) {
+					if (_rightIndex.TryGetValue(_selector.Select(lk), out var rightKey))
+						shared.Add(ref pairs, lk, rightKey);
+				}
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0) {
 				// No left has a right: the post-walk of a walk with no hits (see JoinOneResolver).
-				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
+				JoinOneSharedRows.RetainNoRows<TAccessor, TLeftKey, TRightValue>(ref accessor, ref candidates);
 				return;
 			}
 
@@ -1315,15 +1676,28 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 
 			// Walk pairs; container writes matched (leftKey, rightValue) to _results.
 			// Misses (right-cache or predicate) leave THIS resolver's slot at default.
+			// The match map is needed when lefts share a right (the delivery records them) or when a struct right
+			// meets rows an earlier inner join created (no null slot tells a miss there). The FIRST inner join
+			// without shared rights creates a row per match only, so it writes straight into the rows whatever
+			// the right type is.
+			if ((!TSelector.IsIdentity && shared.Any) || (typeof(TRightValue).IsValueType && !isFirst)) {
+				JoinOneSharedRows.ExecuteInner(ref accessor, ref candidates, ref Unsafe.AsRef(in builder._leftQuery), ref shared, cloneOnAdd, isFirst, ref handedOff);
+				return;
+			}
+
 			var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
 			handedOff = true;
 			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
 
 			// Post-walk: drop _results entries where THIS resolver's slot is null
 			// (miss / stale-from-prior-chained), then narrow candidates to survivors.
-			accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
+			if (isFirst)
+				accessor.NarrowCandidatesToRows(ref candidates);
+			else
+				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
 		}
 		finally {
+			shared.Dispose();
 			if (!handedOff && pairs.IsInitlized)
 				pairs.Dispose();
 		}
@@ -1441,7 +1815,75 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		return false;
 	}
 
+	// The selector's pair seeding for one left: LookupRightUnfiltered's key chain without the store read (the
+	// paired execute does it, after the filter). A selector may fold several index values onto one right key,
+	// so a left whose right is already paired is recorded against the left holding the pair.
+	// The identity seeds through the bulk Reverse intersect instead: a OneToOne FK promises one left per
+	// index value, so no two lefts reach one right. A OneToOne FK declared over many-to-one data breaks that
+	// promise (the forward map keeps one left per value, so the reverse join is wrong too): declare ManyToOne.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private void SeedSelectedPair(
+		ref ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>> pairs,
+		ref JoinOneSharedRights<TLeftKey> shared,
+		TLeftKey leftKey) {
+		if (LeftIndex.Reverse.TryGetValue(leftKey, out var indexKey))
+			shared.Add(ref pairs, leftKey, Selector.Select(indexKey));
+	}
+
 	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
+		// A struct right has no null slot to prune an inner join's misses by (JIT constant): prune them by key.
+		if (typeof(TRightValue).IsValueType && _isInner)
+			return FillRowsPruningMisses(ref accessor, cloneOnAdd);
+		var misses = FillRows(ref accessor, cloneOnAdd);
+		if (!_isInner || misses == 0)
+			return false;
+		accessor.PruneNullSlots<TRightValue>();
+		return true;
+	}
+
+	/// <summary>
+	/// The inner fused fill for a struct right value: <see cref="FillRows{TAccessor}"/> recording the lefts it
+	/// missed, then dropping their rows by key — a default struct slot is not null, so
+	/// <c>PruneNullSlots</c> would keep them.
+	/// </summary>
+	/// <returns>True when rows were dropped.</returns>
+	private bool FillRowsPruningMisses<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
+		var keys = accessor.GetKeys<TLeftKey>();
+		var missed = default(ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>>);
+		try {
+			for (var i = 0; i < keys.Length; i++) {
+				ref var slot = ref accessor.GetSlotAt<TRightValue>(i);
+				if (LookupRight(keys[i], out var right)) {
+					slot = cloneOnAdd ? right.Clone() : right;
+					continue;
+				}
+
+				slot = default!;
+				if (!missed.IsInitlized)
+					missed = new ValueSet<TLeftKey, DefaultKeyComparer<TLeftKey>>(keys.Length);
+				missed.Add(keys[i]);
+			}
+
+			if (!missed.IsInitlized)
+				return false;
+			accessor.PruneRows<TLeftKey, DropRowsInSet<TLeftKey>>(new DropRowsInSet<TLeftKey>(missed));
+			return true;
+		} finally {
+			if (missed.IsInitlized)
+				missed.Dispose();
+		}
+	}
+
+	/// <summary>
+	/// One right lookup per row the accessor holds, written straight into this resolver's slot; a left without
+	/// a right gets the slot's default. The frozen fused fill and the eager outer walk of an unfiltered join
+	/// share it. Each left is answered on its own, so lefts sharing a right all get it.
+	/// </summary>
+	/// <returns>The number of rows that got no right.</returns>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private int FillRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd)
+		where TAccessor : struct, IUnsafeValueAccessor, allows ref struct {
 		var keys = accessor.GetKeys<TLeftKey>();
 		var misses = 0;
 		for (var i = 0; i < keys.Length; i++) {
@@ -1454,10 +1896,7 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 			}
 		}
 
-		if (!_isInner || misses == 0)
-			return false;
-		accessor.PruneNullSlots<TRightValue>();
-		return true;
+		return misses;
 	}
 
 	int IJoinResolver.UnsafeNarrowFused<TKey, TValue>(Span<TKey> keys, Span<TValue> values) {
@@ -1516,7 +1955,7 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 // ── Core execution loop ──────────────────────────────────────────────────
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void ExecuteReverse<TContainer>(ref TContainer container, ReadOnlySpan<TLeftKey> leftKeys)
+	private void ExecuteReverse<TContainer>(ref TContainer container, ReadOnlySpan<TLeftKey> leftKeys, ref JoinOneSharedRights<TLeftKey> shared)
 		where TContainer : struct, IJoinedResultContainer<TLeftKey, TRightValue>, allows ref struct {
 
 		if (leftKeys.IsEmpty)
@@ -1536,14 +1975,9 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 					ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>,
 					ValueSet<JoinedKeyPair<TLeftKey, TIndexKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TIndexKey>>>>(ref pairs);
 				LeftIndex.Reverse.IntersectValues(leftKeys, ref pairsAsIndex, add: true);
-			}
-			else {
-				// Bulk chain via strategy-struct dispatch:
-				//   leftKey → Reverse.TryGetValue → idx (TIndexKey) → Selector.Select → rk (TRightKey)
-				// Reverse's TIndexKey is TLeftKey (it's the inverse of the original index), and
-				// its TKey is the original TIndexKey — matches the tail selector's input.
-				// Devirtualized per closed generic; one call replaces the per-leftKey foreach.
-				LeftIndex.Reverse.IntersectValuesChain<TRightKey, TSelector>(leftKeys, Selector, ref pairs, add: true);
+			} else {
+				foreach (var lk in leftKeys)
+					SeedSelectedPair(ref pairs, ref shared, lk);
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0)
@@ -1569,7 +2003,14 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 			// ── 4. Native paired Execute — direct write to the outer container.
 			// ExecutePaired calls container.Add(pair.JoinedKey=leftKey, rightValue) per emit.
 			handedOff = true;
-			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
+			// Lefts share a right: each surviving right goes to every left chained to its pair. Only a selector can
+			// fold two lefts onto one right, so the identity instantiation folds the delivery away (JIT constant).
+			if (!TSelector.IsIdentity && shared.Any) {
+				var delivery = shared.Deliver<TRightValue, TContainer>(container);
+				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
+			} else {
+				Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
+			}
 		}
 		finally {
 			if (!handedOff && pairs.IsInitlized)
@@ -1579,8 +2020,23 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 
 	void IJoinResolver.UnsafeExecuteWithAccessor<TAccessor>(
 		ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer) {
-		var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
-		ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>());
+		// Unfiltered outer join: nothing narrows the right side, so the rows are filled one lookup each, as
+		// the frozen fused fill does. The pair set below is keyed by the right key alone and keeps one left
+		// per right, so when several lefts reach one right (a non-injective selector, a repeated value in
+		// a unique left index) only the first of them got it.
+		// TFilter.IsNoOp is JIT-folded: a filtered join compiles to the paired read alone.
+		if (TFilter.IsNoOp && !_isInner) {
+			FillRows(ref accessor, cloneOnAdd);
+			return;
+		}
+
+		var shared = new JoinOneSharedRights<TLeftKey>();
+		try {
+			var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
+			ExecuteReverse(ref container, accessor.GetKeys<TLeftKey>(), ref shared);
+		} finally {
+			shared.Dispose();
+		}
 	}
 
 	// ── IndexedInner ────────────────────────────────────────────────────────
@@ -1603,11 +2059,11 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		if (!candidates.IsInitlized || candidates.Count == 0)
 			return;
 
-		// ── 1. Seed pairs via bulk LeftIndex.Reverse intersect (no resolver iteration) ──
-		// Identity (TIndexKey == TRightKey at call site): reinterpret pairs and call
-		// the native ref-ValueSet IntersectValues on Reverse. Selector: bulk chain
-		// (leftKey → Reverse.TryGetValue → idx → Selector.Select → rightKey).
+		// ── 1. Seed pairs: leftKey → Reverse.TryGetValue → idx → Selector.Select → rightKey ──
+		// Identity: the bulk Reverse intersect (see SeedSelectedPair). Selector: lefts sharing a right are
+		// recorded against the left that holds the pair.
 		var pairs = new ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>(candidates.Count);
+		var shared = new JoinOneSharedRights<TLeftKey>();
 		var handedOff = false;
 		try {
 			if (TSelector.IsIdentity) {
@@ -1615,14 +2071,14 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 					ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>,
 					ValueSet<JoinedKeyPair<TLeftKey, TIndexKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TIndexKey>>>>(ref pairs);
 				LeftIndex.Reverse.IntersectValues(ref candidates, ref pairsAsIndex, add: true);
-			}
-			else {
-				LeftIndex.Reverse.IntersectValuesChain<TRightKey, TSelector>(ref candidates, Selector, ref pairs, add: true);
+			} else {
+				foreach (var lk in candidates)
+					SeedSelectedPair(ref pairs, ref shared, lk);
 			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0) {
 				// No left has a right: the post-walk of a walk with no hits (see JoinOneResolver).
-				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
+				JoinOneSharedRows.RetainNoRows<TAccessor, TLeftKey, TRightValue>(ref accessor, ref candidates);
 				return;
 			}
 
@@ -1643,15 +2099,28 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 
 			// Walk pairs; container writes matched (leftKey, rightValue) to _results.
 			// Misses (right-cache or predicate) leave THIS resolver's slot at default.
+			// The match map is needed when lefts share a right (the delivery records them) or when a struct right
+			// meets rows an earlier inner join created (no null slot tells a miss there). The FIRST inner join
+			// without shared rights creates a row per match only, so it writes straight into the rows whatever
+			// the right type is.
+			if ((!TSelector.IsIdentity && shared.Any) || (typeof(TRightValue).IsValueType && !isFirst)) {
+				JoinOneSharedRows.ExecuteInner(ref accessor, ref candidates, ref Unsafe.AsRef(in builder._leftQuery), ref shared, cloneOnAdd, isFirst, ref handedOff);
+				return;
+			}
+
 			var container = new UnsafeResolverContainer<TAccessor>(accessor, cloneOnAdd);
 			handedOff = true;
 			Unsafe.AsRef(in builder._leftQuery).ExecutePaired(ref container);
 
 			// Post-walk: drop _results entries where THIS resolver's slot is null
 			// (miss / stale-from-prior-chained), then narrow candidates to survivors.
-			accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
+			if (isFirst)
+				accessor.NarrowCandidatesToRows(ref candidates);
+			else
+				accessor.RetainNonNullSlots<TLeftKey, TRightValue>(ref candidates);
 		}
 		finally {
+			shared.Dispose();
 			if (!handedOff && pairs.IsInitlized)
 				pairs.Dispose();
 		}

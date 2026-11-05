@@ -70,7 +70,7 @@ Tests: `tests/Prague.Generated.Tests/Prepared/` (differential vs eager per overl
 
 ## T4 templates (`Prague.Core/*.tt`)
 
-`JoinQueryBuilders.tt` and `JoinResults.tt` emit the **combinatorial** join builders and result accessors. Regenerate via the template, never edit the output. Load-bearing emitted members: per-accessor `RetainNonNullSlots<TKey,TRightValue>(ref candidates)` + `GetKeys` (chained-inner correctness); `Right{N}NonNullFilter` structs. Phase 1B region emits `CacheQueryBuilderCombinedJoinNewLevel{N}Extensions` (chained joins) for PK-to-PK / RightUnique / LeftUnique families.
+`JoinQueryBuilders.tt` and `JoinResults.tt` emit the **combinatorial** join builders and result accessors. Regenerate via the template, never edit the output. Load-bearing emitted members: per-accessor `RetainNonNullSlots<TKey,TRightValue>(ref candidates)` + `GetKeys` (chained-inner correctness); `Right{N}NonNullFilter` structs; per-accessor `RetainRows` / `PruneRows` (the inner post-walk by key for a struct right value, with the `RowKeyFilter` predicates in `QueryBuilders/RowKeyFilter.cs`) and `NarrowCandidatesToRows` (the first inner join's post-walk) — see `context/joins.md`. Phase 1B region emits `CacheQueryBuilderCombinedJoinNewLevel{N}Extensions` (chained joins) for every `JoinOne` family, left-symmetric included.
 
 ## Tests
 

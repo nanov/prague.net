@@ -27,7 +27,7 @@ Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `Inters
 
 **`internal`** struct (was public; made internal by converting `SortResults` to explicit interface impls + deleting dead code — `Result<T>`, `Test`, `IChainedResolvers`). It's still forced into public *generic signatures* across resolver-chain infra, but the type itself is internal.
 - `Intersect(HashSet<TKey>)` — compact-and-rebuild intersect (matching entries compacted via write pointer, metadata table rebuilt with `Array.Fill(-1)` + re-probe). Zero temp alloc.
-- `Filter<TFilter>(TFilter)` where `TFilter : struct, IValueDictionaryFilter<TKey,TValue>` — compact-and-rebuild keyed on `filter.Keep(ref value)`; JIT-inlined per closed generic. Backs `RetainNonNullSlots`.
+- `Filter<TFilter>(TFilter)` where `TFilter : struct, IValueDictionaryFilter<TKey,TValue>` — compact-and-rebuild keyed on `filter.Keep(ref value)`; JIT-inlined per closed generic. Backs `RetainNonNullSlots`, and `RetainRows` / `PruneRows` through `RowKeyFilter` (a key predicate holding a copy of a `ValueSet` / `ValueDictionary` — the copy shares the storage and is only read).
 - **Two `Dispose` overloads:** `Dispose()` returns metadata + keys only — the values array is the hand-off payload (result maps, `SortResults`). An owner that never hands its values on must call `Dispose(withValues: true)`, otherwise a pooled values array leaks on every call.
 
 ## PooledSet&lt;T&gt; / LeftKeySetView&lt;T&gt;

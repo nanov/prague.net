@@ -11,7 +11,7 @@ metadata:
 
 Prague is an in-process, in-memory cache for .NET (net9.0/net10.0). A `partial` class marked `[DataCache]` gets a source-generated `XxxCache` with index storage and a compile-time-checked query builder. Not a server, not distributed, not SQL, no eviction.
 
-Verified against Prague 0.9.0. When this file and the code disagree, the code wins: read the generated source under `obj/`.
+Verified against Prague 0.9.1. When this file and the code disagree, the code wins: read the generated source under `obj/`.
 
 ## Packages
 
@@ -103,6 +103,8 @@ Declare `[DataCacheForeignKey<TTarget>(DataCacheJoinType)]` on the property that
 | `ManyToOne` on a scalar FK | holder: `JoinWith{Target}()`, slot `TRight?`; target: `JoinWith{Holder}()`, slot `QueryResults<THolder>` |
 | `ManyToOne` on `List<TKey>` | both directions, slot `QueryResults<TRight>` |
 
+`OneToOne` is a promise about the data: each target row has at most one holder. If several holders can carry the same target key (games of one sport type, orders of one customer), the FK is `ManyToOne`. A `OneToOne` over many-to-one data keeps only one holder per target in its index, so joins come back wrong: `JoinWith{Holder}()` returns one holder, and a filtered or inner `JoinWith{Target}()` can leave holders without their target.
+
 Using joins: see `prague-queries`.
 
 ## Other attributes
@@ -153,6 +155,7 @@ For `Order`: `OrderCache : IDataCache<OrderCache, string, Order>` with `new Orde
 | indexing every property | index what queries narrow by; `.Where` the rest |
 | `Many` index for a fixed predicate (`Stock > 0`) | `[DataCacheValueIndex(...)]` key-set index |
 | `Range` on a `long?` (CACHE002) | computed `long` key with a `long.MinValue` sentinel; queries open with `Gt(long.MinValue)` |
+| `OneToOne` FK where several rows can hold the same target key | `ManyToOne` |
 | `[DataCacheIndex]` next to a `ManyToOne` FK (CACHE041/042) | the FK alone; a separate property for a range |
 | `[DataCacheSort]` without a final key column | end with the key for a total order |
 | editing generated files under `obj/` | change the attributes |
