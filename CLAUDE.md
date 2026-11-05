@@ -51,6 +51,8 @@ samples/      Prague.Samples — NUnit project that is the single source of ever
               site: www/docs articles pull `#region`s out of it with `[!code-csharp[](…#region)]`, so a
               sample that stops compiling or passing breaks `dotnet test Prague.Tests.slnf` → www/README.md
 www/ docs/    Public docs site + superpowers specs/plans
+skills/       Agent skills (agentskills.io SKILL.md) packed into the `Prague` nupkg ONLY → www/docs/articles/how-to/use-with-ai-agents.md
+              Consumer usage rules, not internals (context/ stays maintainer-only).
 perf/         Regression tripwire: Prague.Baseline.{Bdn,Harness,Scenario}, compare.py diffs
               against perf/baseline/<machine-class>.json → perf/README.md
 ```
@@ -73,6 +75,7 @@ House style is two skills — apply both, they are not optional:
 - **Frozen-vs-eager differential tests are the safety net.** Sequence assertions build the frozen side with `PreserveEagerOrder = true`; multiset assertions cover the default path. Keep both; some byte-identity tests pass on the default path only because fixtures insert in Id order.
 - **Anything added to a query path is decided at build time, not per row.** Twice a feature taxed plans that never used it; re-measure production shapes A/B after any executor change.
 - Every `[DataCache]` user type is `partial`.
+- **A public-API or generated-surface change updates `skills/*/SKILL.md` and `docs/llm-readme.txt` in the same PR.** `AgentSkillsTests` checks shape only, never facts. Ship each skill from one package: `dotnet-package-skills` skips a skill name two referenced packages share, so a copy in `Prague.Kafka` breaks `Prague` + `Prague.Kafka` installs.
 - Never commit `*.DotSettings.user` (gitignored per-user IDE state). If one reappears tracked: `git rm --cached <file>`.
 
 ## Context map — read when you need depth
@@ -94,6 +97,7 @@ Topic-first; each file opens with a one-line "Read when". Layer files (`core`/`g
 | Kafka header SerDe + `PragueMessagePack` isolation | [`context/kafka-serde.md`](context/kafka-serde.md) |
 | Kafka health checks | [`context/kafka-health.md`](context/kafka-health.md) |
 | Perf regression baseline — configs, running, updating baselines | [`perf/README.md`](perf/README.md) |
+| Agent skills shipped in the nupkg | [`skills/`](skills/), [`www/docs/articles/how-to/use-with-ai-agents.md`](www/docs/articles/how-to/use-with-ai-agents.md) |
 | Feature design history | `docs/superpowers/specs/` and `docs/superpowers/plans/` |
 
 ## Agent skills

@@ -16,4 +16,12 @@
     <ProjectReference Include="..\Prague.Kafka\Prague.Kafka.csproj"/>
   </ItemGroup>
 
+  <!-- Agent skills (agentskills.io SKILL.md); canonical copies live in /skills. Ship each skill from
+       exactly ONE package: dotnet-package-skills scans direct references only and refuses to install a
+       skill name that two referenced packages both carry (identical content included), so a copy in
+       Prague.Kafka would break the common Prague + Prague.Kafka setup. The facade is what users add. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\..\skills\**\SKILL.md" Pack="true" PackagePath="skills\" Visible="false"/>
+  </ItemGroup>
+
 </Project>

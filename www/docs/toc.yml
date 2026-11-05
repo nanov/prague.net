@@ -28,6 +28,8 @@
       href: articles/core-concepts/joins.md
 - name: How-to Guides
   items:
+    - name: Own Your Model
+      href: articles/how-to/own-your-model.md
     - name: Page an API
       href: articles/how-to/page-an-api.md
     - name: Incremental Sync
@@ -46,6 +48,8 @@
       href: articles/how-to/test-without-a-broker.md
     - name: Health and Metrics
       href: articles/how-to/health-and-metrics.md
+    - name: Use with AI Agents
+      href: articles/how-to/use-with-ai-agents.md
 - name: Kafka and Operations
   items:
     - name: Kafka Integration

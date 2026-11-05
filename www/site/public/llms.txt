@@ -29,6 +29,7 @@ Core concepts:
 
 How-to guides (task-shaped, every code block compiled and tested):
 
+- [Own Your Model](https://nanov.github.io/prague.net/docs/articles/how-to/own-your-model.html): a consumer-owned [DataCache] copy of a topic's contract, subset of properties, own indexes, what the MessagePack wire allows (renames read as default).
 - [Page an API](https://nanov.github.io/prague.net/docs/articles/how-to/page-an-api.html): sorted, paged list endpoint with offset or cursor pages, disjoint-page comparer, DTOs, frozen query for the hot path.
 - [Incremental Sync](https://nanov.github.io/prague.net/docs/articles/how-to/incremental-sync.html): "what changed since my watermark" from a global last-update index, across caches, with ties and deletes.
 - [Write a Filter](https://nanov.github.io/prague.net/docs/articles/how-to/write-a-filter.html): header, key and value filters, treatAsDelete, predicates with DI state.
@@ -38,6 +39,7 @@ How-to guides (task-shaped, every code block compiled and tested):
 - [Map, Clone, Batch](https://nanov.github.io/prague.net/docs/articles/how-to/map-clone-batch.html): project results without a second buffer, private copies of rows, many keys in one call.
 - [Test without a Broker](https://nanov.github.io/prague.net/docs/articles/how-to/test-without-a-broker.html): construct caches directly or via the registry, seed with AddOrUpdate, drive after-handlers by hand.
 - [Health and Metrics](https://nanov.github.io/prague.net/docs/articles/how-to/health-and-metrics.html): liveness and readiness checks, failure reasons, thresholds, the Prague.Kafka meter through OpenTelemetry.
+- [Use with AI Agents](https://nanov.github.io/prague.net/docs/articles/how-to/use-with-ai-agents.html): agent skills shipped in the Prague package (prague-modeling, prague-queries, prague-kafka, prague-handlers, prague-testing), installing them with dotnet-package-skills.
 
 Kafka and operations:
 

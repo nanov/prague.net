@@ -9,8 +9,10 @@ intersected automatically with an optimal plan selected at runtime; compile-time
 return pooled, zero-allocation result sets. Span-based, stack-allocated, SIMD-friendly hot paths give
 ~9.7M reads/sec and sub-100ns indexed lookups.
 
-Referencing this package pulls in the runtime (`Prague.Core`), attributes (`Prague.Attributes`), and
-the source generator (`Prague.Codegen`).
+Referencing this package pulls in the runtime (`Prague.Core`), attributes (`Prague.Attributes`), the
+source generator (`Prague.Codegen`) and the Kafka integration (`Prague.Kafka`). It also ships agent
+skills for coding agents (`skills/prague-modeling`, `-queries`, `-kafka`, `-handlers`, `-testing`); install them with
+`dotnet-package-skills install`. See https://nanov.github.io/prague.net/docs/articles/how-to/use-with-ai-agents.html.
 
 ## Install
 `dotnet add package Prague`

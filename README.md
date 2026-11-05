@@ -120,15 +120,14 @@ short-circuits on the first empty set — no further index walks, no allocations
 ## 📦 Packages & installation
 
 ```bash
-dotnet add package Prague          # facade: Core + Attributes + Codegen
-dotnet add package Prague.Kafka    # Kafka consumer/producer, filters, health, OpenTelemetry
+dotnet add package Prague          # facade: Core + Attributes + Codegen + Kafka
 dotnet add package Prague.Api      # optional: HTTP inspection endpoints
 dotnet add package Prague.Api.UI   # optional: Blazor UI over Prague.Api
 ```
 
 | Package | What it is |
 |---|---|
-| `Prague` | Top-level facade. References `Prague.Core`, `Prague.Attributes` and `Prague.Codegen`. Add this one. |
+| `Prague` | Top-level facade. References `Prague.Core`, `Prague.Attributes`, `Prague.Codegen` and `Prague.Kafka`, and carries the [agent skills](https://nanov.github.io/prague.net/docs/articles/how-to/use-with-ai-agents.html). Add this one. |
 | `Prague.Core` | Runtime: `InMemoryDataCache`, indices, query engine, prepared/frozen queries, joins. |
 | `Prague.Attributes` | `[DataCache]`, `[DataCacheKey]`, `[DataCacheIndex]`, `[DataCacheForeignKey<T>]`, … |
 | `Prague.Codegen` | Roslyn source generator (`netstandard2.0`, referenced as an analyzer). |

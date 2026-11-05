@@ -24,7 +24,8 @@ distributed cache, not SQL, no eviction.
 
 1. PACKAGES
 -----------
-Prague            facade; references Prague.Core + Prague.Attributes + Prague.Codegen. Add this.
+Prague            facade; references Prague.Core + Prague.Attributes + Prague.Codegen + Prague.Kafka.
+                  Add this. Ships agent skills skills/prague-{modeling,queries,kafka,handlers,testing} (repo: skills/).
 Prague.Core       runtime: InMemoryDataCache<TKey,TValue>, indices, query engine, prepared/frozen
                   queries, joins, QueryResults<T>, DataCacheRegistry.
 Prague.Attributes the attributes, namespace Prague.Core (yes: the attributes live in namespace
@@ -84,7 +85,9 @@ Attributes (all in namespace Prague.Core):
                                                 bool Include(TEntity)). Membership re-evaluated per update.
   [DataCacheSort("Name", "Prop:1", "Other:-1")] class, AllowMultiple. Emits
                                                 `public static readonly IComparer<T> NameComparer` on
-                                                the wrapper. ":1" asc, ":-1" desc.
+                                                the wrapper. ":1" asc, ":-1" desc. string columns
+                                                compare ordinally (string.CompareOrdinal), others
+                                                with Comparer<TProp>.Default.
   [DataCacheIgnoreEquality]                     property. Excluded from CacheEquals/CacheGetHashCode.
   [DataCacheTopic] / [DataCacheTopic("orders.[v:env]")] class. Emits `public const string
                                                 TopicNameTemplate`. Default template "Cache.<ClassName>".
