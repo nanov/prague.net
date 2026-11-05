@@ -96,8 +96,10 @@ internal sealed class ShrCountry : ICacheEquatable<ShrCountry>, ICacheClonable<S
 	public ShrCountry Clone() => new() { Id = Id, Numeric = Numeric, Name = Name };
 }
 
-// Index values 11 and 12 both select right 1 (k / 10): two buckets, one pair. Before the shared-right chain
-// the second bucket lost the right on every pair-set path — a filtered outer join and an inner one.
+// Index values 11 and 12 both select right 1 (k / 10): two buckets, one pair. Before this change the second
+// bucket lost the right on every pair-set path — a filtered outer join and an inner one. The filtered outer
+// join now fills its rows by pair slot (both buckets' rows share the slot); the inner one chains the second
+// bucket to the pair (JoinOneSharedRights).
 [TestFixture]
 public class JoinOneLeftSymSharedRightCoreTests {
 	private InMemoryDataCache<int, ShrBook> _books = null!;

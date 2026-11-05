@@ -12,7 +12,9 @@ using Prague.Core.Collections;
 // left → right map is not injective: a key selector folding several left keys onto one right key (the
 // compound-PK selector FK), a unique left index holding one value under several lefts (a OneToOne FK
 // over many-to-one data), or a left-symmetric selector folding several index values onto one right (the
-// joined key is then the bucket's left set, and two buckets reach one right).
+// joined key is then the bucket's left set, and two buckets reach one right). The filtered outer
+// left-symmetric join does not come here: it fills its rows by pair slot, so rows sharing a right share the
+// slot and need no chain.
 //
 // This records each refused joined key in a chain hung off the slot of the pair that holds its right —
 // the JoinManyFanOut construction, minus the slot sizing a JoinOne does not need. Delivery runs the

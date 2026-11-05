@@ -11,13 +11,17 @@ using Prague.Core;
 ///   the whole index bucket of every right the page reached — (2) seeds the pair set of the filtered outer, inner
 ///   and bounded narrow-only inner paths through <c>JoinOneSharedRights</c>, which chains every joined key whose
 ///   right is already paired to that pair's slot and delivers the right to all of them, instead of the bulk
-///   <c>IntersectValues</c> primitives, and (3) drops the unmatched rows of an inner join with a STRUCT right by
-///   key, where the null-slot post-walk kept them. Each scenario is its own category with one method, so a run
-///   reads as a size series; the A/B is this class on the old build against this class on the new one.
+///   <c>IntersectValues</c> primitives, (3) drops the unmatched rows of an inner join with a STRUCT right by
+///   key, where the null-slot post-walk kept them, (4) fills the rows of a FILTERED outer left-symmetric join by
+///   pair slot instead of walking every left of each right's bucket, and (5) lets the first inner join of a chain
+///   only narrow the candidates to its row keys instead of filtering the rows it just made. Each scenario is its
+///   own category with one method, so a run reads as a size series; the A/B is this class on the old build
+///   against this class on the new one.
 ///   <list type="bullet">
 ///     <item><c>JoinOne_LeftSym_Page</c> — <c>SortBounded</c> page of 200 over every fixture → left-symmetric join to the sport type (30 values, the top one ~40% of the rows).</item>
 ///     <item><c>JoinOne_LeftSym_Page_Three</c> — the same page → sport type, country (900) and league (2 700), three left-symmetric joins.</item>
 ///     <item><c>JoinOne_LeftSym_Full</c> — no page: one bucket (N / 5 fixtures) → left-symmetric join to the sport type over all of them.</item>
+///     <item><c>JoinOne_LeftSym_Filtered_Page</c> / <c>JoinOne_LeftSym_IndexFiltered_Page</c> — the <c>JoinOne_LeftSym_Page</c> page with a filter callback: a value predicate (<c>Where</c>, half the sport types pass) / an index narrowing (<c>UseIndex</c> on a flag index over the sport types, registered before their rows — a list index registered on a filled cache starts empty).</item>
 ///     <item><c>JoinOne_PkIdentity_Full</c> / <c>JoinOne_PkIdentity_Page</c> — outer unfiltered PK-to-PK identity join to a detail row (nine fixtures in ten), unpaged over a bucket / paged over every fixture.</item>
 ///     <item><c>InnerJoinOne_Selector_Page</c> — the production reader shape: one channel of a <c>(long EventId, JosChannel Channel)</c> key (N / 5 odds, injective) → <c>SortBounded</c> page of 200 → <c>InnerJoinOne(k => k.EventId, games)</c> → <c>JoinOne(k => k.EventId, live)</c> → <c>JoinMany(k => k.EventId, markets)</c>.</item>
 ///     <item><c>InnerJoinOne_Selector_Full</c> — the same channel, unpaged, the inner selector join alone: the classic indexed-inner pair seeding over every candidate.</item>
