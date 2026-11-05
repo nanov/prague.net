@@ -30,7 +30,10 @@ internal static class KafkaCachesHealthPredicates {
 			&& Stopwatch.GetElapsedTime(c.LastProcessingStartTimestamp) >= timeout;
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public static bool HasNoPartitionAssigned(KafkaDataCacheStatistics c) => c.AssignedPartitionCount < 1;
+	// Fewer than all of the topic's partitions, not only zero: a cache missing a partition holds part of the topic.
+	// An unknown count (0) degrades to the old at-least-one rule.
+	public static bool HasNoPartitionAssigned(KafkaDataCacheStatistics c) =>
+		c.AssignedPartitionCount < Math.Max(c.PartitionCount, 1);
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	public static bool IsConsumerHealthy(KafkaCachesConsumerStatistics s, KafkaCachesHealthOptions opts) =>

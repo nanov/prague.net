@@ -16,8 +16,8 @@ Prague is an in-process, in-memory event cache for .NET (net9.0 and net10.0, C# 
 `partial` POCO with [DataCache]; a Roslyn source generator emits a strongly typed cache class
 ("XxxCache") with index storage, a fluent compile-time-checked Query() builder, a Prepare() builder
 for build-once/execute-many queries, generated deep equality (CacheEquals) and Clone(). Caches are
-usually hydrated from compacted Kafka topics by Prague.Kafka (one topic per cache, one partition per
-topic). Queries intersect indices, return pooled zero-allocation QueryResults<T> that the caller must
+usually hydrated from compacted Kafka topics by Prague.Kafka (one topic per cache, one or more
+partitions). Queries intersect indices, return pooled zero-allocation QueryResults<T> that the caller must
 Dispose(), and can join caches through generated JoinWith{T}() methods. Not a server, not a
 distributed cache, not SQL, no eviction.
 
@@ -316,7 +316,9 @@ global indices between the registered caches.
     await registry.LoadingCompletion.WaitAsync(stoppingToken);   // never wait in StartAsync: deadlocks the host
   KafkaCachesBackgroundService is [Obsolete]: use the BackgroundService form above.
 Facts:
-  * One partition per cache topic (not enforced; multi-partition topics go live early). Compacted topic;
+  * Any partition count; the load ends when every partition reaches its EOF. Per-key order needs every
+    write for a key on one partition (default keyed partitioner). Adding partitions to a live topic is
+    unsupported (keys re-map; a partition assigned after load logs a warning). Compacted topic;
     message key = cache key; null value = tombstone. Prague never auto-creates topics. Suggested topic
     settings: www/docs/articles/advanced/kafka-integration.md "Creating a topic".
   * Each process consumes under its own group.id and commits no offsets → every instance loads the
@@ -379,7 +381,7 @@ are the floor under slot sizing and are expected to be false / 0.
   ExecutePooled() without Dispose                          → `using var results = ...ExecutePooled();`
   relying on row order of an unsorted BuildFrozen() query  → add Sort/SortBounded with a total comparer,
                                                              or FrozenOptions.PreserveEagerOrder
-  multi-partition cache topic                              → recreate with --partitions 1
+  adding partitions to a cache topic in use                → recreate with the new count, restart consumers
   expecting the local cache to see producer.Produce(...)   → use AddOrUpdateAndProduce / RemoveAndProduce
   changing a resident row (query row / TryGet / handler    → var next = row.Clone(); change next; AddOrUpdate(next).
     value) in place, then AddOrUpdate(row)                   In place = Same: index stale, no Update, nothing produced.

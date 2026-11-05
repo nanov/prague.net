@@ -11,7 +11,7 @@ Every code block on this page compiles in `samples/Prague.Samples/Advanced/Kafka
 
 ## Kafka model in one paragraph
 
-Prague assumes each cache is backed by a single compacted Kafka topic **with one partition**, where the message key maps to the cache's primary key. Tombstones (`null` value) delete; non-null values upsert. Partition EOF marks the boundary between *initial load* (replay of the topic state) and *live* (subsequent live updates); the load handshake completes on the first partition EOF, so a multi-partition topic goes live before the load has finished (not enforced in code). Consumer group offset commit, partition rebalance, and broker failover are delegated to the Kafka client (`Nanov.Kafka`) and librdkafka. If you want a refresher, read the Confluent intro to log compaction — you only need to know that, and the rest of this page makes sense.
+Prague assumes each cache is backed by a single compacted Kafka topic, where the message key maps to the cache's primary key. Tombstones (`null` value) delete; non-null values upsert. Partition EOF marks the boundary between *initial load* (replay of the topic state) and *live* (subsequent live updates). On a topic with several partitions, the load ends when every partition has reached the high watermark it had when it was assigned. Kafka orders records within a partition only, and Prague applies them in the order it consumes them, without comparing timestamps. Per-key order therefore holds only when every write for a key goes to the same partition, which is what Kafka's default keyed partitioner does. For the same reason, adding partitions to a cache topic while consumers run is unsupported: the new partition count re-maps keys, and a partition first assigned after the load logs a warning and is read through the live path. Consumer group offset commit, partition rebalance, and broker failover are delegated to the Kafka client (`Nanov.Kafka`) and librdkafka. If you want a refresher, read the Confluent intro to log compaction — you only need to know that, and the rest of this page makes sense.
 
 ## Creating a topic
 
@@ -36,7 +36,7 @@ Prague never creates topics (the producer runs with auto-creation off), so creat
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| `partitions` | 1 | The whole topic is one ordered log, read to a single EOF. |
+| `partitions` | 1 | One partition is the simplest choice. More are supported: every partition is read to its EOF before the load ends. Fix the count when the topic is created, since adding partitions later re-maps keys. |
 | `cleanup.policy` | `compact` | Kafka keeps the last value per key, which is what an initial load replays. |
 | `segment.ms` | 5 minutes | The active segment is never compacted. Rolling it every 5 minutes makes new writes compactable within minutes. |
 | `segment.bytes` | 100 MiB | Rolls a busy topic's segment before 5 minutes are up. |
@@ -178,7 +178,7 @@ To wait for the load somewhere else — a host that starts its hosted services c
 | | `HandlerLoopFaulted` | a per-cache worker terminated with an exception |
 | | `HandlerProcessingTimeout` | one message in flight longer than `HandlerProcessingTimeout` |
 | Readiness (= liveness +) | `InitialLoadIncomplete` | a cache has not reached initial-load EOF |
-| | `NoPartitionAssigned` | a cache topic has zero partitions assigned |
+| | `NoPartitionAssigned` | a cache has fewer partitions assigned than its topic has (zero, when the count is unknown) |
 | | `BrokersDown` | fewer than `MinBrokersUp` brokers `UP` per librdkafka statistics |
 | | `PartitionsLost` | last rebalance lost partitions and nothing was re-assigned |
 

@@ -200,7 +200,7 @@ Targets the class. Constructor `()` gives `Cache.{ClassName}`; `(string topicNam
 
 [!code-csharp[](../../../../samples/Prague.Samples/Reference/Attributes.cs#topic)]
 
-One cache reads one compacted topic, and Prague expects that topic to have a single partition — the load phase ends at the first partition EOF. The topic settings and the reasoning are in [Kafka Integration](../advanced/kafka-integration.md).
+One cache reads one compacted topic, which can have one or more partitions. The load phase ends when every partition has reached its EOF. The topic settings and the reasoning are in [Kafka Integration](../advanced/kafka-integration.md).
 
 ## `[DataCacheHeader]`
 
