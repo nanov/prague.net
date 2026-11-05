@@ -23,7 +23,7 @@ Grading:
 2. **Blind rubric:** workspaces are copied to neutral names (`t1-W` … `t3-Z`) with arm and model stripped. One grader per task scores all four copies against [`tasks/rubric.md`](tasks/rubric.md). The rubric was written before any output was read: each item scores 0/1/2 and must quote the `file:line` behind it.
 3. **Efficiency:** tokens, tool calls and wall time per run, from the agent's usage report.
 
-## Results (round 2, Prague 0.6.0 skills build)
+## Results (round 2, local pre-0.9.0 build)
 
 All 12 workspaces built with 0 warnings and passed their own tests.
 
@@ -47,4 +47,4 @@ The graders also caught a library bug: the generated `[DataCacheSort]` comparer 
 - One run per cell, so the efficiency numbers are single samples.
 - Arm isolation is by instruction. The agents' reports say they followed it; nothing enforced it.
 - The rubric checks the failure modes the skills target. It can show that the skills fixed those failures, not that they help in general.
-- The rubric was revised after round 2: in 0.6.0, `KafkaCachesBackgroundService` waited for the load in `StartAsync`, which hangs the host when the service is registered before `AddKafkaCaches`. Round 2 scored it as correct, so a rerun under the current rubric may score lower.
+- The rubric was revised after round 2: through 0.8.3, `KafkaCachesBackgroundService` waited for the load in `StartAsync`, which hangs the host when the service is registered before `AddKafkaCaches`. Round 2 scored it as correct, so a rerun under the current rubric may score lower.

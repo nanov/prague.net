@@ -12,7 +12,7 @@ Score each item 0 (missing or wrong), 1 (partial), 2 (correct). Quote the file:l
 - Joins come from `[DataCacheForeignKey<T>(DataCacheJoinType.ManyToOne)]`; row fields are `Left`, `Right`. Hand-built caches need `AddJoinedCaches`; registry/AddKafkaCaches wire automatically.
 - Filters: header filters `WithHeaderEqualsFilter`; a rejected message is SKIPPED by default (resident row stays); `treatAsDelete: true` removes it.
 - After-handlers (`ICacheAfterHandler`) run in the LIVE phase only — NOT during the initial load. `UpdateType.Filtered` carries a default key and null values. `Same` means no change; on `Same` the key is set, `newValue` is the incoming equal copy (not the resident instance) and `oldValue` is null. Handlers run on a single worker; state read from other threads needs thread safety.
-- Gate work on the initial load by awaiting `registry.LoadingCompletion` (with the stopping token) inside `BackgroundService.ExecuteAsync`, or `await host.DataCachesLoadCompletion()`. Waiting in a hosted service's `StartAsync` deadlocks the host when that service is registered before `AddKafkaCaches`; in 0.6.0 `KafkaCachesBackgroundService` waits there.
+- Gate work on the initial load by awaiting `registry.LoadingCompletion` (with the stopping token) inside `BackgroundService.ExecuteAsync`, or `await host.DataCachesLoadCompletion()`. Waiting in a hosted service's `StartAsync` deadlocks the host when that service is registered before `AddKafkaCaches`; through 0.8.3 `KafkaCachesBackgroundService` waits there.
 - Unit tests need no broker: `new XxxCache()` / `DataCacheRegistryBuilder`, seed with `AddOrUpdate`.
 
 ## T1 — shipment read model
@@ -41,7 +41,7 @@ Score each item 0 (missing or wrong), 1 (partial), 2 (correct). Quote the file:l
 4. After-handler handles Add/Update/Delete correctly, never changes totals on Same (ignoring it or an idempotent re-set are both fine), and does NOT read key/values on Filtered.
 5. Projection correct for pre-existing data: seeded/rebuilt from the cache after the initial load (handlers do not see the initial load), race-free against live messages arriving around the seed, and seeding owned by the projection (its own hosted service / load-completion hook), not a side effect of an unrelated job (that = 1).
 6. Projection thread-safe for concurrent readers (e.g. ConcurrentDictionary / locks / immutable swap).
-7. Background job starts after load by awaiting load completion in `ExecuteAsync`, independent of registration order (relying on order, or `KafkaCachesBackgroundService` on 0.6.0 = 1).
+7. Background job starts after load by awaiting load completion in `ExecuteAsync`, independent of registration order (relying on order, or `KafkaCachesBackgroundService` = 1).
 8. Tests: broker-free, drive Handle by hand incl. Same/Filtered/Delete; build+tests pass.
 
 ## Output

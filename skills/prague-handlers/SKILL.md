@@ -9,7 +9,7 @@ metadata:
 
 # Prague: filters and after-handlers
 
-Both hang off a cache registered with `AddKafkaCaches` (see `prague-kafka`). Filters decide whether a message enters the cache; after-handlers run once the cache has applied it. Verified against Prague 0.6.0; when this file and the code disagree, the code wins. Namespaces `Prague.Kafka` and `Prague.Core`.
+Both hang off a cache registered with `AddKafkaCaches` (see `prague-kafka`). Filters decide whether a message enters the cache; after-handlers run once the cache has applied it. Verified against Prague 0.9.0; when this file and the code disagree, the code wins. Namespaces `Prague.Kafka` and `Prague.Core`.
 
 ## Pipeline per message
 

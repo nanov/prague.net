@@ -9,7 +9,7 @@ metadata:
 
 # Prague: testing
 
-Two layers, two kinds of test. Verified against Prague 0.6.0. Examples use NUnit; the patterns are framework-neutral.
+Two layers, two kinds of test. Verified against Prague 0.9.0. Examples use NUnit; the patterns are framework-neutral.
 
 - **Your code, no broker:** queries, after-handler logic called by hand, the DI wiring, the wire format of a copied contract.
 - **The pipeline, real broker:** filters, `treatAsDelete`, tombstones, which `UpdateType` a message produces, handlers skipped during the initial load. The consumer decides all of these. A write through `AddOrUpdate` runs no filter and no after-handler, so no broker-free test reaches them.

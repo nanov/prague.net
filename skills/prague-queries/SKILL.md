@@ -9,7 +9,7 @@ metadata:
 
 # Prague: querying
 
-Reads go through the generated `XxxCache` (see `prague-modeling` for declaring it). Verified against Prague 0.6.0; when this file and the code disagree, the code wins. `using Prague.Core;`.
+Reads go through the generated `XxxCache` (see `prague-modeling` for declaring it). Verified against Prague 0.9.0; when this file and the code disagree, the code wins. `using Prague.Core;`.
 
 ## Eager queries
 

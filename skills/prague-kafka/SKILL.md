@@ -9,7 +9,7 @@ metadata:
 
 # Prague.Kafka
 
-Hydrates `[DataCache]` caches (see `prague-modeling`) from Kafka and keeps them live. Verified against Prague 0.6.0; when this file and the code disagree, the code wins. Namespaces: `Prague.Kafka`, plus `Prague.Core` for the cache types.
+Hydrates `[DataCache]` caches (see `prague-modeling`) from Kafka and keeps them live. Verified against Prague 0.9.0; when this file and the code disagree, the code wins. Namespaces: `Prague.Kafka`, plus `Prague.Core` for the cache types.
 
 ## The model
 
