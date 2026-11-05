@@ -49,7 +49,7 @@ Register one per cache via the Kafka handler builder; `WithAfterHandler<T>()` ad
 
 [!code-csharp[](../../../../samples/Prague.Samples/Concepts/ConditionalUpdates.cs#after-handler-registration)]
 
-`OrderProjector` is invoked **only during the live phase** — i.e. after the consumer has crossed the partition EOF of the initial load. The initial replay does not fire handlers. During live processing a structurally equal re-emit reaches the handler as `UpdateType.Same` (with the resident value as `newValue` and `oldValue == null`), never as a phantom `Update`, so projectors can treat it as a keepalive or ignore it.
+`OrderProjector` is invoked **only during the live phase** — i.e. after the consumer has crossed the partition EOF of the initial load. The initial replay does not fire handlers. During live processing a structurally equal re-emit reaches the handler as `UpdateType.Same` (with the incoming, equal value as `newValue`, not the instance the cache keeps, and `oldValue == null`), never as a phantom `Update`, so projectors can treat it as a keepalive or ignore it.
 
 Multiple handlers per cache are allowed (every `ICacheAfterHandler<TKey, TValue>` registration is resolved). They run sequentially, awaited one after the other; an exception in one is caught and logged and does not skip the others.
 
@@ -62,6 +62,12 @@ When the current state has to go back onto the topic even though nothing changed
 [!code-csharp[](../../../../samples/Prague.Samples/Advanced/KafkaIntegration.cs#produce-forced)]
 
 For the whole cache at once there is `cache.ForceProduceAll()`, which snapshots every resident record and produces each one unconditionally. It is a repair operation (re-seeding a topic, bootstrapping a consumer that cannot replay), not something to call in normal operation; the details are in [Kafka integration](../advanced/kafka-integration.md#producer).
+
+## Changing a resident row
+
+The equality gate compares the incoming value with the resident one. Hand it the resident instance itself and the two are always equal. So a row changed in place, through a query result, `TryGet` or an after-handler argument, and then written back is `Same`. The index still files it under its old value: a query by the old value returns a row that no longer matches, and a query by the new value misses it. After-handlers get no `Update`, and `AddOrUpdateAndProduce` produces nothing, so no other replica sees the change.
+
+To change a row, clone it, change the clone and write the clone: `var next = current.Clone(); next.Status = …; cache.AddOrUpdate(next);`. The generated `Clone()` is deep. From then on `next` is the resident instance; the next change starts from another clone. `ExecuteCloned()` and `ExecutePooledCloned()` return copies that can be changed and written back. With `init` setters the compiler enforces the rule, and the next value is built with an object initializer. `ChangeAResidentRowTests` in `Prague.Generated.Tests` pins both the rule and the failure.
 
 ## Why this matters
 

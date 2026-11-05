@@ -41,7 +41,7 @@ Hard rules (compile errors or silent failures):
 - Exactly one property carries `[DataCacheKey]`; `TKey : notnull, IEquatable<TKey>`.
 - Implement no interface by hand (no `IDataCacheItem`, no `GetKey()`, no `Equals`): the generator adds `CacheEquals`, `CacheGetHashCode`, `Clone`.
 - The wrapper is `{ClassName}Cache`; `[DataCache("OrdersCache")]` renames it.
-- Treat stored instances as immutable (`init` setters): queries hand out the resident instance.
+- A stored instance belongs to the cache: see [Changing a cached row](#changing-a-cached-row).
 
 ```csharp
 [DataCache]
@@ -118,6 +118,22 @@ Using joins: see `prague-queries`.
 | `[DataCacheStringIntern(false)]` | Keeps a string out of the intern pool (ids, free text; interning is on by default). The property is `partial` (CACHE053 otherwise): the generator supplies its implementing part. |
 | `[DataCacheJsonSerializables]` | On a partial `JsonSerializerContext`: registers `QueryResults<T>` for System.Text.Json source generation. |
 
+## Changing a cached row
+
+Every instance the cache holds or hands out is the cache's own: query rows, `TryGet` results, after-handler values, and any instance once you have passed it to `AddOrUpdate`. To change a row: **clone, change the clone, write the clone.**
+
+```csharp
+if (tickets.Cache.TryGet(id, out var current)) {
+	var next = current.Clone();          // generated, deep: nested lists and objects are copied
+	next.State = TicketState.Closed;
+	tickets.AddOrUpdateAndProduce(next);  // or AddOrUpdate(next) for a local-only cache
+}                                         // from here on, next is resident: leave it alone
+```
+
+A resident instance changed in place equals itself, so writing it back is `Same`. The index still files the row under the old value (`WithState(Open)` returns a row whose `State` is `Closed`, `WithState(Closed)` misses it), after-handlers get no `Update`, and `AddOrUpdateAndProduce` produces nothing, so other replicas never see the change. Changing it without writing back does the same damage.
+
+With `init` setters the compiler enforces the rule; build the next value with an object initializer from the current one. `ExecuteCloned()` / `ExecutePooledCloned()` return copies that can be changed and written back.
+
 ## Types you cannot annotate
 
 For a generated class you own but cannot edit (protobuf, OpenAPI), put `[DataCache<TExternal>(nameof(TExternal.Id))]` on a `partial` cache class and declare indexes there with `[DataCacheIndex("PropertyName", DataCacheIndexType.Many)]`. `TExternal` must be `partial` and in your compilation. At class level only `[DataCacheIndex]`, `[DataCacheIgnoreEquality]` and `[DataCacheTopic]` are read; the property-name forms of the key-set attributes compile but produce nothing, and foreign keys, sorts and global indexes have no class-level form.
@@ -140,5 +156,7 @@ For `Order`: `OrderCache : IDataCache<OrderCache, string, Order>` with `new Orde
 | `[DataCacheIndex]` next to a `ManyToOne` FK (CACHE041/042) | the FK alone; a separate property for a range |
 | `[DataCacheSort]` without a final key column | end with the key for a total order |
 | editing generated files under `obj/` | change the attributes |
+| changing a row from `TryGet` or a query, then `AddOrUpdate(row)` | `var next = row.Clone();` change `next`, `AddOrUpdate(next)` |
+| changing an instance after passing it to `AddOrUpdate` | it is resident now: clone again |
 
 Read next: [own your model](https://nanov.github.io/prague.net/docs/articles/how-to/own-your-model.html), [index types](https://nanov.github.io/prague.net/docs/articles/core-concepts/index-types.html), [conditional updates](https://nanov.github.io/prague.net/docs/articles/core-concepts/conditional-updates.html), [attributes reference](https://nanov.github.io/prague.net/docs/articles/reference/attributes.html), [generator diagnostics](https://nanov.github.io/prague.net/docs/articles/reference/diagnostics.html).

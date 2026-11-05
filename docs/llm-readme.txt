@@ -375,6 +375,8 @@ are the floor under slot sizing and are expected to be false / 0.
                                                              or FrozenOptions.PreserveEagerOrder
   multi-partition cache topic                              → recreate with --partitions 1
   expecting the local cache to see producer.Produce(...)   → use AddOrUpdateAndProduce / RemoveAndProduce
+  changing a resident row (query row / TryGet / handler    → var next = row.Clone(); change next; AddOrUpdate(next).
+    value) in place, then AddOrUpdate(row)                   In place = Same: index stale, no Update, nothing produced.
   mutating MessagePackSerializer.DefaultOptions for Prague → WithMessagePackResolver(...) on AddKafkaCaches
   editing *.generated.cs or obj/ generated files           → change Prague.Codegen or the .tt template
   MessagePackSerializer.Serialize(...) inside Prague.Kafka without PragueMessagePack.Options → always pass it

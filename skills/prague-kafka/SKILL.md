@@ -60,6 +60,8 @@ orders.AddOrUpdateAndProduce(order, force: true);  // produces always
 orders.RemoveAndProduce(order.OrderId);            // local remove + tombstone
 ```
 
+Write a new instance: a resident row changed in place compares equal to itself, so `AddOrUpdateAndProduce` produces nothing and the change never leaves the process. Clone, change the clone, write the clone (`prague-modeling`, Changing a cached row).
+
 `orders.ForceProduceAll()` re-seeds the topic with every resident record: a repair tool, not a routine call. The raw producer is a keyed singleton: `[FromKeyedServices("kafkaCaches")] KafkaCacheProducer producer`, then `producer.Produce(topic, key, value)` / `producer.Delete(topic, key)`. It is fire-and-forget: no delivery report, failures are logged.
 
 ## Health and metrics
@@ -102,6 +104,7 @@ Query and handler logic needs no broker; Kafka paths need Testcontainers with on
 | relying on registration order to run after the load | `await registry.LoadingCompletion.WaitAsync(stoppingToken)` first in `ExecuteAsync` |
 | waiting for the load in a hosted service's `StartAsync` | wait in `ExecuteAsync`; `StartAsync` must return |
 | expecting the local cache to see `producer.Produce(...)` | `AddOrUpdateAndProduce` / `RemoveAndProduce` |
+| `row.Status = x; orders.AddOrUpdateAndProduce(row);` on a resident row | `var next = row.Clone(); next.Status = x; orders.AddOrUpdateAndProduce(next);` |
 | a shared `group.id` across instances | leave the default, or one id per instance |
 | mutating `MessagePackSerializer.DefaultOptions` | `WithMessagePackResolver(...)` on `AddKafkaCaches` |
 | a consumer producing from its own partial copy of the contract | only the topic's owner produces, from the full contract |

@@ -34,7 +34,7 @@ Terminals:
 - `ExecutePooled()` / `ExecutePooledCloned()`, same parameters: rented from the pool; **always `using var`**.
 - `Count()`: no parameters, materializes nothing.
 
-`QueryResults<T>` is a readonly struct and is the list itself: `Count`, `TotalCount` (before paging), `Truncated`, indexer, `AsSpan()`, `Slice`, `ToArray()`, `ToList()`, `ToDictionary(...)`, ref enumerator. `results.Map(f)` disposes the source and returns a new result of the same pooled kind: dispose the mapped one. Project into a `readonly record struct` row type: it lives inline in the pooled buffer, where a `record class` row is one heap object per row per call. Rows of an unmapped result are the cached instances: read them; take a private copy with `ExecuteCloned` or `Clone()` before changing anything.
+`QueryResults<T>` is a readonly struct and is the list itself: `Count`, `TotalCount` (before paging), `Truncated`, indexer, `AsSpan()`, `Slice`, `ToArray()`, `ToList()`, `ToDictionary(...)`, ref enumerator. `results.Map(f)` disposes the source and returns a new result of the same pooled kind: dispose the mapped one. Project into a `readonly record struct` row type: it lives inline in the pooled buffer, where a `record class` row is one heap object per row per call. Rows of an unmapped result are the cached instances: read them. To change one, clone, change the clone, write the clone (`prague-modeling`, Changing a cached row); `ExecuteCloned` / `ExecutePooledCloned` return copies.
 
 ## Sorting and paging
 
@@ -131,7 +131,7 @@ One writer per cache, lock-free readers, no snapshot isolation. A query never th
 | relying on row order of an unsorted `BuildFrozen()` | sort with a total comparer, or `PreserveEagerOrder = true` |
 | building a prepared/frozen query per request | build once, store in a field |
 | `new DataCacheRegistry()` | `new DataCacheRegistryBuilder().Register<..>().Build()` |
-| mutating a returned row | `ExecuteCloned()` or `row.Clone()` |
+| changing a returned row in place | `row.Clone()`, change the clone, `AddOrUpdate` it |
 
 `Prague.Api` exposes caches over HTTP for inspection: `app.MapPragueEndpoints()` (`GET /prague`, `/prague/{CacheName}`, `/prague/{CacheName}/{id}`); `Prague.Api.UI` adds `AddPragueUI()` / `MapPragueUI()`.
 
