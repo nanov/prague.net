@@ -186,6 +186,8 @@ To wait for the load somewhere else — a host that starts its hosted services c
 
 [!code-csharp[](../../../../samples/Prague.Samples/Advanced/KafkaIntegration.cs#health-endpoints)]
 
+On a default host the endpoints do not answer until the initial load completes: the web server starts after the Kafka worker's `StartAsync`. Give Kubernetes a startup probe sized to the load, or start hosted services concurrently; [Health and Metrics](../how-to/health-and-metrics.md#2-probes-during-the-initial-load) has both.
+
 ## OpenTelemetry metrics
 
 Opt-in observable instruments sourced from the statistics the consumer already collects — no hot-path cost, no allocations per scrape after warm-up. The extension lives in `Prague.Kafka.OpenTelemetry` and is registered on the `MeterProviderBuilder`; add your exporter after it:

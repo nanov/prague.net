@@ -46,9 +46,10 @@ public sealed class KafkaCachesReadinessHealthCheck : IHealthCheck {
 		if (anyLivenessFailure)
 			return Task.FromResult(
 				HealthCheckResult.Unhealthy(description: null, exception: null, data: data));
+		// The failureStatus passed to AddPragueKafkaReadiness; a context built by hand has no registration.
 		if (anyReadinessFailure)
-			return Task.FromResult(
-				HealthCheckResult.Degraded(description: null, exception: null, data: data));
+			return Task.FromResult(new HealthCheckResult(
+				context.Registration?.FailureStatus ?? HealthStatus.Degraded, data: data));
 		return _healthy;
 	}
 }

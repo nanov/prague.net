@@ -36,9 +36,10 @@ public sealed class KafkaCachesLivenessHealthCheck : IHealthCheck {
 				data[consumerName + ".caches"] = verdict.FailingCacheNames;
 		}
 
+		// The failureStatus passed to AddPragueKafkaLiveness; a context built by hand has no registration.
 		if (anyFailure)
-			return Task.FromResult(
-				HealthCheckResult.Unhealthy(description: null, exception: null, data: data));
+			return Task.FromResult(new HealthCheckResult(
+				context.Registration?.FailureStatus ?? HealthStatus.Unhealthy, data: data));
 		return _healthy;
 	}
 }

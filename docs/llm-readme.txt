@@ -24,7 +24,8 @@ distributed cache, not SQL, no eviction.
 
 1. PACKAGES
 -----------
-Prague            facade; references Prague.Core + Prague.Attributes + Prague.Codegen. Add this.
+Prague            facade; references Prague.Core + Prague.Attributes + Prague.Codegen + Prague.Kafka.
+                  Add this. Ships agent skills skills/prague-{modeling,queries,kafka,handlers,testing} (repo: skills/).
 Prague.Core       runtime: InMemoryDataCache<TKey,TValue>, indices, query engine, prepared/frozen
                   queries, joins, QueryResults<T>, DataCacheRegistry.
 Prague.Attributes the attributes, namespace Prague.Core (yes: the attributes live in namespace
@@ -84,7 +85,9 @@ Attributes (all in namespace Prague.Core):
                                                 bool Include(TEntity)). Membership re-evaluated per update.
   [DataCacheSort("Name", "Prop:1", "Other:-1")] class, AllowMultiple. Emits
                                                 `public static readonly IComparer<T> NameComparer` on
-                                                the wrapper. ":1" asc, ":-1" desc.
+                                                the wrapper. ":1" asc, ":-1" desc. string columns
+                                                compare ordinally (string.CompareOrdinal), others
+                                                with Comparer<TProp>.Default.
   [DataCacheIgnoreEquality]                     property. Excluded from CacheEquals/CacheGetHashCode.
   [DataCacheTopic] / [DataCacheTopic("orders.[v:env]")] class. Emits `public const string
                                                 TopicNameTemplate`. Default template "Cache.<ClassName>".
@@ -307,6 +310,9 @@ global indices between the registered caches.
   Resolve caches from DI: provider.GetRequiredService<OrderCache>().
   Startup: the hosted service's StartAsync returns after every cache reached initial-load EOF.
   Elsewhere: await host.DataCachesLoadCompletion();
+  A job that reads loaded caches: a BackgroundService whose ExecuteAsync opens with
+    await registry.LoadingCompletion.WaitAsync(stoppingToken);   // never wait in StartAsync: deadlocks the host
+  KafkaCachesBackgroundService is [Obsolete]: use the BackgroundService form above.
 Facts:
   * One partition per cache topic (not enforced; multi-partition topics go live early). Compacted topic;
     message key = cache key; null value = tombstone. Prague never auto-creates topics. Suggested topic
@@ -329,9 +335,13 @@ Facts:
   * Health: services.AddHealthChecks().AddPragueKafkaLiveness(tags: [...]).AddPragueKafkaReadiness(tags: [...]);
     KafkaCachesHealthOptions { PollLoopHeartbeatTimeout=3s, HandlerProcessingTimeout=5s, MinBrokersUp=1 }.
     MinBrokersUp needs KafkaCachesGlobalOptions.StatisticsEnabled (default true); set 0 if disabled.
-    Default MapHealthChecks returns 200 for Degraded — map Degraded → 503 for k8s readiness.
+    Default MapHealthChecks returns 200 for Degraded — map Degraded → 503 for k8s readiness, or pass
+    failureStatus: HealthStatus.Unhealthy to AddPragueKafkaReadiness (failureStatus is honoured by both checks).
+    Default host: the server starts after the Kafka worker's StartAsync, i.e. after the load — /health/* refuses
+    connections while loading. k8s: a startupProbe sized to the load, or HostOptions.ServicesStartConcurrently = true
+    (then readiness reports InitialLoadIncomplete during the load).
   * OTel: meterProviderBuilder.AddPragueKafkaInstrumentation([prefix]) → prague.kafka.consumer.{partitions.assigned,
-    broker.rtt.p99, health}, prague.kafka.cache.{size, messages.received, health, index.size}.
+    broker.rtt.p99, health}, prague.kafka.cache.{size, messages.received, health, index.size, index.capacity}.
   * Testing: no in-memory broker substitute (TestAdaptor was removed); use Testcontainers; give each
     consumer under test its own group.id.
 
@@ -353,6 +363,7 @@ are the floor under slot sizing and are expected to be false / 0.
   `q => q.Between(a, b)` / `q.Eq(x)` / `q.Gt(a).Or.Lt(b)`  → `q => q.Gte(a).Lt(b)`; disjunction via .Or(...)
   `.Map(...)` on the builder before Execute                → execute first, then `results.Map(...)`
   `results.Items`                                          → QueryResults IS the list: Count / indexer / AsSpan()
+  deriving from KafkaCachesBackgroundService (obsolete)    → BackgroundService + `await registry.LoadingCompletion.WaitAsync(stoppingToken)`
   `cache.Cache.TryGetValues(...)`                          → `cache.Cache.TryGet(keys, span)` / `TryGet(keys)`
   `.SortByPriority()`                                      → `.Sort(OrderCache.ByPriorityComparer)` or SortBounded
   `OrderCache.Topic`                                       → `OrderCache.TopicNameTemplate`
@@ -368,6 +379,8 @@ are the floor under slot sizing and are expected to be false / 0.
                                                              or FrozenOptions.PreserveEagerOrder
   multi-partition cache topic                              → recreate with --partitions 1
   expecting the local cache to see producer.Produce(...)   → use AddOrUpdateAndProduce / RemoveAndProduce
+  changing a resident row (query row / TryGet / handler    → var next = row.Clone(); change next; AddOrUpdate(next).
+    value) in place, then AddOrUpdate(row)                   In place = Same: index stale, no Update, nothing produced.
   mutating MessagePackSerializer.DefaultOptions for Prague → WithMessagePackResolver(...) on AddKafkaCaches
   editing *.generated.cs or obj/ generated files           → change Prague.Codegen or the .tt template
   MessagePackSerializer.Serialize(...) inside Prague.Kafka without PragueMessagePack.Options → always pass it

@@ -86,7 +86,7 @@ public class AfterHandlerTests {
 	[Test]
 	public async Task AfterHandler_OnSameValue_ReceivesSame() {
 		var recording = new RecordingAfterHandler();
-		var (sp, _) = await StartAsync(recording);
+		var (sp, cache) = await StartAsync(recording);
 
 		using var producer = DualKafkaClusterFixture.NewProducer(DualKafkaClusterFixture.BootstrapServersA);
 		Produce(producer, 1, "Same", 1);
@@ -98,7 +98,15 @@ public class AfterHandlerTests {
 		producer.Flush(TimeSpan.FromSeconds(10));
 		await WaitUntil(() => recording.Any(i => i.UpdateType == UpdateType.Same && i.Key == 1));
 
-		Assert.That(recording.Any(i => i.UpdateType == UpdateType.Same && i.Key == 1), Is.True);
+		// newValue on Same is the incoming copy, equal to but not the instance the cache keeps; the resident
+		// instance is still the one the Add delivered. Docs and skills state this; keep them honest.
+		var add = recording.Invocations.First(i => i.UpdateType == UpdateType.Add && i.Key == 1);
+		var same = recording.Invocations.First(i => i.UpdateType == UpdateType.Same && i.Key == 1);
+		Assert.That(cache.Cache.TryGet(1, out var resident), Is.True);
+		Assert.That(resident, Is.SameAs(add.NewValue));
+		Assert.That(same.NewValue, Is.Not.Null.And.Not.SameAs(resident));
+		Assert.That(same.NewValue!.Name, Is.EqualTo("Same"));
+		Assert.That(same.OldValue, Is.Null);
 
 		await StopAsync(sp);
 	}

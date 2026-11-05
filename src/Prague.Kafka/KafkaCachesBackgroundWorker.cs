@@ -129,47 +129,86 @@ internal class KafkaCachesBackgroundWorker : IHostedService, IDisposable {
 		=> _loader.Dispose();
 }
 
-public abstract class KafkaCachesBackgroundService: IHostedService, IDisposable {
+/// <summary>
+///   A hosted service whose <see cref="ExecuteAsync" /> runs once every cache has loaded, whatever order it is
+///   registered in relative to <c>AddKafkaCaches</c>.
+///   <para>
+///     <see cref="StartAsync" /> does not wait for the load: the host starts hosted services one after another,
+///     so a wait there would block the Kafka worker registered after it, which is what completes the load. The
+///     wait runs inside the execute task instead, and <see cref="StopAsync" /> cancels it.
+///   </para>
+///   <para>
+///     The host watches only <see cref="BackgroundService" /> tasks, so this class does what the host would: an
+///     exception from <see cref="ExecuteAsync" /> is logged and stops the application.
+///   </para>
+/// </summary>
+[Obsolete("Derive from BackgroundService and start ExecuteAsync with "
+	+ "'await registry.LoadingCompletion.WaitAsync(stoppingToken);'. The host then logs a failed job and applies "
+	+ "HostOptions.BackgroundServiceExceptionBehavior.")]
+public abstract class KafkaCachesBackgroundService : IHostedService, IDisposable {
 	private readonly IDataCacheRegistry _cacheRegistry;
+	private readonly ILogger _logger;
+	private readonly IHostApplicationLifetime _lifetime;
 	private Task? _executeTask;
-        private CancellationTokenSource? _stoppingCts;
-        private volatile bool _disposed;
-        public virtual Task? ExecuteTask => _executeTask;
+	private CancellationTokenSource? _stoppingCts;
+	private volatile bool _disposed;
 
-        public KafkaCachesBackgroundService(IDataCacheRegistry cacheRegistry) {
-	        _cacheRegistry = cacheRegistry;
-        }
+	public virtual Task? ExecuteTask => _executeTask;
 
-        protected abstract Task ExecuteAsync(CancellationToken stoppingToken);
+	protected KafkaCachesBackgroundService(IDataCacheRegistry cacheRegistry, ILogger logger, IHostApplicationLifetime lifetime) {
+		_cacheRegistry = cacheRegistry;
+		_logger = logger;
+		_lifetime = lifetime;
+	}
 
-        public virtual async Task StartAsync(CancellationToken cancellationToken) {
-            _stoppingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            await _cacheRegistry.LoadingCompletion;
-            _executeTask = ExecuteAsync(_stoppingCts.Token);
-            if (_executeTask.IsFaulted)
-	            throw _executeTask.Exception;
-        }
+	protected abstract Task ExecuteAsync(CancellationToken stoppingToken);
 
-        public virtual async Task StopAsync(CancellationToken cancellationToken) {
-            if (_executeTask == null)
-                return;
+	public virtual Task StartAsync(CancellationToken cancellationToken) {
+		_stoppingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_executeTask = ExecuteAfterLoadAsync(_stoppingCts.Token);
+		// Surface a synchronous failure the way BackgroundService does; otherwise return while it runs.
+		return _executeTask.IsCompleted ? _executeTask : Task.CompletedTask;
+	}
 
-            try {
-	            if (!_disposed)
-		            _stoppingCts!.Cancel();
-            }
-            finally {
-                await _executeTask.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-            }
+	private async Task ExecuteAfterLoadAsync(CancellationToken stoppingToken) {
+		try {
+			// A failed load is reported by the Kafka worker, whose StartAsync throws and fails the host.
+			await _cacheRegistry.LoadingCompletion.WaitAsync(stoppingToken).ConfigureAwait(false);
+		}
+		catch {
+			return;
+		}
 
-        }
+		try {
+			await ExecuteAsync(stoppingToken).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) {
+		}
+		catch (Exception e) {
+			_logger.BackgroundServiceFailed(e, GetType().Name);
+			_lifetime.StopApplication();
+			throw;
+		}
+	}
 
-        public virtual void Dispose() {
-	        if (_disposed)
-		        return;
-	        _disposed = true;
-	        _stoppingCts?.Cancel();
-	        _stoppingCts?.Dispose();
-        }
+	public virtual async Task StopAsync(CancellationToken cancellationToken) {
+		if (_executeTask == null)
+			return;
 
+		try {
+			if (!_disposed)
+				_stoppingCts!.Cancel();
+		}
+		finally {
+			await _executeTask.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+		}
+	}
+
+	public virtual void Dispose() {
+		if (_disposed)
+			return;
+		_disposed = true;
+		_stoppingCts?.Cancel();
+		_stoppingCts?.Dispose();
+	}
 }

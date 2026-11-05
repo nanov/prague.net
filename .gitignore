@@ -419,3 +419,6 @@ snapshots/
 
 # Per-user local tooling state
 .omp/
+
+# Local installs of agent skills (canonical copies live in /skills)
+.agents/

@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
 using NUnit.Framework;
 using OpenTelemetry.Metrics;
 using Prague.Kafka;
@@ -39,6 +40,14 @@ public static class HealthAndMetricsWiring {
 				[HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable,
 			},
 		});
+	}
+	#endregion
+
+	#region health-concurrent-start
+	public static void AnswerProbesDuringTheLoad(this IServiceCollection services) {
+		// Start hosted services together, so the web server answers while the Kafka worker is still loading:
+		// liveness judges the consumer, readiness reports InitialLoadIncomplete until the data is in.
+		services.Configure<HostOptions>(o => o.ServicesStartConcurrently = true);
 	}
 	#endregion
 

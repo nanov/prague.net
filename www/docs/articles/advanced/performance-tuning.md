@@ -45,7 +45,7 @@ See [Index Types](../core-concepts/index-types.md) for the full catalogue.
 
 ## Conditional updates
 
-`AddOrUpdate(value)` compares the incoming value to the resident one via the generated `CacheEquals` and short-circuits to `UpdateType.Same` when they are equal — no index churn, no after-handler invocation. Mark monotonic-but-irrelevant fields with `[DataCacheIgnoreEquality]` so they do not force `Update` results on every emit. See [Conditional Updates](../core-concepts/conditional-updates.md).
+`AddOrUpdate(value)` compares the incoming value to the resident one via the generated `CacheEquals` and short-circuits to `UpdateType.Same` when they are equal: no index churn, and after-handlers receive `Same`, which a projector ignores in one branch. Mark monotonic-but-irrelevant fields with `[DataCacheIgnoreEquality]` so they do not force `Update` results on every emit. See [Conditional Updates](../core-concepts/conditional-updates.md).
 
 ## Static lambdas in join filters
 

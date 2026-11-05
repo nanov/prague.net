@@ -70,9 +70,11 @@ public static class HostWithDiPrograms {
 	#endregion
 
 	#region host-after-load-worker
-	// Derive from KafkaCachesBackgroundService instead of BackgroundService: ExecuteAsync starts after the load.
-	public sealed class OrderReportWorker(IDataCacheRegistry registry, OrderCache orders) : KafkaCachesBackgroundService(registry) {
+	// Wait for the load inside ExecuteAsync, never in StartAsync: the host starts hosted services one after another,
+	// so StartAsync returning at the first await is what lets the Kafka worker start, whatever the registration order.
+	public sealed class OrderReportWorker(IDataCacheRegistry registry, OrderCache orders) : BackgroundService {
 		protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
+			await registry.LoadingCompletion.WaitAsync(stoppingToken);
 			while (!stoppingToken.IsCancellationRequested) {
 				Console.WriteLine($"{orders.Query().WithStatus(OrderStatus.Pending).Count()} pending orders");
 				await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);

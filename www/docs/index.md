@@ -29,6 +29,7 @@ Every C# block on this site is pulled from the [compiled samples project](https:
 
 Task-shaped pages: a prerequisite, the steps, the pitfalls.
 
+- [**Own Your Model**](articles/how-to/own-your-model.md) — keep your own `[DataCache]` copy of a topic's contract, with your fields and your indexes.
 - [**Page an API**](articles/how-to/page-an-api.md) — a sorted, paged list endpoint with offset or cursor pages.
 - [**Incremental Sync**](articles/how-to/incremental-sync.md) — send only what changed since a client's watermark.
 - [**Write a Filter**](articles/how-to/write-a-filter.md) — header, key and value filters; soft deletes; predicates with DI state.
@@ -38,6 +39,7 @@ Task-shaped pages: a prerequisite, the steps, the pitfalls.
 - [**Map, Clone, Batch**](articles/how-to/map-clone-batch.md) — project results, copy rows, read many keys at once.
 - [**Test without a Broker**](articles/how-to/test-without-a-broker.md) — unit-test code that reads caches.
 - [**Health and Metrics**](articles/how-to/health-and-metrics.md) — liveness, readiness and the OpenTelemetry meter.
+- [**Use with AI Agents**](articles/how-to/use-with-ai-agents.md) — install the agent skills that ship in the `Prague` package.
 
 ## Kafka and operations
 
@@ -63,4 +65,4 @@ Task-shaped pages: a prerequisite, the steps, the pitfalls.
 
 - [GitHub repository](https://github.com/nanov/prague.net) — source, issues, contributing.
 - [NuGet](https://www.nuget.org/packages/Prague/) — `Prague`, `Prague.Kafka`, `Prague.Api`, `Prague.Api.UI`.
-- [llms.txt](https://nanov.github.io/prague.net/llms.txt) and [llms-full.txt](https://nanov.github.io/prague.net/llms-full.txt) — machine-readable summaries for coding assistants.
+- [llms.txt](https://nanov.github.io/prague.net/llms.txt) and [llms-full.txt](https://nanov.github.io/prague.net/llms-full.txt) — machine-readable summaries for coding assistants; the `Prague` package also ships [agent skills](articles/how-to/use-with-ai-agents.md).

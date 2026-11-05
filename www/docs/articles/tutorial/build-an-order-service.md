@@ -77,7 +77,7 @@ Two rules the code follows: lanes take `static` selectors over the argument stru
 
 ## 7. React to live updates
 
-An `ICacheAfterHandler<TKey, TValue>` runs after a message has been applied to the cache during the live phase; the initial replay never calls it. `UpdateType` tells you what happened: `Add`, `Update` (with `oldValue`), `Delete` (with `oldValue`), `Same` (a re-emit of the resident value) or `Filtered` (rejected by a filter: no key, no values).
+An `ICacheAfterHandler<TKey, TValue>` runs after a message has been applied to the cache during the live phase; the initial replay never calls it. `UpdateType` tells you what happened: `Add`, `Update` (with `oldValue`), `Delete` (with `oldValue`), `Same` (an equal re-emit; `newValue` is the incoming copy, the cache keeps its resident instance) or `Filtered` (rejected by a filter: no key, no values).
 
 [!code-csharp[](../../../../samples/Prague.Samples/Tutorial/BuildAnOrderService.cs#tutorial-shipment-notifier)]
 
@@ -89,7 +89,7 @@ It was registered in step 2 with `.WithAfterHandler<ShipmentNotifier>()`. Handle
 
 ## 8. Health checks and an HTTP endpoint
 
-Two checks ship with `Prague.Kafka`: liveness (the consumer is polling and no handler is stuck) and readiness (loaded, assigned, brokers up). Map them on separate paths, and map `Degraded` to 503; the default returns 200.
+Two checks ship with `Prague.Kafka`: liveness (the consumer is polling and no handler is stuck) and readiness (loaded, assigned, brokers up). Map them on separate paths, and map `Degraded` to 503; the default returns 200. Both endpoints stay silent until the initial load completes; before deploying to Kubernetes, read [probes during the initial load](../how-to/health-and-metrics.md#2-probes-during-the-initial-load).
 
 [!code-csharp[](../../../../samples/Prague.Samples/Tutorial/BuildAnOrderService.cs#tutorial-health)]
 
