@@ -258,6 +258,29 @@ public interface IUnsafeValueAccessor {
 	internal void RetainNonNullSlots<TKey, TRightValue>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates) where TKey : IEquatable<TKey>;
 
 	/// <summary>
+	/// The inner post-walk by KEY instead of by slot: drops the result-map entries whose key
+	/// <paramref name="keep"/> rejects, then narrows <paramref name="candidates"/> to the surviving keys. A
+	/// struct right value has no null slot to tell a miss by — a default struct is not null — so a struct
+	/// right's inner join records the lefts it matched and keeps exactly those rows.
+	/// </summary>
+	internal void RetainRows<TKey, TKeep>(TKeep keep, ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates)
+		where TKey : IEquatable<TKey>
+		where TKeep : struct, IRowKeyPredicate<TKey>;
+
+	/// <summary>
+	/// The post-walk of the FIRST inner join of a chain: narrows <paramref name="candidates"/> to the keys of
+	/// the result rows and filters nothing. The first inner join creates a row only for a left it matched —
+	/// no earlier join left rows behind — so every row it finds survives, whatever the right value's type.
+	/// </summary>
+	internal void NarrowCandidatesToRows<TKey>(ref ValueSet<TKey, DefaultKeyComparer<TKey>> candidates)
+		where TKey : IEquatable<TKey>;
+
+	/// <summary>Drops the rows whose key <paramref name="keep"/> rejects, keeping the order of the rest — <see cref="PruneNullSlots{TRightValue}" /> for a struct right value.</summary>
+	internal void PruneRows<TKey, TKeep>(TKeep keep)
+		where TKey : IEquatable<TKey>
+		where TKeep : struct, IRowKeyPredicate<TKey>;
+
+	/// <summary>
 	/// JoinMany analog of <see cref="RetainNonNullSlots"/>: drops result-map entries
 	/// where THIS accessor's slot is an empty <see cref="QueryResults{TInnerValue}"/>
 	/// (Count == 0 — no rights matched OR filter rejected them all), then narrows

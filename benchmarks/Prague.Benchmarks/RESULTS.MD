@@ -2213,3 +2213,270 @@ allocated per op); the locked one re-targeted collected slots in place.
 
 Kept: lock-free. Same hit cost, 15% faster single-threaded misses, 3.5× faster contended misses, no
 allocation beyond the string itself. Versus v3's interner: ~2× faster hits, ~5× faster misses.
+
+# `JoinOne` — per-row outer fill, shared rights, struct-right inner, filtered left-symmetric by slot, first inner narrows (2026-11-05)
+
+OLD = `f6c305a` (a detached worktree), NEW = the change. What NEW does:
+
+- an unfiltered outer `JoinOne` fills its rows with one point lookup each on the eager path too (all four families — the
+  frozen fused fill's own `FillRows`);
+- a filtered outer **left-symmetric** `JoinOne` fills its rows by pair slot (one pair per distinct right seeded from the
+  rows) instead of walking every left of each right's index bucket;
+- the filtered / inner pair-set paths chain the lefts that share a right to the pair holding it (`JoinOneSharedRights`,
+  delivered through `ExecutePairedJoined`) — before, every such left after the first lost the right;
+- a struct right value's inner join keeps its rows by key (`RetainRows` / `PruneRows`) instead of by null slot;
+- the first inner join of a chain only narrows the candidates to its row keys — no filter pass over the rows it just made.
+
+Design notes in `context/joins.md`. AMD Ryzen 9 9955HX3D (16 cores in two CCDs: cores 0–7 with the 96 MB V-Cache L3, cores
+8–15 with 32 MB), Windows 11 26200, .NET 9.0.18 x64, BenchmarkDotNet 0.15.8, **default job**, `--inProcess`
+(InProcessEmitToolchain), `[MemoryDiagnoser]`. One category / filter per process, strictly one process at a time, no test
+host or build alive (checked before each process). No scenario on either build triggered a GC; allocation ≤ 25 B/op except
+`HeavyJoin_Execute` (129 KB/op) and `NestedJoin_Execute` (119 KB/op), unchanged between builds.
+
+Three rounds, read the dates of the code they measured:
+
+| Round | NEW measured | Pinned to CCD0 | Machine | Order |
+|---|---|---|---|---|
+| 1 — the new class | an earlier revision: no slot fill, no first-inner narrowing | **no** | quiet (total CPU median ~4 %) | every OLD process, then every NEW |
+| 2 — the existing benchmarks | the same earlier revision | yes | quiet (~4 %) | every OLD, then every NEW; points over +3 % re-run 3× alternating |
+| 3 — the final code | the final change | yes | **busy** (26–29 %); the undecided rows re-run quiet (2.5–7.6 %), 3× alternating, marked `*` | every OLD, then every NEW |
+
+**CCD placement.** An unpinned process lands on whichever CCD the scheduler picks: identical code measured 1.0 ms or 2.7 ms
+at 100k rows. Round 1 was not pinned — its 100k deltas under ~5 % are placement noise; its large ratios held when spot-checked
+pinned (`JoinOne_LeftSym_Page` at 100k: 0.48 pinned, 0.42 unpinned; 0.49 in round 3).
+
+## Round 1 — `JoinOneSharedRightBenchmarks`, the new class (unpinned, earlier revision)
+
+Fixtures: N rows; sport type / country / league Zipf over 30 / 900 / 2,700 values. `_Page` = a `SortBounded` page of 200 over
+every row, then the join(s) over the page; `_Full` and the selector / unique / shared scenarios read one bucket (N / 5 rows).
+Selector scenarios key the left `(long EventId, Channel)` with five channels: one channel is injective (the BrandDataReader
+`GetEvents` shape: inner selector → outer selector → `JoinMany`); `SharedRight_*` lets five channels share each event's game.
+`ManyBuckets` folds 100 league index values onto one region through a left-symmetric selector. `StructRight_ChainedInner` =
+inner to a reference right every left has, then inner to a **struct** right half the lefts have. "rows old → new" is what each
+build returned when the two differ — the rows OLD drops, blanks or keeps are the bugs the change fixes. N = 100 / 5,000 /
+7,000 were measured too (same trend; raw data with the run). The rows this revision did not have its last two changes for are
+measured again against the final code in round 3.
+
+| Scenario | N | old | new | new/old | rows old → new |
+|---|---:|---:|---:|---:|---|
+| JoinOne_LeftSym_Page | 1,000 | 68.07 us | 63.35 us | 0.93 | same |
+| JoinOne_LeftSym_Page | 10,000 | 267.14 us | 180.12 us | 0.67 | same |
+| JoinOne_LeftSym_Page | 100,000 | 2.56 ms | 1.08 ms | 0.42 | same |
+| JoinOne_LeftSym_Page_Three | 1,000 | 82.81 us | 69.16 us | 0.84 | same |
+| JoinOne_LeftSym_Page_Three | 10,000 | 397.63 us | 190.77 us | 0.48 | same |
+| JoinOne_LeftSym_Page_Three | 100,000 | 3.69 ms | 1.20 ms | 0.33 | same |
+| JoinOne_LeftSym_Full | 1,000 | 10.16 us | 5.89 us | 0.58 | same |
+| JoinOne_LeftSym_Full | 10,000 | 137.90 us | 57.75 us | 0.42 | same |
+| JoinOne_LeftSym_Full | 100,000 | 2.07 ms | 822.40 us | 0.40 | same |
+| JoinOne_PkIdentity_Full | 1,000 | 7.07 us | 4.51 us | 0.64 | same |
+| JoinOne_PkIdentity_Full | 10,000 | 66.91 us | 40.68 us | 0.61 | same |
+| JoinOne_PkIdentity_Full | 100,000 | 924.03 us | 637.17 us | 0.69 | same |
+| JoinOne_PkIdentity_Page | 1,000 | 65.26 us | 62.38 us | 0.96 | same |
+| JoinOne_PkIdentity_Page | 10,000 | 181.44 us | 178.34 us | 0.98 | same |
+| JoinOne_PkIdentity_Page | 100,000 | 1.03 ms | 1.20 ms | 1.17 | same |
+| InnerJoinOne_Selector_Page | 1,000 | 32.37 us | 30.88 us | 0.95 | same |
+| InnerJoinOne_Selector_Page | 10,000 | 200.55 us | 192.83 us | 0.96 | same |
+| InnerJoinOne_Selector_Page | 100,000 | 1.80 ms | 1.76 ms | 0.97 | same |
+| InnerJoinOne_Selector_Full | 1,000 | 10.50 us | 10.25 us | 0.98 | same |
+| InnerJoinOne_Selector_Full | 10,000 | 109.67 us | 105.94 us | 0.97 | same |
+| InnerJoinOne_Selector_Full | 100,000 | 1.91 ms | 1.92 ms | 1.00 | same |
+| JoinOne_Selector_Filtered | 1,000 | 8.27 us | 7.85 us | 0.95 | same |
+| JoinOne_Selector_Filtered | 10,000 | 91.99 us | 88.80 us | 0.97 | same |
+| JoinOne_Selector_Filtered | 100,000 | 1.51 ms | 1.46 ms | 0.97 | same |
+| LeftUnique_Inner | 1,000 | 8.47 us | 7.35 us | 0.87 | same |
+| LeftUnique_Inner | 10,000 | 88.58 us | 78.24 us | 0.88 | same |
+| LeftUnique_Inner | 100,000 | 1.14 ms | 1.06 ms | 0.93 | same |
+| LeftUnique_Filtered | 1,000 | 7.36 us | 5.96 us | 0.81 | same |
+| LeftUnique_Filtered | 10,000 | 81.70 us | 69.98 us | 0.86 | same |
+| LeftUnique_Filtered | 100,000 | 1.18 ms | 1.14 ms | 0.96 | same |
+| SharedRight_Selector_Inner | 1,000 | 4.77 us | 14.19 us | 2.97 | 36 → 180 |
+| SharedRight_Selector_Inner | 10,000 | 42.84 us | 149.16 us | 3.48 | 360 → 1,800 |
+| SharedRight_Selector_Inner | 100,000 | 770.21 us | 2.53 ms | 3.29 | 3,600 → 18,000 |
+| SharedRight_Selector_Filtered | 1,000 | 6.13 us | 8.06 us | 1.31 | 200 rows; with a right 24 → 120 |
+| SharedRight_Selector_Filtered | 10,000 | 62.79 us | 82.29 us | 1.31 | 2,000 rows; with a right 240 → 1,200 |
+| SharedRight_Selector_Filtered | 100,000 | 1.10 ms | 1.40 ms | 1.27 | 20,000 rows; with a right 2,400 → 12,000 |
+| LeftSym_SharedRight_ManyBuckets_Outer | 1,000 | 5.06 us | 9.79 us | 1.93 | 200 rows; with a right 22 → 200 |
+| LeftSym_SharedRight_ManyBuckets_Outer | 10,000 | 50.08 us | 145.08 us | 2.90 | 2,000 rows; with a right 39 → 2,000 |
+| LeftSym_SharedRight_ManyBuckets_Outer | 100,000 | 722.76 us | 2.38 ms | 3.29 | 20,000 rows; with a right 147 → 20,000 |
+| LeftSym_SharedRight_ManyBuckets_Inner | 1,000 | 4.27 us | 10.36 us | 2.43 | 22 → 200 |
+| LeftSym_SharedRight_ManyBuckets_Inner | 10,000 | 35.55 us | 117.94 us | 3.32 | 39 → 2,000 |
+| LeftSym_SharedRight_ManyBuckets_Inner | 100,000 | 480.38 us | 1.85 ms | 3.86 | 147 → 20,000 |
+| StructRight_ChainedInner | 1,000 | 12.21 us | 12.42 us | 1.02 | 200 → 100 |
+| StructRight_ChainedInner | 10,000 | 116.42 us | 115.75 us | 0.99 | 2,000 → 1,000 |
+| StructRight_ChainedInner | 100,000 | 1.51 ms | 1.44 ms | 0.96 | 20,000 → 10,000 |
+
+- **CPU per op** (thread cycle time, a separate harness process) agrees in direction everywhere.
+- **Pool traffic** (bytes rented from `PragueArrayPool` per op, N ≥ 1,000): −30 to −60 % on the outer fills (no pair set),
+  +15 to +60 % on the shared-right and struct paths (the chain arrays and the match map). Managed allocation unchanged.
+
+### `JoinOne_PkIdentity_Page` at 100k (1.17 above) — placement, not a regression
+
+Six separate processes alternating builds, unpinned: OLD 1118 / 1053 / 1614 us, NEW 2661 / 1079 / 2736 us — both builds
+bimodal (~1.05 ms vs 1.6–2.7 ms), tight within each process. Pinned to CCD0, two processes per build: the 200-row page with no
+join 1.00–1.04 ms (OLD) vs 0.98–1.00 ms (NEW), with the PK-identity join 1.017–1.041 vs 1.000–1.035 ms — equal; with the
+left-symmetric join 2.09–2.16 vs 1.00–1.03 ms. The time at 100k is the top-k over the store, which the change does not touch.
+
+## Round 2 — the existing benchmarks, every class that runs a `JoinOne` (pinned, earlier revision)
+
+Every point over +3 % was re-run three times alternating builds; those rows show the repeat. Controls: the eight hand-written
+`FrozenCodegenCeiling` bodies (no `JoinOne`) moved ≤ 1.7 %; `TopK`'s identical-work `FullPage` pairs are not listed (0.95–1.02,
+within one build up to 3.3 % apart). `JoinCacheBenchmarks` and `ConcurrentReadWriteBenchmark` are `#if false` and were not
+run. The multi-threaded `HeavyJoinPooledBenchmarks` (unpinned, one run, low confidence) is a fixed 3 s window: queries/s
+71,212 → 74,281 pooled (+4.3 %), 63,308 → 64,230 allocating (+1.5 %).
+
+| Benchmark | params | old | new | new/old | verdict |
+|---|---|---:|---:|---:|---|
+| FrozenCodegenCeiling.Count_Eager | – | 15.10 us | 14.96 us | 0.99 | within noise (-0.9 %) |
+| FrozenCodegenCeiling.Count_Frozen | – | 1.85 us | 1.85 us | 1.00 | within noise (-0.0 %) |
+| FrozenCodegenCeiling.Count_Level1 | – | 260.5 ns | 265.0 ns | 1.02 | control (+1.7 %) |
+| FrozenCodegenCeiling.Probe_NarrowCollect | – | 562.8 ns | 559.2 ns | 0.99 | control (-0.6 %) |
+| FrozenCodegenCeiling.Probe_NarrowCollectSelect | – | 1.67 us | 1.67 us | 1.00 | control (+0.1 %) |
+| FrozenCodegenCeiling.ShapeA_Eager | – | 18.46 us | 17.74 us | 0.96 | win -3.9 % |
+| FrozenCodegenCeiling.ShapeA_Frozen | – | 4.22 us | 4.19 us | 0.99 | within noise (-0.7 %) |
+| FrozenCodegenCeiling.ShapeA_Level1 | – | 1.84 us | 1.86 us | 1.01 | control (+1.1 %) |
+| FrozenCodegenCeiling.ShapeA_Level2 | – | 3.10 us | 3.11 us | 1.00 | control (+0.3 %) |
+| FrozenCodegenCeiling.ShapeA_Level2_DirectComparer | – | 2.60 us | 2.61 us | 1.00 | control (+0.4 %) |
+| FrozenCodegenCeiling.ShapeA_Level3a | – | 1.84 us | 1.86 us | 1.01 | control (+0.7 %) |
+| FrozenCodegenCeiling.ShapeA_Level3b | – | 1.80 us | 1.82 us | 1.02 | control (+1.6 %) |
+| FrozenFkJoin.Fk_InnerManyToOne_Eager | – | 68.27 us | 67.27 us | 0.98 | within noise (-1.5 %) |
+| FrozenFkJoin.Fk_InnerManyToOne_Frozen | – | 31.93 us | 32.64 us | 1.02 | within noise (+2.2 %) |
+| FrozenFkJoin.Fk_ManyToOne_Eager | – | 64.91 us | 29.47 us | 0.45 | win -54.6 % |
+| FrozenFkJoin.Fk_ManyToOne_Filtered_Eager | – | 65.32 us | 65.92 us | 1.01 | within noise (+0.9 %) |
+| FrozenFkJoin.Fk_ManyToOne_Filtered_Frozen | – | 30.78 us | 30.61 us | 0.99 | within noise (+7.0 % first pass; 3× alternating repeat shown) |
+| FrozenFkJoin.Fk_ManyToOne_Frozen | – | 26.90 us | 26.01 us | 0.97 | win -3.3 % |
+| FrozenFkJoin.Fk_OneToOneReverse_Eager | – | 34.87 us | 26.31 us | 0.76 | win -24.5 % |
+| FrozenFkJoin.Fk_OneToOneReverse_Frozen | – | 26.44 us | 25.19 us | 0.95 | win -4.7 % |
+| FrozenFkJoin.Fk_SortBounded_ManyToOne_Eager | – | 17.11 us | 16.56 us | 0.97 | within noise (-3.2 %) |
+| FrozenFkJoin.Fk_SortBounded_ManyToOne_Frozen | – | 14.34 us | 14.46 us | 1.01 | within noise (+0.8 %) |
+| FrozenFkJoin.Fk_SortBounded_OneToOneReverse_Eager | – | 17.35 us | 17.51 us | 1.01 | within noise (+0.9 %) |
+| FrozenFkJoin.Fk_SortBounded_OneToOneReverse_Frozen | – | 15.40 us | 15.33 us | 1.00 | within noise (-0.4 %) |
+| FrozenQuery.Count_ListListListSortBoundedJoinOne_Eager | – | 15.11 us | 15.12 us | 1.00 | within noise (+0.1 %) |
+| FrozenQuery.Count_ListListListSortBoundedJoinOne_Frozen | – | 1.78 us | 1.77 us | 0.99 | within noise (-0.6 %) |
+| FrozenQuery.Count_ListListListSortBoundedJoinOne_Prepared | – | 14.89 us | 14.94 us | 1.00 | within noise (+0.3 %) |
+| FrozenQuery.Count_TimeRangeListListSortBoundedJoinTwo_Eager | – | 31.12 us | 30.70 us | 0.99 | within noise (-1.4 %) |
+| FrozenQuery.Count_TimeRangeListListSortBoundedJoinTwo_Frozen | – | 15.31 us | 15.18 us | 0.99 | within noise (-0.8 %) |
+| FrozenQuery.Count_TimeRangeListListSortBoundedJoinTwo_Prepared | – | 30.52 us | 30.81 us | 1.01 | within noise (+1.0 %) |
+| FrozenQuery.Count_TimeWindowListListSortBoundedJoinTwo_Eager | – | 27.75 us | 27.96 us | 1.01 | within noise (+0.7 %) |
+| FrozenQuery.Count_TimeWindowListListSortBoundedJoinTwo_Frozen | – | 12.76 us | 12.79 us | 1.00 | within noise (+0.2 %) |
+| FrozenQuery.Count_TimeWindowListListSortBoundedJoinTwo_Prepared | – | 27.77 us | 27.93 us | 1.01 | within noise (+0.6 %) |
+| FrozenQuery.InnerJoinOne_Eager | – | 42.82 us | 42.32 us | 0.99 | within noise (-1.2 %) |
+| FrozenQuery.InnerJoinOne_Frozen | – | 20.33 us | 19.82 us | 0.97 | within noise (-2.5 %) |
+| FrozenQuery.InnerJoinOne_Prepared | – | 42.22 us | 42.32 us | 1.00 | within noise (+0.2 %) |
+| FrozenQuery.JoinOneChained_Eager | – | 55.81 us | 36.87 us | 0.66 | win -33.9 % |
+| FrozenQuery.JoinOneChained_Frozen | – | 34.91 us | 34.38 us | 0.98 | within noise (-1.5 %) |
+| FrozenQuery.JoinOneChained_Prepared | – | 56.79 us | 36.66 us | 0.65 | win -35.4 % |
+| FrozenQuery.JoinOneFilteredDistinct_Eager | – | 28.64 us | 28.22 us | 0.98 | within noise (-1.5 %) |
+| FrozenQuery.JoinOneFilteredDistinct_Frozen | – | 20.75 us | 20.50 us | 0.99 | within noise (-1.2 %) |
+| FrozenQuery.JoinOneFilteredDistinct_Prepared | – | 27.91 us | 28.10 us | 1.01 | within noise (+0.7 %) |
+| FrozenQuery.JoinOneFiltered_Eager | – | 21.47 us | 22.15 us | 1.03 | within noise (+3.2 %; the `_Prepared` twin, same eager plan, −2.8 %) |
+| FrozenQuery.JoinOneFiltered_Frozen | – | 21.42 us | 21.01 us | 0.98 | within noise (-1.9 %) |
+| FrozenQuery.JoinOneFiltered_Prepared | – | 22.23 us | 21.60 us | 0.97 | within noise (-2.8 %) |
+| FrozenQuery.JoinOne_Eager | – | 29.00 us | 24.46 us | 0.84 | win -15.7 % |
+| FrozenQuery.JoinOne_Frozen | – | 21.81 us | 21.96 us | 1.01 | within noise (+4.6 % first pass; 3× alternating repeat shown) |
+| FrozenQuery.JoinOne_Prepared | – | 28.85 us | 24.63 us | 0.85 | win -14.6 % |
+| FrozenQuery.ListListListSortBoundedJoinOne_Eager | – | 18.32 us | 17.76 us | 0.97 | win -3.1 % |
+| FrozenQuery.ListListListSortBoundedJoinOne_Frozen | – | 4.21 us | 4.20 us | 1.00 | within noise (-0.1 %) |
+| FrozenQuery.ListListListSortBoundedJoinOne_Prepared | – | 18.06 us | 17.94 us | 0.99 | within noise (-0.7 %) |
+| FrozenQuery.TimeRangeListListSortBoundedJoinTwo_Eager | – | 37.46 us | 34.47 us | 0.92 | win -8.0 % |
+| FrozenQuery.TimeRangeListListSortBoundedJoinTwo_Frozen | – | 20.64 us | 21.16 us | 1.02 | within noise (+2.5 %) |
+| FrozenQuery.TimeRangeListListSortBoundedJoinTwo_Prepared | – | 37.56 us | 34.47 us | 0.92 | win -8.2 % |
+| FrozenQuery.TimeWindowListListSortBoundedJoinTwo_Eager | – | 34.97 us | 32.01 us | 0.92 | win -8.5 % |
+| FrozenQuery.TimeWindowListListSortBoundedJoinTwo_Frozen | – | 18.55 us | 18.14 us | 0.98 | within noise (-2.2 %) |
+| FrozenQuery.TimeWindowListListSortBoundedJoinTwo_FrozenIndexSide | – | 20.08 us | 19.95 us | 0.99 | within noise (-0.6 %) |
+| FrozenQuery.TimeWindowListListSortBoundedJoinTwo_Prepared | – | 34.35 us | 31.51 us | 0.92 | win -8.3 % |
+| JoinRuntime.HeavyJoin_Execute | – | 250.25 us | 241.04 us | 0.96 | win -3.7 % |
+| JoinRuntime.HeavyJoin_ExecutePooled | – | 254.64 us | 247.13 us | 0.97 | within noise (-3.0 %) |
+| NestedJoin.NestedJoin_Execute | – | 164.88 us | 127.72 us | 0.78 | win -22.5 % |
+| NestedJoin.NestedJoin_Pooled | – | 167.33 us | 128.23 us | 0.77 | win -23.4 % |
+| PreparedQuery.JoinOne_Eager | – | 28.70 us | 23.83 us | 0.83 | win -17.0 % |
+| PreparedQuery.JoinOne_Prepared | – | 29.15 us | 24.19 us | 0.83 | win -17.0 % |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled | 10,000 rows, take 20 | 2.051 ms | 2.022 ms | 0.99 | within noise (-1.4 %) |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled | 10,000 rows, take 200 | 2.071 ms | 2.041 ms | 0.98 | within noise (-1.5 %) |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled | 100,000 rows, take 20 | 24.573 ms | 24.633 ms | 1.00 | within noise (+0.2 %) |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled | 100,000 rows, take 200 | 24.623 ms | 24.482 ms | 0.99 | within noise (-0.6 %) |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled | 500,000 rows, take 20 | 195.357 ms | 189.277 ms | 0.97 | win -3.1 % |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled | 500,000 rows, take 200 | 197.168 ms | 190.206 ms | 0.96 | win -3.5 % |
+| TopKExecute.SortedInnerJoin_ExecutePooled | 10,000 rows, take 20 | 638.65 us | 623.52 us | 0.98 | within noise (3× repeat 0.99) |
+| TopKExecute.SortedInnerJoin_ExecutePooled | 10,000 rows, take 200 | 762.65 us | 742.51 us | 0.97 | within noise (3× repeat 1.01, every new run above every old) |
+| TopKExecute.SortedInnerJoin_ExecutePooled | 100,000 rows, take 20 | 5.121 ms | 5.170 ms | 1.01 | within noise (3× repeat 1.01, every new run above every old) |
+| TopKExecute.SortedInnerJoin_ExecutePooled | 100,000 rows, take 200 | 5.287 ms | 5.537 ms | 1.05 | within noise (+4.7 % first pass; 3× repeat 0.99) |
+| TopKExecute.SortedInnerJoin_ExecutePooled | 500,000 rows, take 20 | 59.351 ms | 58.233 ms | 0.98 | within noise (3× repeat 1.01) |
+| TopKExecute.SortedInnerJoin_ExecutePooled | 500,000 rows, take 200 | 58.987 ms | 58.352 ms | 0.99 | small, likely real: 3× repeat 56.09 → 57.48 ms, 1.025 |
+
+## Round 3 — the final code (pinned; busy machine, undecided rows re-run quiet `*`)
+
+The busy run read OLD 3–12 % above its quiet round-2 numbers, so its deltas under ~10 % are indicative only; the rows it could
+not decide were re-measured on a quiet machine, three processes per build alternating OLD / NEW, and are shown as the median of
+the three run medians (`*`). `JoinOne_LeftSym_IndexFiltered_Page` registers its right index before the rows (a list index
+registered on a filled cache starts empty). Allocation ≤ 17 B/op everywhere, no GC.
+
+| Scenario | N | old | new | new/old | rows old → new |
+|---|---:|---:|---:|---:|---|
+| JoinOne_LeftSym_Filtered_Page (`Where`) | 1,000* | 67.80 us | 64.16 us | 0.95 | same |
+| JoinOne_LeftSym_Filtered_Page (`Where`) | 10,000 | 255.98 us | 189.63 us | 0.74 | same |
+| JoinOne_LeftSym_Filtered_Page (`Where`) | 100,000 | 1.88 ms | 1.12 ms | 0.60 | same |
+| JoinOne_LeftSym_IndexFiltered_Page (`UseIndex`) | 1,000* | 68.03 us | 64.52 us | 0.95 | same |
+| JoinOne_LeftSym_IndexFiltered_Page (`UseIndex`) | 10,000 | 248.69 us | 183.96 us | 0.74 | same |
+| JoinOne_LeftSym_IndexFiltered_Page (`UseIndex`) | 100,000 | 1.76 ms | 1.01 ms | 0.57 | same |
+| LeftSym_SharedRight_ManyBuckets_Outer | 1,000* | 5.18 us | 5.49 us | 1.06 | 200 rows; with a right 22 → 200 |
+| LeftSym_SharedRight_ManyBuckets_Outer | 10,000 | 58.86 us | 52.12 us | 0.89 | 2,000 rows; with a right 39 → 2,000 |
+| LeftSym_SharedRight_ManyBuckets_Outer | 100,000 | 809.83 us | 744.63 us | 0.92 | 20,000 rows; with a right 147 → 20,000 |
+| LeftSym_SharedRight_ManyBuckets_Inner | 1,000 | 4.58 us | 9.92 us | 2.17 | 22 → 200 |
+| LeftSym_SharedRight_ManyBuckets_Inner | 10,000 | 36.88 us | 124.80 us | 3.38 | 39 → 2,000 |
+| LeftSym_SharedRight_ManyBuckets_Inner | 100,000 | 546.01 us | 1.85 ms | 3.39 | 147 → 20,000 |
+| InnerJoinOne_Selector_Full | 1,000 | 11.35 us | 10.36 us | 0.91 | same |
+| InnerJoinOne_Selector_Full | 10,000 | 117.80 us | 109.39 us | 0.93 | same |
+| InnerJoinOne_Selector_Full | 100,000 | 2.13 ms | 1.89 ms | 0.89 | same |
+| LeftUnique_Inner | 1,000 | 9.70 us | 7.62 us | 0.79 | same |
+| LeftUnique_Inner | 10,000 | 96.95 us | 84.59 us | 0.87 | same |
+| LeftUnique_Inner | 100,000 | 1.23 ms | 1.08 ms | 0.88 | same |
+| SharedRight_Selector_Inner | 1,000 | 5.21 us | 12.95 us | 2.49 | 36 → 180 |
+| SharedRight_Selector_Inner | 10,000 | 45.94 us | 137.64 us | 3.00 | 360 → 1,800 |
+| SharedRight_Selector_Inner | 100,000 | 850.25 us | 2.27 ms | 2.67 | 3,600 → 18,000 |
+| StructRight_ChainedInner | 1,000 | 14.14 us | 12.57 us | 0.89 | 200 → 100 |
+| StructRight_ChainedInner | 10,000 | 130.47 us | 118.52 us | 0.91 | 2,000 → 1,000 |
+| StructRight_ChainedInner | 100,000 | 1.73 ms | 1.50 ms | 0.87 | 20,000 → 10,000 |
+| JoinOne_LeftSym_Page (path unchanged since round 1 — the control) | 1,000 | 76.94 us | 67.66 us | 0.88 | same |
+| JoinOne_LeftSym_Page (path unchanged since round 1 — the control) | 10,000 | 296.64 us | 188.04 us | 0.63 | same |
+| JoinOne_LeftSym_Page (path unchanged since round 1 — the control) | 100,000 | 2.29 ms | 1.11 ms | 0.49 | same |
+
+| Benchmark | params | old | new | new/old | verdict |
+|---|---|---:|---:|---:|---|
+| FrozenFkJoin.Fk_ManyToOne_Filtered_Eager | – | 73.20 us | 40.69 us | 0.56 | win −44 % (the quiet runs of round 2: 65 us, unchanged until this round) |
+| FrozenFkJoin.Fk_ManyToOne_Filtered_Frozen* | – | 29.37 us | 31.14 us | 1.06 | within noise: the runs overlap, each build spreads 4–6 % between processes; 12 runs together +1–3 % |
+| FrozenFkJoin.Fk_InnerManyToOne_Eager* | – | 67.50 us | 64.88 us | 0.96 | win −4 %, every new run below every old |
+| FrozenFkJoin.Fk_InnerManyToOne_Frozen* | – | 33.01 us | 32.24 us | 0.98 | within noise |
+| FrozenQuery.InnerJoinOne_Eager | – | 44.36 us | 40.41 us | 0.91 | win −9 % (new under load still below the quiet old of round 2, 42.82 us) |
+| FrozenQuery.InnerJoinOne_Prepared | – | 44.06 us | 39.87 us | 0.90 | win −10 % (below the quiet old of round 2, 42.22 us) |
+| FrozenQuery.InnerJoinOne_Frozen* | – | 19.40 us | 19.28 us | 0.99 | within noise |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled* | 10,000 rows, take 20 | 2.011 ms | 1.998 ms | 0.99 | within noise |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled* | 10,000 rows, take 200 | 2.003 ms | 1.998 ms | 1.00 | within noise |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled* | 100,000 rows, take 20 | 24.40 ms | 24.19 ms | 0.99 | within noise |
+| TopKExecute.SortedInnerJoin_ClassicCore_Pooled* | 100,000 rows, take 200 | 24.85 ms | 24.39 ms | 0.98 | within noise |
+
+Pool traffic in round 3: the filtered left-symmetric page +7 % (18.0 → 19.3 KB/op), `ManyBuckets_Outer` +3–6 %, the injective
+inner paths identical, `StructRight` +12–20 %, the shared-right inner paths +34–60 % (the chain arrays), the unfiltered
+left-symmetric page −39 %.
+
+## Reading it
+
+- **No outer `JoinOne` walks an index bucket any more.** The left-symmetric outer fan-out visited every left of each right's
+  bucket to find the page's few — with 30 sport types, nearly every row. Unfiltered it is now one lookup per row (0.42× at 100k
+  for one join, 0.33× for three, 0.40–0.69× unpaged); filtered it fills the rows by pair slot (0.57–0.60× at 100k for `Where` and
+  `UseIndex` alike, `Fk_ManyToOne_Filtered_Eager` 0.56×). On the existing classes: −15 to −55 % on the eager / prepared rows of
+  `JoinOne`, `JoinOneChained`, `Fk_ManyToOne`, `Fk_OneToOneReverse` and `NestedJoin`, −8 % on the two-join production shape B,
+  −3 % on shape A.
+- **The injective pair-set paths got faster, not slower.** The BrandDataReader page shape (`InnerJoinOne_Selector_Page`) held
+  at 0.92–0.99 in round 1; with the first inner join no longer filtering its own rows, the inner shapes are −7 to −21 % in round
+  3 (`InnerJoinOne_Selector_Full` 0.89–0.93, `LeftUnique_Inner` 0.79–0.88, `InnerJoinOne` eager / prepared 0.90–0.91,
+  `Fk_InnerManyToOne_Eager` 0.96).
+- **The frozen pipeline is unchanged.** It already filled rows one lookup at a time; the frozen rows are within noise on every
+  quiet repeat (0.98–1.01). `Fk_ManyToOne_Filtered_Frozen` is the one to watch: 1.06 on the round-3 medians, 0.99 in round 2,
+  +1–3 % over twelve runs — not separable from this machine's 4–6 % process-to-process spread.
+- **`TopK SortedInnerJoin_ExecutePooled` (the bounded narrow-only inner phase):** +2.5 % at 500k / take 200 on the round-2
+  repeat, flat at the other five points. Its per-row work is unchanged (the identity seeding still uses the bulk
+  `IntersectValues`); read as code layout, below the 3 % bar of this machine.
+- **The rows the builds disagree on are the bugs the change fixes**, and NEW pays for returning them where it returns more:
+  the shared-right inner shapes are 2.2–3.4× OLD for 5× to 136× the rows that carry a right — cheaper per delivered row
+  (`SharedRight_Selector_Inner` at 10k: 128 → 76 ns/row in round 3). The struct-right chain and the many-buckets outer shape now
+  run **faster** than OLD (0.87–0.91×, 0.89–0.92× at 10k–100k) while returning only the matched rows and the right on every row.
