@@ -47,3 +47,4 @@ The graders also caught a library bug: the generated `[DataCacheSort]` comparer 
 - One run per cell, so the efficiency numbers are single samples.
 - Arm isolation is by instruction. The agents' reports say they followed it; nothing enforced it.
 - The rubric checks the failure modes the skills target. It can show that the skills fixed those failures, not that they help in general.
+- The rubric was revised after round 2: in 0.6.0, `KafkaCachesBackgroundService` waited for the load in `StartAsync`, which hangs the host when the service is registered before `AddKafkaCaches`. Round 2 scored it as correct, so a rerun under the current rubric may score lower.

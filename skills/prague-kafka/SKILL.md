@@ -48,7 +48,7 @@ Chained on `AddCache<...>()`: `.WithHeaderEqualsFilter(...)`, `.WithKeyFilter(..
 
 ## Initial load
 
-The hosted service's `StartAsync` returns once every cache reaches end-of-topic. Outside it: `await host.DataCachesLoadCompletion();`. A seeder, projector or job that reads loaded caches derives from `KafkaCachesBackgroundService(IDataCacheRegistry)`: its `ExecuteAsync` starts after `registry.LoadingCompletion`, whatever order the host starts services in. `host.StopAsync(token)` cancels the consume loops and drains each cache's live worker, bounded by the token.
+The hosted service's `StartAsync` returns once every cache reaches end-of-topic. Outside it: `await host.DataCachesLoadCompletion();`. A seeder, projector or job that reads loaded caches is a `BackgroundService` whose `ExecuteAsync` opens with `await registry.LoadingCompletion.WaitAsync(stoppingToken);`. `StartAsync` returns at that `await`, so it works registered before or after `AddKafkaCaches`, and shutdown cancels the wait. Wait for the load only there: the host starts hosted services one at a time, so a `StartAsync` that waits, registered first, blocks the Kafka worker that completes the load and the host never starts. `host.StopAsync(token)` cancels the consume loops and drains each cache's live worker, bounded by the token.
 
 ## Producing
 
@@ -88,7 +88,8 @@ Query and handler logic needs no broker; Kafka paths need Testcontainers with on
 | `OrderCache.Topic` | `OrderCache.TopicNameTemplate` |
 | `[DataCacheTopic("a.{version}")]` | `[DataCacheTopic("a.[v:version]")]` + `o.Vars["version"]` |
 | multi-partition cache topic | recreate it with one partition |
-| a `BackgroundService` registered after `AddKafkaCaches` to run on loaded caches | derive from `KafkaCachesBackgroundService` |
+| relying on registration order to run after the load | `await registry.LoadingCompletion.WaitAsync(stoppingToken)` first in `ExecuteAsync` |
+| waiting for the load in a hosted service's `StartAsync` | wait in `ExecuteAsync`; `StartAsync` must return |
 | expecting the local cache to see `producer.Produce(...)` | `AddOrUpdateAndProduce` / `RemoveAndProduce` |
 | a shared `group.id` across instances | leave the default, or one id per instance |
 | mutating `MessagePackSerializer.DefaultOptions` | `WithMessagePackResolver(...)` on `AddKafkaCaches` |

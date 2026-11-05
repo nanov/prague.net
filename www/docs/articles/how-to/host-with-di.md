@@ -41,9 +41,11 @@ Each `AddKafkaCaches(sectionName, …)` call is a cluster: its own options, cons
 
 ## 5. Start work after the load
 
-Derive from `KafkaCachesBackgroundService` instead of `BackgroundService`: its `ExecuteAsync` is called after the registry's `LoadingCompletion`, whatever the start order.
+Await the registry's `LoadingCompletion` at the top of `ExecuteAsync`, with the stopping token. `BackgroundService.StartAsync` returns at that first `await`, so the worker can be registered before or after `AddKafkaCaches`, and shutdown cancels the wait.
 
 [!code-csharp[](../../../../samples/Prague.Samples/HowTo/HostWithDi.cs#host-after-load-worker)]
+
+Never wait for the load in a hosted service's `StartAsync`. The host starts services one at a time in registration order, so a `StartAsync` that waits, registered before `AddKafkaCaches`, holds back the Kafka worker that completes the load: the host never starts. `KafkaCachesBackgroundService` does the wait the safe way from this release on; in earlier versions it waited in `StartAsync` and hung the host when registered first.
 
 ## 6. The registry
 
@@ -57,7 +59,7 @@ Only the caches you `AddCache` are DI services. Caches pulled in through foreign
 
 ## Pitfalls
 
-- **`AddHostedService<MyWorker>()` registered before `AddKafkaCaches`.** It starts first, on empty caches. Register it after, or derive from `KafkaCachesBackgroundService`.
+- **`AddHostedService<MyWorker>()` registered before `AddKafkaCaches`.** It starts first, on empty caches. Await `LoadingCompletion.WaitAsync(stoppingToken)` at the top of `ExecuteAsync` (step 5) rather than relying on registration order.
 - **No `IConfiguration` in a hand-built `ServiceCollection`.** The options binder needs one; add `services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())` as the tests do.
 - **Expecting `GetRequiredService<CustomerCache>()` to work because `Order` references it.** It throws unless you `AddCache` it or register a factory; see step 6.
 - **Resolving the producer unkeyed with several clusters.** It is a keyed singleton: `[FromKeyedServices("sectionName")]`.

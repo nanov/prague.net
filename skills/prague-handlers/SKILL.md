@@ -89,7 +89,7 @@ b.AddCache<OrderCache, string, Order>()
 Rules:
 - **One instance when other code reads the handler's state.** `WithAfterHandler<T>()` registers `T` only as `ICacheAfterHandler<TKey, TValue>`; a `services.AddSingleton<T>()` beside it is a second object, and readers injecting `T` watch the one that never receives a message. Register the shared instance once and hand it to the cache through the factory form:
   `services.AddSingleton<OpenTotals>();` then `.WithAfterHandler(sp => sp.GetRequiredService<OpenTotals>())`. The test that proves it is in `prague-testing`.
-- **Live phase only.** The initial replay never calls handlers. To derive state that includes the loaded data, seed it from the cache after the load in a dedicated `KafkaCachesBackgroundService` (its `ExecuteAsync` starts after the load) or after `await host.DataCachesLoadCompletion()`, never as a side effect of an unrelated job. Live messages can arrive between the load and the seed, so make both paths idempotent: keep each key's contribution (`key → (group, amount)`) and write absolute values under one lock, rather than adding deltas.
+- **Live phase only.** The initial replay never calls handlers. To derive state that includes the loaded data, seed it from the cache after the load in a dedicated `BackgroundService` whose `ExecuteAsync` opens with `await registry.LoadingCompletion.WaitAsync(stoppingToken)` (see `prague-kafka`), never as a side effect of an unrelated job. Live messages can arrive between the load and the seed, so make both paths idempotent: keep each key's contribution (`key → (group, amount)`) and write absolute values under one lock, rather than adding deltas.
 - **Never read `key` on `Filtered`.** It is `default` (null for a string key). Return early.
 - **Keep `Handle` short.** Every message of that cache waits behind it; the liveness check fails after `HandlerProcessingTimeout` (5 s default). Enqueue slow work (`Channel<T>`) and return.
 - **Treat `newValue`/`oldValue` as read-only.** They are the instances the cache holds and queries return; `Clone()` before changing.
@@ -106,7 +106,7 @@ The cache compares the incoming value with the resident one using the generated 
 |---|---|
 | reading `key` on `UpdateType.Filtered` | return early |
 | `AddSingleton<T>()` + `WithAfterHandler<T>()` for state read elsewhere | `WithAfterHandler(sp => sp.GetRequiredService<T>())` |
-| a `BackgroundService` ordered after `AddKafkaCaches` to run "after the load" | derive from `KafkaCachesBackgroundService` |
+| relying on registration order to run "after the load" | `await registry.LoadingCompletion.WaitAsync(stoppingToken)` first in `ExecuteAsync` |
 | awaiting IO in `Handle` | enqueue and return |
 | expecting handlers during the initial load | build from the cache after load, then apply deltas |
 | mutating `newValue` | `Clone()` it |
