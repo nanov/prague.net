@@ -399,8 +399,9 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			// ── Apply filter (executor-agnostic) and execute paired ────────────────
 			builder = Filter.Apply(builder);
 			handedOff = true;
-			if (shared.Any) {
-				// Lefts share a right: each surviving right goes to every left chained to its pair.
+			// Lefts share a right: each surviving right goes to every left chained to its pair. Only a selector can
+			// fold two lefts onto one right, so the identity instantiation folds the delivery away (JIT constant).
+			if (!TSelector.IsIdentity && shared.Any) {
 				var delivery = shared.Deliver<TRightValue, TContainer>(container);
 				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
 			} else {
@@ -542,7 +543,7 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			// meets rows an earlier inner join created (no null slot tells a miss there). The FIRST inner join
 			// without shared rights creates a row per match only, so it writes straight into the rows whatever
 			// the right type is.
-			if (shared.Any || (typeof(TRightValue).IsValueType && !isFirst)) {
+			if ((!TSelector.IsIdentity && shared.Any) || (typeof(TRightValue).IsValueType && !isFirst)) {
 				JoinOneSharedRows.ExecuteInner(ref accessor, ref candidates, ref Unsafe.AsRef(in builder._leftQuery), ref shared, cloneOnAdd, isFirst, ref handedOff);
 				return;
 			}
@@ -635,10 +636,11 @@ public struct JoinOneResolver<TLeftKey, TLeftValue, TRightCache, TRightKey, TRig
 			builder = Filter.Apply(builder);
 
 			// Lefts sharing a right get an entry each: the delivery hands the pair's right to all of them.
-			_narrowedValues = new ValueDictionary<TLeftKey, TRightValue, DefaultKeyComparer<TLeftKey>>(true, shared.Any ? candidates.Count : pairs.Count);
+			var anyShared = !TSelector.IsIdentity && shared.Any;
+			_narrowedValues = new ValueDictionary<TLeftKey, TRightValue, DefaultKeyComparer<TLeftKey>>(true, anyShared ? candidates.Count : pairs.Count);
 			var container = new RetainedValuesContainer(ref _narrowedValues);
 			handedOff = true;
-			if (shared.Any) {
+			if (anyShared) {
 				var delivery = shared.Deliver<TRightValue, RetainedValuesContainer>(container);
 				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
 			} else {
@@ -1009,7 +1011,7 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 		try {
 			var container = new InnerFanOutMapContainer(ref candidates, ref values);
 			handedOff = true;
-			if (shared.Any) {
+			if (!TSelector.IsIdentity && shared.Any) {
 				var delivery = shared.Deliver<TRightValue, InnerFanOutMapContainer>(container);
 				core.ExecutePairedJoined(ref delivery);
 			} else {
@@ -1241,9 +1243,10 @@ public struct JoinOneLeftSymResolver<TLeftKey, TLeftValue, TRightCache, TLookupK
 
 			var wrapper = new InnerFanOutContainer<TAccessor>(accessor, ref candidates, cloneOnAdd);
 			handedOff = true;
-			if (shared.Any) {
-				// Buckets share a right: each surviving right goes to every bucket chained to its pair. The rows
-				// come out grouped by right, as this family's inner rows always do (FusedInnerRegroups).
+			// Buckets share a right: each surviving right goes to every bucket chained to its pair. The rows come
+			// out grouped by right, as this family's inner rows always do (FusedInnerRegroups). Only a selector
+			// can fold two buckets onto one right, so the identity instantiation folds the delivery away.
+			if (!TSelector.IsIdentity && shared.Any) {
 				var delivery = shared.Deliver<TRightValue, InnerFanOutContainer<TAccessor>>(wrapper);
 				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
 			} else {
@@ -1569,8 +1572,9 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 			// via InMemoryDataCache.TryGet<TForeignKey=TLeftKey, TContainer>: looks up by
 			// pair.Key (rightKey) and calls container.Add(pair.JoinedKey=leftKey, rightValue).
 			handedOff = true;
-			if (shared.Any) {
-				// Lefts share a right: each surviving right goes to every left chained to its pair.
+			// Lefts share a right: each surviving right goes to every left chained to its pair. Only a selector can
+			// fold two lefts onto one right, so the identity instantiation folds the delivery away (JIT constant).
+			if (!TSelector.IsIdentity && shared.Any) {
 				var delivery = shared.Deliver<TRightValue, TContainer>(container);
 				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
 			} else {
@@ -1676,7 +1680,7 @@ public struct JoinOneRightUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache,
 			// meets rows an earlier inner join created (no null slot tells a miss there). The FIRST inner join
 			// without shared rights creates a row per match only, so it writes straight into the rows whatever
 			// the right type is.
-			if (shared.Any || (typeof(TRightValue).IsValueType && !isFirst)) {
+			if ((!TSelector.IsIdentity && shared.Any) || (typeof(TRightValue).IsValueType && !isFirst)) {
 				JoinOneSharedRows.ExecuteInner(ref accessor, ref candidates, ref Unsafe.AsRef(in builder._leftQuery), ref shared, cloneOnAdd, isFirst, ref handedOff);
 				return;
 			}
@@ -1999,8 +2003,9 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 			// ── 4. Native paired Execute — direct write to the outer container.
 			// ExecutePaired calls container.Add(pair.JoinedKey=leftKey, rightValue) per emit.
 			handedOff = true;
-			if (shared.Any) {
-				// Lefts share a right: each surviving right goes to every left chained to its pair.
+			// Lefts share a right: each surviving right goes to every left chained to its pair. Only a selector can
+			// fold two lefts onto one right, so the identity instantiation folds the delivery away (JIT constant).
+			if (!TSelector.IsIdentity && shared.Any) {
 				var delivery = shared.Deliver<TRightValue, TContainer>(container);
 				Unsafe.AsRef(in builder._leftQuery).ExecutePairedJoined(ref delivery);
 			} else {
@@ -2098,7 +2103,7 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 			// meets rows an earlier inner join created (no null slot tells a miss there). The FIRST inner join
 			// without shared rights creates a row per match only, so it writes straight into the rows whatever
 			// the right type is.
-			if (shared.Any || (typeof(TRightValue).IsValueType && !isFirst)) {
+			if ((!TSelector.IsIdentity && shared.Any) || (typeof(TRightValue).IsValueType && !isFirst)) {
 				JoinOneSharedRows.ExecuteInner(ref accessor, ref candidates, ref Unsafe.AsRef(in builder._leftQuery), ref shared, cloneOnAdd, isFirst, ref handedOff);
 				return;
 			}
