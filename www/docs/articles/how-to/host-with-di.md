@@ -45,7 +45,7 @@ Await the registry's `LoadingCompletion` at the top of `ExecuteAsync`, with the 
 
 [!code-csharp[](../../../../samples/Prague.Samples/HowTo/HostWithDi.cs#host-after-load-worker)]
 
-Never wait for the load in a hosted service's `StartAsync`. The host starts services one at a time in registration order, so a `StartAsync` that waits, registered before `AddKafkaCaches`, holds back the Kafka worker that completes the load: the host never starts. `KafkaCachesBackgroundService` does the wait the safe way from this release on; in earlier versions it waited in `StartAsync` and hung the host when registered first.
+Never wait for the load in a hosted service's `StartAsync`. The host starts services one at a time in registration order, so a `StartAsync` that waits, registered before `AddKafkaCaches`, holds back the Kafka worker that completes the load: the host never starts. `KafkaCachesBackgroundService` is obsolete: derive from `BackgroundService` as above, so the host logs a job that throws and applies `HostOptions.BackgroundServiceExceptionBehavior`. The host does neither for a plain `IHostedService`.
 
 ## 6. The registry
 

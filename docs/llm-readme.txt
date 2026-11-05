@@ -310,6 +310,9 @@ global indices between the registered caches.
   Resolve caches from DI: provider.GetRequiredService<OrderCache>().
   Startup: the hosted service's StartAsync returns after every cache reached initial-load EOF.
   Elsewhere: await host.DataCachesLoadCompletion();
+  A job that reads loaded caches: a BackgroundService whose ExecuteAsync opens with
+    await registry.LoadingCompletion.WaitAsync(stoppingToken);   // never wait in StartAsync: deadlocks the host
+  KafkaCachesBackgroundService is [Obsolete]: use the BackgroundService form above.
 Facts:
   * One partition per cache topic (not enforced; multi-partition topics go live early). Compacted topic;
     message key = cache key; null value = tombstone. Prague never auto-creates topics. Suggested topic
@@ -360,6 +363,7 @@ are the floor under slot sizing and are expected to be false / 0.
   `q => q.Between(a, b)` / `q.Eq(x)` / `q.Gt(a).Or.Lt(b)`  → `q => q.Gte(a).Lt(b)`; disjunction via .Or(...)
   `.Map(...)` on the builder before Execute                → execute first, then `results.Map(...)`
   `results.Items`                                          → QueryResults IS the list: Count / indexer / AsSpan()
+  deriving from KafkaCachesBackgroundService (obsolete)    → BackgroundService + `await registry.LoadingCompletion.WaitAsync(stoppingToken)`
   `cache.Cache.TryGetValues(...)`                          → `cache.Cache.TryGet(keys, span)` / `TryGet(keys)`
   `.SortByPriority()`                                      → `.Sort(OrderCache.ByPriorityComparer)` or SortBounded
   `OrderCache.Topic`                                       → `OrderCache.TopicNameTemplate`

@@ -137,17 +137,28 @@ internal class KafkaCachesBackgroundWorker : IHostedService, IDisposable {
 ///     so a wait there would block the Kafka worker registered after it, which is what completes the load. The
 ///     wait runs inside the execute task instead, and <see cref="StopAsync" /> cancels it.
 ///   </para>
+///   <para>
+///     The host watches only <see cref="BackgroundService" /> tasks, so this class does what the host would: an
+///     exception from <see cref="ExecuteAsync" /> is logged and stops the application.
+///   </para>
 /// </summary>
+[Obsolete("Derive from BackgroundService and start ExecuteAsync with "
+	+ "'await registry.LoadingCompletion.WaitAsync(stoppingToken);'. The host then logs a failed job and applies "
+	+ "HostOptions.BackgroundServiceExceptionBehavior.")]
 public abstract class KafkaCachesBackgroundService : IHostedService, IDisposable {
 	private readonly IDataCacheRegistry _cacheRegistry;
+	private readonly ILogger _logger;
+	private readonly IHostApplicationLifetime _lifetime;
 	private Task? _executeTask;
 	private CancellationTokenSource? _stoppingCts;
 	private volatile bool _disposed;
 
 	public virtual Task? ExecuteTask => _executeTask;
 
-	public KafkaCachesBackgroundService(IDataCacheRegistry cacheRegistry) {
+	protected KafkaCachesBackgroundService(IDataCacheRegistry cacheRegistry, ILogger logger, IHostApplicationLifetime lifetime) {
 		_cacheRegistry = cacheRegistry;
+		_logger = logger;
+		_lifetime = lifetime;
 	}
 
 	protected abstract Task ExecuteAsync(CancellationToken stoppingToken);
@@ -160,8 +171,24 @@ public abstract class KafkaCachesBackgroundService : IHostedService, IDisposable
 	}
 
 	private async Task ExecuteAfterLoadAsync(CancellationToken stoppingToken) {
-		await _cacheRegistry.LoadingCompletion.WaitAsync(stoppingToken).ConfigureAwait(false);
-		await ExecuteAsync(stoppingToken).ConfigureAwait(false);
+		try {
+			// A failed load is reported by the Kafka worker, whose StartAsync throws and fails the host.
+			await _cacheRegistry.LoadingCompletion.WaitAsync(stoppingToken).ConfigureAwait(false);
+		}
+		catch {
+			return;
+		}
+
+		try {
+			await ExecuteAsync(stoppingToken).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) {
+		}
+		catch (Exception e) {
+			_logger.BackgroundServiceFailed(e, GetType().Name);
+			_lifetime.StopApplication();
+			throw;
+		}
 	}
 
 	public virtual async Task StopAsync(CancellationToken cancellationToken) {

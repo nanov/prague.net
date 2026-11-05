@@ -778,6 +778,10 @@ internal static partial class KafkaCacheConsumerLog {
 			+ "Their after-handlers were still running; in-flight work was abandoned.")]
 	public static partial void ShutdownDrainAbandoned(this ILogger logger, double elapsedMs, string drainingCaches);
 
+	[LoggerMessage(Level = LogLevel.Error,
+		Message = "[Prague] {Service} failed; stopping the host")]
+	public static partial void BackgroundServiceFailed(this ILogger logger, Exception exception, string service);
+
 	[LoggerMessage(Level = LogLevel.Critical,
 		Message = "[Prague] {Handler} channel consumption error")]
 	public static partial void ChannelConsumptionError(this ILogger logger, Exception exception, string handler);

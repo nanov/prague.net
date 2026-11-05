@@ -103,6 +103,7 @@ Query and handler logic needs no broker; Kafka paths need Testcontainers with on
 | multi-partition cache topic | recreate it with one partition |
 | relying on registration order to run after the load | `await registry.LoadingCompletion.WaitAsync(stoppingToken)` first in `ExecuteAsync` |
 | waiting for the load in a hosted service's `StartAsync` | wait in `ExecuteAsync`; `StartAsync` must return |
+| deriving from `KafkaCachesBackgroundService` (obsolete) | a `BackgroundService` that waits in `ExecuteAsync`, as above |
 | expecting the local cache to see `producer.Produce(...)` | `AddOrUpdateAndProduce` / `RemoveAndProduce` |
 | `row.Status = x; orders.AddOrUpdateAndProduce(row);` on a resident row | `var next = row.Clone(); next.Status = x; orders.AddOrUpdateAndProduce(next);` |
 | a shared `group.id` across instances | leave the default, or one id per instance |
