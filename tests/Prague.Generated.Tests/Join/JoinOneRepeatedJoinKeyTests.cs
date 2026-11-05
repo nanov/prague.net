@@ -8,8 +8,10 @@ using NUnit.Framework;
 //   1=Football; 2=NULL; 3=NULL
 // Each JoinOne family is driven with several lefts pointing at ONE right:
 //   RjkGame.SportTypeId     — ManyToOne FK (the correct declaration)  → JoinOneLeftSymResolver
-//   RjkGameO2O.SportTypeId  — OneToOne FK on a non-PK, many-to-one data → JoinOneLeftUniqueIndexResolver
 //   JoinOne(selector)       — PK-to-PK with a non-injective key selector → JoinOneResolver
+// A OneToOne FK over this data is a declaration error, not a case to support: OneToOne promises one
+// left per right (the left index's forward map keeps one game per sport type). Many lefts on one right
+// is ManyToOne.
 // Game 4 (Hockey) is the control: a right key used by exactly one left.
 
 [DataCache]
@@ -26,18 +28,6 @@ public partial class RjkGame {
 	public int SportTypeId { get; set; }
 }
 
-[DataCache]
-public partial class RjkGameO2O {
-	[DataCacheKey] public int Id { get; set; }
-
-	[DataCacheForeignKey<RjkSportType>(DataCacheJoinType.OneToOne)]
-	public int SportTypeId { get; set; }
-
-	// A narrowing step for the frozen pipeline: without one the plan replays eager.
-	[DataCacheIndex(DataCacheIndexType.Many)]
-	public int Group { get; set; }
-}
-
 [TestFixture]
 public class JoinOneRepeatedJoinKeyTests {
 	private const string AllJoined = "1=Football; 2=Football; 3=Football; 4=Hockey";
@@ -45,28 +35,23 @@ public class JoinOneRepeatedJoinKeyTests {
 	private DataCacheRegistry _registry = null!;
 	private RjkSportTypeCache _sportTypes = null!;
 	private RjkGameCache _games = null!;
-	private RjkGameO2OCache _gamesO2O = null!;
 
 	[SetUp]
 	public void SetUp() {
 		_registry = new DataCacheRegistryBuilder()
 			.Register<RjkSportTypeCache>()
 			.Register<RjkGameCache>()
-			.Register<RjkGameO2OCache>()
 			.Build();
 		_sportTypes = _registry.GetCache<RjkSportTypeCache>();
 		_games = _registry.GetCache<RjkGameCache>();
-		_gamesO2O = _registry.GetCache<RjkGameO2OCache>();
 
 		_sportTypes.AddOrUpdate(new RjkSportType { Id = 1, Name = "Football" });
 		_sportTypes.AddOrUpdate(new RjkSportType { Id = 2, Name = "Hockey" });
 
 		for (var g = 1; g <= 3; g++) {
 			_games.AddOrUpdate(new RjkGame { Id = g, SportTypeId = 1 });
-			_gamesO2O.AddOrUpdate(new RjkGameO2O { Id = g, SportTypeId = 1 });
 		}
 		_games.AddOrUpdate(new RjkGame { Id = 4, SportTypeId = 2 });
-		_gamesO2O.AddOrUpdate(new RjkGameO2O { Id = 4, SportTypeId = 2 });
 	}
 
 	// "1=Football; 2=NULL; 3=NULL" — the report's own format, rows ordered by game id.
@@ -79,7 +64,6 @@ public class JoinOneRepeatedJoinKeyTests {
 	}
 
 	private static string Describe(QueryResults<JoinResult<RjkGame, RjkSportType?>> rows) => Describe(rows, static g => g.Id);
-	private static string Describe(QueryResults<JoinResult<RjkGameO2O, RjkSportType?>> rows) => Describe(rows, static g => g.Id);
 
 	private readonly struct GameByIdDesc : IComparer<RjkGame> {
 		public int Compare(RjkGame? x, RjkGame? y) => (y?.Id ?? 0).CompareTo(x?.Id ?? 0);
@@ -154,66 +138,6 @@ public class JoinOneRepeatedJoinKeyTests {
 
 		using var rows = _games.Query().JoinWithRjkSportType().Execute();
 		Assert.That(Describe(rows), Is.EqualTo("1=Football; 2=Football; 3=Football; 4=Hockey; 5=Football"));
-	}
-
-	// ── OneToOne FK on a non-PK holding many-to-one data (JoinOneLeftUniqueIndexResolver) ─────
-
-	[Test]
-	public void OneToOneDeclared_RepeatedFk_Eager_EveryGameGetsItsSportType() {
-		using var rows = _gamesO2O.Query().JoinWithRjkSportType().Execute();
-		Assert.That(Describe(rows), Is.EqualTo(AllJoined));
-	}
-
-	[Test]
-	public void OneToOneDeclared_RepeatedFk_InnerJoin_KeepsEveryGame() {
-		using var rows = _gamesO2O.Query().InnerJoinWithRjkSportType().Execute();
-		Assert.That(Describe(rows), Is.EqualTo(AllJoined));
-	}
-
-	[Test]
-	public void OneToOneDeclared_RepeatedFk_FilteredJoin_EveryFootballGameGetsFootball() {
-		using var rows = _gamesO2O.Query().JoinWithRjkSportType(static q => q.WithName("Football")).Execute();
-		Assert.That(Describe(rows), Is.EqualTo("1=Football; 2=Football; 3=Football; 4=NULL"));
-	}
-
-	[Test]
-	public void OneToOneDeclared_RepeatedFk_InnerJoin_EagerRowOrder_IsTheFusedFrozenOrder() {
-		// The inner phase creates the rows. The lefts sharing a right must not trail the others: the fused
-		// frozen fill keeps the seed's order, and the left-unique family fuses under PreserveEagerOrder too
-		// because eager matches it row for row.
-		// Sport type 2 first shows up at game 20, after fifteen games that repeat sport type 1: rows created
-		// per pair and then per repeat would come out 5, 20, 6, 7, … instead of in candidate order.
-		for (var g = 5; g <= 40; g++)
-			_gamesO2O.AddOrUpdate(new RjkGameO2O { Id = g, SportTypeId = g >= 20 && g % 2 == 0 ? 2 : 1, Group = 1 });
-		for (var g = 1; g <= 4; g++)
-			_gamesO2O.AddOrUpdate(new RjkGameO2O { Id = g, SportTypeId = g <= 3 ? 1 : 2, Group = 1 });
-
-		var fused = _gamesO2O.Prepare<int>().WithGroup(static g => g).InnerJoinWithRjkSportType().BuildFrozen();
-		Assert.That(fused.Explain(), Does.Contain("executor: Pipeline").And.Contain("joins: 1 (fused: 1, unfused: 0"));
-
-		static string Sequence(QueryResults<JoinResult<RjkGameO2O, RjkSportType?>> rows) {
-			var ids = new string[rows.Count];
-			for (var i = 0; i < ids.Length; i++)
-				ids[i] = $"{rows[i].Left.Id}:{rows[i].Right?.Name ?? "NULL"}";
-			return string.Join(",", ids);
-		}
-
-		using var eager = _gamesO2O.Query().WithGroup(1).InnerJoinWithRjkSportType().Execute();
-		using var fusedRows = fused.Execute(1);
-		Assert.That(eager.Count, Is.EqualTo(40));
-		Assert.That(Sequence(fusedRows), Is.EqualTo(Sequence(eager)), "fused frozen vs eager, row for row");
-	}
-
-	[Test]
-	public void OneToOneDeclared_RepeatedFk_PreparedBuild_EveryGameGetsItsSportType() {
-		using var rows = _gamesO2O.Prepare().JoinWithRjkSportType().Build().Execute();
-		Assert.That(Describe(rows), Is.EqualTo(AllJoined));
-	}
-
-	[Test]
-	public void OneToOneDeclared_RepeatedFk_BuildFrozen_EveryGameGetsItsSportType() {
-		using var rows = _gamesO2O.Prepare().JoinWithRjkSportType().BuildFrozen().Execute();
-		Assert.That(Describe(rows), Is.EqualTo(AllJoined));
 	}
 
 	// ── PK-to-PK JoinOne with a non-injective key selector (JoinOneResolver) ───

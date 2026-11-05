@@ -1811,16 +1811,19 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		return false;
 	}
 
-	// The pair seeding's reads for one left: LookupRightUnfiltered's key chain, without the store read
-	// (the paired execute does it, after the filter). A left whose right key is already paired is
-	// recorded against the left holding the pair.
+	// The selector's pair seeding for one left: LookupRightUnfiltered's key chain without the store read (the
+	// paired execute does it, after the filter). A selector may fold several index values onto one right key,
+	// so a left whose right is already paired is recorded against the left holding the pair.
+	// The identity seeds through the bulk Reverse intersect instead: a OneToOne FK promises one left per
+	// index value, so no two lefts reach one right. A OneToOne FK declared over many-to-one data breaks that
+	// promise (the forward map keeps one left per value, so the reverse join is wrong too): declare ManyToOne.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void SeedPair(
+	private void SeedSelectedPair(
 		ref ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>> pairs,
 		ref JoinOneSharedRights<TLeftKey> shared,
 		TLeftKey leftKey) {
 		if (LeftIndex.Reverse.TryGetValue(leftKey, out var indexKey))
-			shared.Add(ref pairs, leftKey, TSelector.IsIdentity ? Unsafe.As<TIndexKey, TRightKey>(ref indexKey) : Selector.Select(indexKey));
+			shared.Add(ref pairs, leftKey, Selector.Select(indexKey));
 	}
 
 	bool IJoinResolver.UnsafeFillFusedRows<TAccessor>(ref TAccessor accessor, bool cloneOnAdd, bool shouldPool, ref QueryResultsDisposer disposer, ref int sizeHint) {
@@ -1961,11 +1964,17 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 		var pairs = new ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>(leftKeys.Length);
 		var handedOff = false;
 		try {
-			// leftKey → Reverse.TryGetValue → idx (TIndexKey) → Selector.Select (elided for the identity) → rk.
-			// A unique index can still hold one value under several lefts (a OneToOne FK over many-to-one
-			// data), so they share a right: the set keeps one pair per right, the others are recorded against it.
-			foreach (var lk in leftKeys)
-				SeedPair(ref pairs, ref shared, lk);
+			if (TSelector.IsIdentity) {
+				// TIndexKey == TRightKey — reinterpret the pair set so it's keyed by TIndexKey
+				// (valid at JIT closure time, identical layouts).
+				ref var pairsAsIndex = ref Unsafe.As<
+					ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>,
+					ValueSet<JoinedKeyPair<TLeftKey, TIndexKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TIndexKey>>>>(ref pairs);
+				LeftIndex.Reverse.IntersectValues(leftKeys, ref pairsAsIndex, add: true);
+			} else {
+				foreach (var lk in leftKeys)
+					SeedSelectedPair(ref pairs, ref shared, lk);
+			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0)
 				return;
@@ -2046,14 +2055,21 @@ public struct JoinOneLeftUniqueIndexResolver<TLeftKey, TLeftValue, TRightCache, 
 			return;
 
 		// ── 1. Seed pairs: leftKey → Reverse.TryGetValue → idx → Selector.Select → rightKey ──
-		// Lefts sharing a right (one unique-index value under several lefts) are recorded against the
-		// left that holds the pair.
+		// Identity: the bulk Reverse intersect (see SeedSelectedPair). Selector: lefts sharing a right are
+		// recorded against the left that holds the pair.
 		var pairs = new ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>(candidates.Count);
 		var shared = new JoinOneSharedRights<TLeftKey>();
 		var handedOff = false;
 		try {
-			foreach (var lk in candidates)
-				SeedPair(ref pairs, ref shared, lk);
+			if (TSelector.IsIdentity) {
+				ref var pairsAsIndex = ref Unsafe.As<
+					ValueSet<JoinedKeyPair<TLeftKey, TRightKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TRightKey>>>,
+					ValueSet<JoinedKeyPair<TLeftKey, TIndexKey>, DefaultKeyComparer<JoinedKeyPair<TLeftKey, TIndexKey>>>>(ref pairs);
+				LeftIndex.Reverse.IntersectValues(ref candidates, ref pairsAsIndex, add: true);
+			} else {
+				foreach (var lk in candidates)
+					SeedSelectedPair(ref pairs, ref shared, lk);
+			}
 
 			if (!pairs.IsInitlized || pairs.Count == 0) {
 				// No left has a right: the post-walk of a walk with no hits (see JoinOneResolver).
