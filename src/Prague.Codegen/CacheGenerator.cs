@@ -1701,7 +1701,7 @@ public class CacheGenerator : IIncrementalGenerator {
 			sb.AppendLine(
 				$"        public static readonly IComparer<{documentTypeName}> {sortName}Comparer = new {comparerClassName}();");
 			sb.AppendLine();
-			sb.AppendLine($"        private class {comparerClassName} : IComparer<{documentTypeName}>");
+			sb.AppendLine($"        private sealed class {comparerClassName} : IComparer<{documentTypeName}>");
 			sb.AppendLine("        {");
 			sb.AppendLine($"            public int Compare({documentTypeName}? x, {documentTypeName}? y)");
 			sb.AppendLine("            {");
@@ -1715,8 +1715,12 @@ public class CacheGenerator : IIncrementalGenerator {
 				var directionMultiplier = direction > 0 ? "1" : "-1";
 
 				sb.AppendLine($"                // Compare by {propName} ({(direction > 0 ? "ascending" : "descending")})");
-				sb.AppendLine(
-					$"                var cmp{i} = Comparer<{GetPropertyType(classSymbol, propName)}>.Default.Compare(x.{propName}, y.{propName});");
+				// Strings compare ordinally: Comparer<string>.Default is culture-sensitive, so the order would vary
+				// with the machine's culture and could call distinct strings equal, breaking a "total" sort.
+				var compareExpression = IsStringProperty(classSymbol, propName)
+					? $"string.CompareOrdinal(x.{propName}, y.{propName})"
+					: $"Comparer<{GetPropertyType(classSymbol, propName)}>.Default.Compare(x.{propName}, y.{propName})";
+				sb.AppendLine($"                var cmp{i} = {compareExpression};");
 				sb.AppendLine($"                if (cmp{i} != 0) return cmp{i} * {directionMultiplier};");
 				sb.AppendLine();
 			}
@@ -2814,6 +2818,9 @@ public class CacheGenerator : IIncrementalGenerator {
 
 		return result;
 	}
+
+	private static bool IsStringProperty(INamedTypeSymbol classSymbol, string propertyName) =>
+		classSymbol.GetMembers(propertyName).OfType<IPropertySymbol>().FirstOrDefault()?.Type.SpecialType == SpecialType.System_String;
 
 	private static string GetPropertyType(INamedTypeSymbol classSymbol, string propertyName) {
 		var property = classSymbol.GetMembers(propertyName)

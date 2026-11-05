@@ -180,7 +180,7 @@ The filtered form. `TFilter` is a `readonly struct` implementing `IDataCacheGlob
 
 ## `[DataCacheSort]`
 
-Targets the class, `AllowMultiple`. Constructor `(string name, params string[] sortProperties)`; each entry is `"Property:1"` (ascending) or `"Property:-1"` (descending). Emits `public static readonly IComparer<T> {Name}Comparer` on the cache, comparing property by property with `Comparer<TProp>.Default` and sorting `null` entities first.
+Targets the class, `AllowMultiple`. Constructor `(string name, params string[] sortProperties)`; each entry is `"Property:1"` (ascending) or `"Property:-1"` (descending). Emits `public static readonly IComparer<T> {Name}Comparer` on the cache, comparing property by property and sorting `null` entities first. A `string` property compares ordinally (`string.CompareOrdinal`), so the order is the same under every culture and two distinct strings never compare equal; any other property type uses `Comparer<TProp>.Default`.
 
 [!code-csharp[](../../../../samples/Prague.Samples/Reference/Attributes.cs#sort)]
 
