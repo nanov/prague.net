@@ -1,6 +1,6 @@
 ---
 name: prague-kafka
-description: "Feed Prague in-memory caches from Kafka with Prague.Kafka: services.AddKafkaCaches(...) and builder.AddCache<TCache,TKey,TValue>(), [DataCacheTopic] templates with [v:name]/[e:NAME] placeholders, topic requirements (compacted, one partition), awaiting the initial load, write-through with AddOrUpdateAndProduce/RemoveAndProduce, KafkaCacheProducer, MessagePack resolvers, health checks and OpenTelemetry metrics. Use when wiring a Prague cache to a Kafka topic, registering caches in DI or hosting, producing to a cache topic, or setting up health and metrics. Filters and after-handlers live in prague-handlers, tests in prague-testing."
+description: "Feed Prague in-memory caches from Kafka with Prague.Kafka: services.AddKafkaCaches(...) and builder.AddCache<TCache,TKey,TValue>(), [DataCacheTopic] templates with [v:name]/[e:NAME] placeholders, topic requirements (compacted), multi-partition topics (load, readiness, partition-first produce overloads), awaiting the initial load, write-through with AddOrUpdateAndProduce/RemoveAndProduce, KafkaCacheProducer, MessagePack resolvers, health checks and OpenTelemetry metrics. Use when wiring a Prague cache to a Kafka topic, registering caches in DI or hosting, producing to a cache topic, or setting up health and metrics. Filters and after-handlers live in prague-handlers, tests in prague-testing."
 license: MIT
 metadata:
   package: Prague.Kafka
@@ -13,7 +13,7 @@ Hydrates `[DataCache]` caches (see `prague-modeling`) from Kafka and keeps them 
 
 ## The model
 
-- One **compacted** topic per cache, exactly **one partition**. Not enforced: a multi-partition topic goes live before every partition has loaded. Prague never creates topics.
+- One **compacted** topic per cache, usually with one partition (more: see Multi-partition topics below). Prague never creates topics.
 - Message key = cache key; a null value (tombstone) deletes the key.
 - Every process consumes the whole topic and commits no offsets, so a restart is a full reload. Each process gets its own group id by default. Setting a shared `group.id` makes instances split partitions, which is almost always wrong.
 
@@ -64,6 +64,25 @@ Write a new instance: a resident row changed in place compares equal to itself, 
 
 `orders.ForceProduceAll()` re-seeds the topic with every resident record: a repair tool, not a routine call. The raw producer is a keyed singleton: `[FromKeyedServices("kafkaCaches")] KafkaCacheProducer producer`, then `producer.Produce(topic, key, value)` / `producer.Delete(topic, key)`. It is fire-and-forget: no delivery report, failures are logged.
 
+## Multi-partition topics
+
+Skip this section for one-partition topics.
+
+- Per-key order holds only if every write for a key lands on one partition; the keyed partitioner and the methods below keep it there.
+- Fix the partition count at creation. Adding partitions to a live topic is unsupported: keys re-map, and a partition first assigned after the load is logged as a warning.
+- The load waits for every partition of the topic (count read from metadata at startup), not only the assigned ones. With a shared `group.id` an instance holding part of a topic never finishes loading.
+- Readiness `NoPartitionAssigned` fires when fewer partitions are assigned than the topic has. `KafkaDataCacheStatistics.PartitionCountUnsafe` holds the count; the generated cache exposes it as `PartitionCount` (0 until the consumer starts).
+- Each consumed record keeps its partition (`__PragueMetadata__.Partition`). Without a partition, a resident key's update or tombstone goes to that partition and a new key goes where the partitioner sends it. `ForceProduceAll()` re-produces each record to its stored partition.
+- Every produce method has a partition-first overload. The partition must exist (`ArgumentOutOfRangeException`) and equal a resident key's stored partition, since a key's partition is immutable (`InvalidOperationException`). Both checks run before the local write.
+
+```csharp
+orders.AddOrUpdateAndProduce(2, order);               // produce to partition 2
+orders.AddOrUpdateAndProduce(2, order, force: true);  // the force overload takes one too
+orders.RemoveAndProduce(2, order.OrderId);            // tombstone to partition 2
+```
+
+A key created in this process without a partition has no stored partition until a restart reads it back (the process never consumes its own writes), so an explicit partition on it is not checked.
+
 ## Health and metrics
 
 ```csharp
@@ -81,7 +100,7 @@ app.MapHealthChecks("/health/ready", new() {
 
 - `MapHealthChecks` serves Degraded as 200, so a readiness probe would keep routing to a loading pod: map Degraded to 503 as above, or pass `failureStatus: HealthStatus.Unhealthy` to `AddPragueKafkaReadiness`.
 - Liveness fails on `FatalLatched`, `PollLoopStalled` (the consume thread silent for `PollLoopHeartbeatTimeout`, 3 s: a slow filter or deserializer does it), `HandlerLoopFaulted`, `HandlerProcessingTimeout` (one message in an after-handler for 5 s). A restart reloads every topic from the start: fix the slow code rather than raising the timeout.
-- Readiness fails on `InitialLoadIncomplete`, `NoPartitionAssigned`, `BrokersDown`, `PartitionsLost`, and is Unhealthy when liveness fails too. Give Prague its own tagged endpoints: a database check on the same endpoint makes a long replay look like an outage.
+- Readiness fails on `InitialLoadIncomplete`, `NoPartitionAssigned` (fewer partitions assigned than the topic has), `BrokersDown`, `PartitionsLost`, and is Unhealthy when liveness fails too. Give Prague its own tagged endpoints: a database check on the same endpoint makes a long replay look like an outage.
 - `MinBrokersUp` (1) and `broker.rtt.p99` need librdkafka statistics, on by default; with them off, set `MinBrokersUp = 0` or readiness never passes.
 - **The endpoints are silent during the initial load.** The Kafka worker's `StartAsync` returns after the load, and ASP.NET starts its server after every hosted service has started, so `/health/*` refuses connections until the data is in. A Kubernetes liveness probe then restarts the pod mid-load and the new pod reloads from scratch, again. Pick one:
   - a `startupProbe` on `/health/live` whose `failureThreshold × periodSeconds` exceeds the worst-case load time;
@@ -100,7 +119,8 @@ Query and handler logic needs no broker; Kafka paths need Testcontainers with on
 | `b.AddOrderCache()` | `b.AddCache<OrderCache, string, Order>()` |
 | `OrderCache.Topic` | `OrderCache.TopicNameTemplate` |
 | `[DataCacheTopic("a.{version}")]` | `[DataCacheTopic("a.[v:version]")]` + `o.Vars["version"]` |
-| multi-partition cache topic | recreate it with one partition |
+| adding partitions to a cache topic in use | recreate the topic with the new count and restart consumers |
+| writing a resident key to a different partition | keep it on its stored partition, or delete it there first |
 | relying on registration order to run after the load | `await registry.LoadingCompletion.WaitAsync(stoppingToken)` first in `ExecuteAsync` |
 | waiting for the load in a hosted service's `StartAsync` | wait in `ExecuteAsync`; `StartAsync` must return |
 | deriving from `KafkaCachesBackgroundService` (obsolete) | a `BackgroundService` that waits in `ExecuteAsync`, as above |

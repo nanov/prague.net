@@ -5,7 +5,7 @@ description: Install the agent skills that ship inside the Prague NuGet package 
 
 # Use with AI Agents
 
-**Goal:** a coding agent in your repository that knows Prague's rules (pooled results are disposed, frozen queries have no row-order guarantee, Kafka topics have one partition) and the API of the exact version you reference.
+**Goal:** a coding agent in your repository that knows Prague's rules (pooled results are disposed, frozen queries have no row-order guarantee, every write for a key goes to one Kafka partition) and the API of the exact version you reference.
 
 **Prerequisite:** a project that references the `Prague` package.
 

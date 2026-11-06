@@ -558,7 +558,8 @@ public class KafkaCacheHandlerBuilder<TCacheEntity, TKey, TValue> : KafkaCacheHa
 				BuildKeyFilters(sp),
 				BuildValueFilters(sp),
 				sp.GetServices<ICacheAfterHandler<TKey, TValue>>(),
-				sp.GetRequiredService<ILogger<KafkaCacheHandler<TCacheEntity, TKey, TValue>>>()));
+				sp.GetRequiredService<ILogger<KafkaCacheHandler<TCacheEntity, TKey, TValue>>>(),
+				count => TCacheEntity.ConfigurePartitionCount(cache, count)));
 	}
 }
 

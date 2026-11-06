@@ -11,7 +11,7 @@ Every code block on this page compiles in `samples/Prague.Samples/Advanced/Kafka
 
 ## Kafka model in one paragraph
 
-Prague assumes each cache is backed by a single compacted Kafka topic **with one partition**, where the message key maps to the cache's primary key. Tombstones (`null` value) delete; non-null values upsert. Partition EOF marks the boundary between *initial load* (replay of the topic state) and *live* (subsequent live updates); the load handshake completes on the first partition EOF, so a multi-partition topic goes live before the load has finished (not enforced in code). Consumer group offset commit, partition rebalance, and broker failover are delegated to the Kafka client (`Nanov.Kafka`) and librdkafka. If you want a refresher, read the Confluent intro to log compaction — you only need to know that, and the rest of this page makes sense.
+Prague assumes each cache is backed by a single compacted Kafka topic, where the message key maps to the cache's primary key. Tombstones (`null` value) delete; non-null values upsert. Partition EOF marks the boundary between *initial load* (replay of the topic state) and *live* (subsequent live updates). A topic usually has one partition; several are supported, with the rules in [Multi-Partition Topics](multi-partition-topics.md). Consumer group offset commit, partition rebalance, and broker failover are delegated to the Kafka client (`Nanov.Kafka`) and librdkafka. If you want a refresher, read the Confluent intro to log compaction — you only need to know that, and the rest of this page makes sense.
 
 ## Creating a topic
 
@@ -36,7 +36,7 @@ Prague never creates topics (the producer runs with auto-creation off), so creat
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| `partitions` | 1 | The whole topic is one ordered log, read to a single EOF. |
+| `partitions` | 1 | One ordered log, read to a single EOF. More are supported; see [Multi-Partition Topics](multi-partition-topics.md). |
 | `cleanup.policy` | `compact` | Kafka keeps the last value per key, which is what an initial load replays. |
 | `segment.ms` | 5 minutes | The active segment is never compacted. Rolling it every 5 minutes makes new writes compactable within minutes. |
 | `segment.bytes` | 100 MiB | Rolls a busy topic's segment before 5 minutes are up. |
@@ -178,7 +178,7 @@ To wait for the load somewhere else — a host that starts its hosted services c
 | | `HandlerLoopFaulted` | a per-cache worker terminated with an exception |
 | | `HandlerProcessingTimeout` | one message in flight longer than `HandlerProcessingTimeout` |
 | Readiness (= liveness +) | `InitialLoadIncomplete` | a cache has not reached initial-load EOF |
-| | `NoPartitionAssigned` | a cache topic has zero partitions assigned |
+| | `NoPartitionAssigned` | a cache has fewer partitions assigned than its topic has (zero, when the count is unknown; see [Multi-Partition Topics](multi-partition-topics.md#health)) |
 | | `BrokersDown` | fewer than `MinBrokersUp` brokers `UP` per librdkafka statistics |
 | | `PartitionsLost` | last rebalance lost partitions and nothing was re-assigned |
 
@@ -228,6 +228,8 @@ When a cache is registered with `AddCache` (not `AddInternalCache`), the generat
 `ForceProduceAll()` is the whole-cache version of that re-publish, and it is a repair tool rather than part of normal writing: it snapshots every resident record (taking every store lock while the snapshot is copied), then produces one record per key whether or not anything changed, and returns how many it produced. Reach for it to re-seed a topic after a retention or compaction mishap, to bootstrap a downstream consumer that cannot replay, or to re-publish state written under an older schema. The snapshot is taken once, before the first produce, so writes that land during the pass are not included; the pass does not wait for delivery. Consumers receive the records through their ordinary equality gate, so a replica that already holds the same state reports `Same` for each one, and this process's own consumer skips them as self-produced.
 
 [!code-csharp[](../../../../samples/Prague.Samples/Advanced/KafkaIntegration.cs#produce-all)]
+
+On a multi-partition topic each of these methods writes a resident key to the partition it is stored on, and has an overload that takes the partition first: see [Multi-Partition Topics](multi-partition-topics.md#producing).
 
 **Your own writes are not applied to your own cache.** Every consumer drops messages stamped with its own producer instance id, so a process that calls `Produce` or `Delete` directly does not see the result in its local cache until it restarts. For deletes, use the generated `cache.RemoveAndProduce(key)` instead: it removes the key locally *and* publishes the tombstone. The tombstone is published whether or not the key was resident locally — a key excluded by an ingress filter, or not loaded yet, still gets its delete — and the `bool` it returns says only whether the local cache held the key.
 

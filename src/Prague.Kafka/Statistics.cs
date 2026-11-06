@@ -218,9 +218,15 @@ public sealed class KafkaDataCacheStatistics {
 	/// </summary>
 	internal int AssignedPartitionCount;
 
+	/// <summary>
+	/// Partition count of this cache's topic, read from topic metadata at startup; 0 when unknown.
+	/// </summary>
+	internal int PartitionCount;
+
 	public long LastProcessingStartTimestampUnsafe => LastProcessingStartTimestamp;
 	public bool IsLoopFaultedUnsafe => IsLoopFaulted;
 	public int  AssignedPartitionCountUnsafe => AssignedPartitionCount;
+	public int  PartitionCountUnsafe => PartitionCount;
 
 	internal void SetInitialLoad(TimeSpan initialLoadTime) {
 		InitialLoadTime = initialLoadTime;

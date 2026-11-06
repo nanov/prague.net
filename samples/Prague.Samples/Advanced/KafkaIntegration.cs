@@ -359,6 +359,15 @@ public class KafkaIntegration {
 	}
 	#endregion
 
+	#region produce-to-partition
+	public static void WriteToPartition(OrderCache orders, Order order) {
+		orders.AddOrUpdateAndProduce(2, order);               // a new key: produced to partition 2
+		orders.AddOrUpdateAndProduce(order);                  // later writes of the key stay on partition 2
+		orders.AddOrUpdateAndProduce(2, order, force: true);  // the force overload takes a partition too
+		orders.RemoveAndProduce(2, order.OrderId);            // the tombstone must reach the record's partition
+	}
+	#endregion
+
 	#region produce-all
 	// Repair only: snapshots the whole store under its locks, then produces one record per resident key.
 	public static int ReSeedTopic(OrderCache orders) => orders.ForceProduceAll();

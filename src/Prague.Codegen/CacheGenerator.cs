@@ -2532,21 +2532,31 @@ public class CacheGenerator : IIncrementalGenerator {
 						var keyTypeName = enrichInfo.KeyTypeName;
 
 						w.Line();
-						w.Summary("Produces a message to Kafka for the given cache instance.");
-						w.Method($"public static void Produce({cacheClassName} cache, {keyTypeName} key, {typeName} value)", (ref CodeWriter w) => {
+						w.Summary("Produces a message to Kafka for the given cache instance; the producer's partitioner chooses the partition.");
+						w.Line($"public static void Produce({cacheClassName} cache, {keyTypeName} key, {typeName} value) => Produce(cache, Prague.Core.PersistenceInfo.UnknownPartition, key, value);");
+
+						w.Line();
+						w.Summary("Produces a message to Kafka for the given cache instance, to <paramref name=\"partition\"/>;",
+							"<see cref=\"Prague.Core.PersistenceInfo.UnknownPartition\"/> lets the producer's partitioner choose.");
+						w.Method($"public static void Produce({cacheClassName} cache, int partition, {keyTypeName} key, {typeName} value)", (ref CodeWriter w) => {
 							w.If("cache._producer == null || cache._topicName == null", (ref CodeWriter w) => {
 								w.Line("throw new System.InvalidOperationException(\"Producer not configured. Ensure this cache is registered with Kafka.\");");
 							});
-							w.Line("cache._producer.Produce(cache._topicName, key, value);");
+							w.Line("cache._producer.Produce(cache._topicName, partition, key, value);");
 						});
 
 						w.Line();
-						w.Summary("Produces a delete (tombstone) message to Kafka for the given cache instance.");
-						w.Method($"public static void Delete({cacheClassName} cache, {keyTypeName} key)", (ref CodeWriter w) => {
+						w.Summary("Produces a delete (tombstone) message to Kafka for the given cache instance; the producer's partitioner chooses the partition.");
+						w.Line($"public static void Delete({cacheClassName} cache, {keyTypeName} key) => Delete(cache, Prague.Core.PersistenceInfo.UnknownPartition, key);");
+
+						w.Line();
+						w.Summary("Produces a delete (tombstone) message to Kafka for the given cache instance, to <paramref name=\"partition\"/>;",
+							"<see cref=\"Prague.Core.PersistenceInfo.UnknownPartition\"/> lets the producer's partitioner choose.");
+						w.Method($"public static void Delete({cacheClassName} cache, int partition, {keyTypeName} key)", (ref CodeWriter w) => {
 							w.If("cache._producer == null || cache._topicName == null", (ref CodeWriter w) => {
 								w.Line("throw new System.InvalidOperationException(\"Producer not configured. Ensure this cache is registered with Kafka.\");");
 							});
-							w.Line("cache._producer.Delete(cache._topicName, key);");
+							w.Line("cache._producer.Delete(cache._topicName, partition, key);");
 						});
 					}
 				});
@@ -2574,20 +2584,17 @@ public class CacheGenerator : IIncrementalGenerator {
 					var keyPropertyName = enrichInfo.KeyPropertyName;
 					var namespaceName = enrichInfo.Namespace;
 
-					w.Line();
-					w.Summary("Adds or updates a document in the cache and produces it to Kafka if changed.");
-					w.Method($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, {typeName} document)", (ref CodeWriter w) => {
-						// Get key from document
-						if (!string.IsNullOrEmpty(keyPropertyName))
-							w.Line($"var key = document.{keyPropertyName};");
-						else
-							w.Line("var key = document.GetKey();");
+					var keyExpression = string.IsNullOrEmpty(keyPropertyName) ? "document.GetKey()" : $"document.{keyPropertyName}";
 
-						w.Line("var changed = cache.Cache.AddOrUpdate(key, document);").Line();
-						w.If("changed", (ref CodeWriter w) => {
-							w.Line($"{namespaceName}.CacheMarshall.Produce(cache, key, document);");
-						});
-					});
+					// Every produce routes through PartitionRouting.Resolve before the local write: the resident record's
+					// stored partition wins when no partition is given, an explicit partition must match it (a key's
+					// partition is immutable), and a rejected request throws before anything is written. The resolved
+					// partition is stamped on the document so the next write of the key finds it.
+					w.Line();
+					w.Summary("Adds or updates a document in the cache and produces it to Kafka if changed.",
+						"An update is produced to the partition the record is stored on; a new key, or one written here",
+						"without a partition, goes where the producer's partitioner sends it.");
+					w.Line($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, {typeName} document) => AddOrUpdateAndProduce(cache, Prague.Core.PersistenceInfo.UnknownPartition, document, false);");
 
 					// AddOrUpdateAndProduce(document, force): the same conditional local write, but the produce
 					// step is unconditional. Re-emits the current state onto the topic (a fresh compacted record,
@@ -2597,29 +2604,61 @@ public class CacheGenerator : IIncrementalGenerator {
 						"With <paramref name=\"force\"/> the message is produced even when the local write reported no change",
 						"(the document is cache-equal to the resident one); the local write itself stays conditional, and",
 						"consumers apply the record through their ordinary equality gate.");
-					w.Method($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, {typeName} document, bool force)", (ref CodeWriter w) => {
-						if (!string.IsNullOrEmpty(keyPropertyName))
-							w.Line($"var key = document.{keyPropertyName};");
-						else
-							w.Line("var key = document.GetKey();");
+					w.Line($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, {typeName} document, bool force) => AddOrUpdateAndProduce(cache, Prague.Core.PersistenceInfo.UnknownPartition, document, force);");
 
+					w.Line();
+					w.Summary("Adds or updates a document in the cache and produces it to Kafka partition <paramref name=\"partition\"/> if changed.",
+						"<exception cref=\"System.ArgumentOutOfRangeException\">The topic has no such partition.</exception>",
+						"<exception cref=\"System.InvalidOperationException\">The key is stored on a different partition.</exception>");
+					w.Line($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, int partition, {typeName} document) => AddOrUpdateAndProduce(cache, partition, document, false);");
+
+					w.Line();
+					w.Summary("Adds or updates a document in the cache and produces it to Kafka partition <paramref name=\"partition\"/>;",
+						"with <paramref name=\"force\"/> even when the local write reported no change.",
+						"<see cref=\"Prague.Core.PersistenceInfo.UnknownPartition\"/> behaves as the overload without a partition.",
+						"The partition is checked before the local cache is written, so a rejected call changes nothing.",
+						"<exception cref=\"System.ArgumentOutOfRangeException\">The topic has no such partition.</exception>",
+						"<exception cref=\"System.InvalidOperationException\">The key is stored on a different partition.</exception>");
+					w.Method($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, int partition, {typeName} document, bool force)", (ref CodeWriter w) => {
+						w.Line($"var key = {keyExpression};");
+						w.Line("var target = ResolvePartition(cache, partition, key);");
+						w.Line("var metadata = ((Prague.Core.IPragueMetadataSettable)document).__PragueMetadata__;");
+						w.Line("((Prague.Core.IPragueMetadataSettable)document).SetPragueMetadata(metadata.Timestamp, metadata.Offset, target);");
 						w.Line("var changed = cache.Cache.AddOrUpdate(key, document);").Line();
 						w.If("changed || force", (ref CodeWriter w) => {
-							w.Line($"{namespaceName}.CacheMarshall.Produce(cache, key, document);");
+							w.Line($"{namespaceName}.CacheMarshall.Produce(cache, target, key, document);");
 						});
 					});
 
-					// RemoveAndProduce extension method
+					// RemoveAndProduce extension methods
 					w.Line();
 					w.Summary("Removes a document from the cache and produces a delete (tombstone) message to Kafka.",
 						"The tombstone is published whether or not the key was resident here: residency is a fact about",
 						"this process's view — an ingress filter that excludes the key, a load still running, an earlier",
 						"local removal — not about the log. Returns whether the local cache held the key; the tombstone is",
-						"published either way.");
-					w.Method($"public static bool RemoveAndProduce(this {cacheFullName} cache, {enrichInfo.KeyTypeName} key)", (ref CodeWriter w) => {
+						"published either way, to the partition the record is stored on when it is resident, otherwise where",
+						"the producer's partitioner sends it.");
+					w.Line($"public static bool RemoveAndProduce(this {cacheFullName} cache, {enrichInfo.KeyTypeName} key) => RemoveAndProduce(cache, Prague.Core.PersistenceInfo.UnknownPartition, key);");
+
+					w.Line();
+					w.Summary("Removes a document from the cache and produces a delete (tombstone) message to Kafka partition <paramref name=\"partition\"/>.",
+						"The partition is checked before the local cache is written, so a rejected call changes nothing.",
+						"Returns whether the local cache held the key; the tombstone is published either way.",
+						"<exception cref=\"System.ArgumentOutOfRangeException\">The topic has no such partition.</exception>",
+						"<exception cref=\"System.InvalidOperationException\">The key is stored on a different partition.</exception>");
+					w.Method($"public static bool RemoveAndProduce(this {cacheFullName} cache, int partition, {enrichInfo.KeyTypeName} key)", (ref CodeWriter w) => {
+						w.Line("var target = ResolvePartition(cache, partition, key);");
 						w.Line("var removed = cache.Cache.Remove(key, out _);");
-						w.Line($"{namespaceName}.CacheMarshall.Delete(cache, key);");
+						w.Line($"{namespaceName}.CacheMarshall.Delete(cache, target, key);");
 						w.Line("return removed;");
+					});
+
+					w.Line();
+					w.Method($"private static int ResolvePartition({cacheFullName} cache, int partition, {enrichInfo.KeyTypeName} key)", (ref CodeWriter w) => {
+						w.Line("var stored = cache.Cache.TryGet(key, out var resident)");
+						w.Line("	? ((Prague.Core.IPragueMetadataSettable)resident).__PragueMetadata__.Partition");
+						w.Line("	: Prague.Core.PersistenceInfo.UnknownPartition;");
+						w.Line("return Prague.Kafka.PartitionRouting.Resolve(partition, stored, cache._partitionCount, cache.Topic);");
 					});
 
 					// ForceProduceAll: re-emit every resident record onto the topic. A repair tool, not an operation:
@@ -2647,10 +2686,10 @@ public class CacheGenerator : IIncrementalGenerator {
 						w.Line("using var all = cache.Query().ExecutePooled();");
 						w.For("var i = 0; i < all.Count; i++", (ref CodeWriter w) => {
 							w.Line("var document = all[i];");
-							if (!string.IsNullOrEmpty(keyPropertyName))
-								w.Line($"{namespaceName}.CacheMarshall.Produce(cache, document.{keyPropertyName}, document);");
-							else
-								w.Line($"{namespaceName}.CacheMarshall.Produce(cache, document.GetKey(), document);");
+							// Each record goes back to the partition it is stored on; one written here without a
+							// partition goes where the partitioner sends it, as its first produce did.
+							w.Line("var partition = ((Prague.Core.IPragueMetadataSettable)document).__PragueMetadata__.Partition;");
+							w.Line($"{namespaceName}.CacheMarshall.Produce(cache, partition, {keyExpression}, document);");
 						});
 						w.Line("return all.Count;");
 					});
@@ -5326,9 +5365,17 @@ public class CacheGenerator : IIncrementalGenerator {
 			w.Using("Prague.Core");
 			w.Class($"public partial class {cacheClassName} : Prague.Kafka.IKafkaCache, Prague.Kafka.IKafkaProducerConfigurable<{cacheFullName}>, Prague.Kafka.IKafkaConfigurable<{cacheFullName}>", (ref CodeWriter w) => {
 				w.Line("internal Prague.Kafka.IO.KafkaCacheProducer? _producer;");
-				w.Line("internal string? _topicName;").Line();
+				w.Line("internal string? _topicName;");
+				w.Line("internal int _partitionCount;").Line();
 				w.Summary("Gets the configured Kafka topic name.");
 				w.Line("public string Topic => _topicName ?? TopicNameTemplate;").Line();
+				w.Summary("Partition count of the Kafka topic, read from topic metadata when the consumer starts; 0 until then or when unknown.");
+				w.Line("public int PartitionCount => _partitionCount;").Line();
+				w.Summary("Configures the partition count of the Kafka topic for a cache instance.");
+				w.Method($"public static void ConfigurePartitionCount({cacheFullName} cache, int partitionCount)", (ref CodeWriter w) => {
+					w.Line("cache._partitionCount = partitionCount;");
+				});
+				w.Line();
 				w.Summary("Configures the Kafka topic for a cache instance.");
 				w.Method($"public static void ConfigureTopic({cacheFullName} cache, string topicName)", (ref CodeWriter w) => {
 					w.Line("cache._topicName = topicName;");
@@ -5376,7 +5423,7 @@ public class CacheGenerator : IIncrementalGenerator {
 				w.Line("results.Add(new Prague.Kafka.Dump.PragueConsumeResult");
 				w.OpenBrace();
 				w.Line("Topic = topic,");
-				w.Line("Partition = 0,");
+				w.Line("Partition = metadata.Partition,");
 				w.Line("Offset = metadata.Offset,");
 				w.Line("TimestampMs = metadata.Timestamp,");
 				w.Line("Key = keyBytes,");
@@ -6596,6 +6643,11 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine("        void Prague.Core.IPragueMetadataSettable.SetPragueMetadata(long timestamp, long offset)");
 		sb.AppendLine("        {");
 		sb.AppendLine("            __pragueMetadata__ = new Prague.Core.PersistenceInfo(timestamp, offset);");
+		sb.AppendLine("        }");
+		sb.AppendLine();
+		sb.AppendLine("        void Prague.Core.IPragueMetadataSettable.SetPragueMetadata(long timestamp, long offset, int partition)");
+		sb.AppendLine("        {");
+		sb.AppendLine("            __pragueMetadata__ = new Prague.Core.PersistenceInfo(timestamp, offset, partition);");
 		sb.AppendLine("        }");
 		sb.AppendLine();
 		sb.AppendLine("        /// <summary>");

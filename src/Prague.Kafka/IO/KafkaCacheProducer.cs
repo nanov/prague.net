@@ -2,6 +2,7 @@ namespace Prague.Kafka.IO;
 
 using System.Runtime.CompilerServices;
 using Nanov.Kafka;
+using Core;
 using Internal;
 using Microsoft.Extensions.Logging;
 using Options;
@@ -42,8 +43,14 @@ public class KafkaCacheProducer : IDisposable {
 		_producer.Dispose();
 	}
 
+	public void Delete<TKey>(string topic, TKey key) => Delete(topic, PersistenceInfo.UnknownPartition, key);
+
+	/// <summary>
+	///   Produces a tombstone for <paramref name="key" /> to <paramref name="partition" />;
+	///   <see cref="PersistenceInfo.UnknownPartition" /> lets the producer's partitioner choose.
+	/// </summary>
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
-	public void Delete<TKey>(string topic, TKey key) {
+	public void Delete<TKey>(string topic, int partition, TKey key) {
 		if (_cts.IsCancellationRequested)
 			return;
 
@@ -53,15 +60,24 @@ public class KafkaCacheProducer : IDisposable {
 			var headers = new KafkaHeaders();
 			headers.Add(KafkaCaches.ProducerInstanceIdHeaderName, KafkaCaches.InstanceIdBytes);
 			// Null/empty value == tombstone (delete).
-			RawProduceWithRetry(topic, keyWriter.WrittenSpan, default, in headers);
+			RawProduceWithRetry(topic, partition, keyWriter.WrittenSpan, default, in headers);
 		}
 		finally {
 			ScratchArrayWriterManager<TKey>.Return(keyWriter);
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public void Produce<TKey, TCacheValue>(string topic, TKey key, TCacheValue value)
+		where TKey : notnull, IEquatable<TKey>
+		where TCacheValue : IEnrichable<TCacheValue>
+		=> Produce(topic, PersistenceInfo.UnknownPartition, key, value);
+
+	/// <summary>
+	///   Produces <paramref name="value" /> to <paramref name="partition" />;
+	///   <see cref="PersistenceInfo.UnknownPartition" /> lets the producer's partitioner choose.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	public void Produce<TKey, TCacheValue>(string topic, int partition, TKey key, TCacheValue value)
 		where TKey : notnull, IEquatable<TKey>
 		where TCacheValue : IEnrichable<TCacheValue> {
 		if (_cts.IsCancellationRequested)
@@ -77,7 +93,7 @@ public class KafkaCacheProducer : IDisposable {
 			headers.Add(KafkaCaches.ProducerInstanceIdHeaderName, KafkaCaches.InstanceIdBytes);
 			TCacheValue.Derich(value, ref headers);
 
-			RawProduceWithRetry(topic, keyWriter.WrittenSpan, valueWriter.WrittenSpan, in headers);
+			RawProduceWithRetry(topic, partition, keyWriter.WrittenSpan, valueWriter.WrittenSpan, in headers);
 		}
 		finally {
 			ScratchArrayWriterManager<TKey>.Return(keyWriter);
@@ -86,10 +102,13 @@ public class KafkaCacheProducer : IDisposable {
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
-	private void RawProduceWithRetry(string topic, ReadOnlySpan<byte> key, ReadOnlySpan<byte> value, in KafkaHeaders headers) {
+	private void RawProduceWithRetry(string topic, int partition, ReadOnlySpan<byte> key, ReadOnlySpan<byte> value,
+		in KafkaHeaders headers) {
+		// UnknownPartition is -1, which is Partition.Any: the partitioner chooses, as an unpartitioned produce does.
+		var target = new Partition(partition);
 		for (var i = 0; i < MAX_RETRIES; i++)
 			try {
-				_producer.RawProduce(topic, key, value, in headers);
+				_producer.RawProduce(topic, target, key, value, in headers);
 				break;
 			}
 			catch (KafkaException e) when (e.Error.Code == ErrorCode.Local_QueueFull) {

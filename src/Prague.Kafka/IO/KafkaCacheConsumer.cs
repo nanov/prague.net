@@ -18,8 +18,11 @@ internal abstract class KafkaCacheHandler {
 
 	public readonly KafkaHeaderFilters HeadersFilters;
 
-	public KafkaCacheHandler(KafkaHeaderFilters headersFilters) {
+	private readonly Action<int>? _partitionCountResolved;
+
+	public KafkaCacheHandler(KafkaHeaderFilters headersFilters, Action<int>? partitionCountResolved = null) {
 		HeadersFilters = headersFilters;
+		_partitionCountResolved = partitionCountResolved;
 	}
 
 	public abstract KafkaDataCacheStatistics Statistics { get; }
@@ -91,39 +94,94 @@ internal abstract class KafkaCacheHandler {
 		return seen == filters.RequiredMask ? HeaderGate.Accept : HeaderGate.MissingRequiredHeader;
 	}
 
-	internal long HighWatermarkOffset { get; private protected set; }
 	internal bool IsInitialConsumeDone { get; set;}
-	internal abstract void SetHighWatermarkOffset(long offset);
+
+	// Load handshake, one entry per assigned partition: the high watermark it had at assignment, replaced by
+	// LOADED once its EOF reaches that watermark. The cache goes live when every partition of the topic has.
+	// Touched only on the consume thread -- rebalance callbacks run inside ConsumeRaw.
+	private const long LOADED = long.MaxValue;
+	private readonly Dictionary<int, long> _partitionWatermarks = new();
+	private int _loadedPartitions;
+	// The topic's partition count from metadata at startup; 0 when unknown. Raised to the assigned count when
+	// assignment shows more, so an unknown or stale count degrades to "wait for what was assigned".
+	private int _expectedPartitions;
+	private protected long LoadStartTimestamp;
+
+	/// <summary>
+	///   Registers an assigned partition with the load handshake. A partition seen before (a re-assignment)
+	///   keeps its state. Returns <see langword="false" /> for a partition first seen after the cache went
+	///   live -- partitions added to a topic at runtime are unsupported.
+	/// </summary>
+	internal bool TrackAssignedPartition(int partition, long highWatermark) {
+		if (_partitionWatermarks.ContainsKey(partition))
+			return true;
+		if (IsInitialConsumeDone)
+			return false;
+		if (_partitionWatermarks.Count == 0)
+			LoadStartTimestamp = Stopwatch.GetTimestamp();
+		_partitionWatermarks.Add(partition, highWatermark);
+		if (_partitionWatermarks.Count > _expectedPartitions)
+			SetExpectedPartitionCount(_partitionWatermarks.Count);
+		return true;
+	}
+
+	internal void SetExpectedPartitionCount(int count) {
+		_expectedPartitions = count;
+		Statistics.PartitionCount = count;
+		_partitionCountResolved?.Invoke(count);
+	}
+
+	/// <summary>
+	///   Records a partition EOF. Returns <see langword="true" /> only when every partition of the topic -- the
+	///   metadata count, not just those assigned so far -- has reached its assignment-time high watermark. An EOF
+	///   below the watermark (an empty fetch mid-backlog) or on an already loaded partition changes nothing.
+	/// </summary>
+	internal bool TryCompletePartitionLoad(int partition, long eofOffset) {
+		if (!_partitionWatermarks.TryGetValue(partition, out var highWatermark) || eofOffset < highWatermark)
+			return false;
+		_partitionWatermarks[partition] = LOADED;
+		return ++_loadedPartitions == _expectedPartitions;
+	}
 
 	internal void UpdateTopicStats(LibrdkafkaTopicStats topicStats) {
 		if (topicStats.Partitions is null)
 			return;
 
 		long rxMsgs = 0, rxBytes = 0;
-		var first = true;
-		foreach (var partitionStats in topicStats.Partitions.Values) {
+		int fetchQueueCount = 0, fetchQueueSize = 0;
+		var fetchState = FetchState.Active;
+		var any = false;
+		foreach (var (partitionId, partitionStats) in topicStats.Partitions) {
+			// "-1" is librdkafka's internal unassigned-partition placeholder, not a partition of the topic.
+			if (partitionId == "-1")
+				continue;
+			any = true;
 			rxMsgs += partitionStats.RxMsgs;
 			rxBytes += partitionStats.RxBytes;
-
-			if (first) {
-				Statistics.FetchQueueCount = partitionStats.FetchQueueCount;
-				Statistics.FetchQueueSize = partitionStats.FetchQueueSize;
-				Statistics.FetchState = partitionStats.FetchState switch {
-					"active" => FetchState.Active,
-					"none" => FetchState.None,
-					"stopping" => FetchState.Stopping,
-					"stopped" => FetchState.Stopped,
-					"offset-query" => FetchState.OffsetQuery,
-					"offset-wait" => FetchState.OffsetWait,
-					_ => FetchState.None
-				};
-				first = false;
-			}
+			fetchQueueCount += partitionStats.FetchQueueCount;
+			fetchQueueSize += partitionStats.FetchQueueSize;
+			// The enum runs towards Active, so the minimum is the least advanced partition: one stuck
+			// partition is what a reader of a multi-partition cache needs to see.
+			var state = ParseFetchState(partitionStats.FetchState);
+			if (state < fetchState)
+				fetchState = state;
 		}
 
 		Statistics.TotalMessagesReceived = rxMsgs;
 		Statistics.TotalBytesReceived = rxBytes;
+		Statistics.FetchQueueCount = fetchQueueCount;
+		Statistics.FetchQueueSize = fetchQueueSize;
+		Statistics.FetchState = any ? fetchState : FetchState.None;
 	}
+
+	private static FetchState ParseFetchState(string? state) => state switch {
+		"active" => FetchState.Active,
+		"stopping" => FetchState.Stopping,
+		"stopped" => FetchState.Stopped,
+		"offset-query" => FetchState.OffsetQuery,
+		"offset-wait" => FetchState.OffsetWait,
+		_ => FetchState.None
+	};
 }
 
 internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
@@ -139,8 +197,6 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 	private readonly ILogger _logger;
 	private readonly KafkaDataCacheStatistics _statistics;
 
-	private long _startTimestamp;
-
 	public KafkaCacheHandler(
 		TCacheEntity cache,
 		KafkaDataCacheStatistics statistics,
@@ -148,7 +204,8 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		KafkaKeyFilters<TKey> keyFilters,
 		KafkaValueFilters<TVlaue> valueFilters,
 		IEnumerable<ICacheAfterHandler<TKey, TVlaue>> afterHandlers,
-		ILogger logger) : base(filtes) {
+		ILogger logger,
+		Action<int>? partitionCountResolved = null) : base(filtes, partitionCountResolved) {
 		_cache = cache;
 		_statistics = statistics;
 		_keyFilters = keyFilters;
@@ -249,7 +306,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 				}
 			}
 
-			value.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
+			value.SetPragueMetadata(timestamp.UnixTimestampMs, offset, raw.Partition.Value);
 			_enricher.Enrich(value, raw.Headers, timestamp);
 			var buffer = _rawLoadBuffer ??= new ValueCompactingBuffer<TKey, TVlaue>(COMPACTING_BUFFER_CAPACITY);
 			buffer.AddOrReplace(key, value, timestamp.UnixTimestampMs);
@@ -282,7 +339,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 			}
 		}
 
-		liveValue.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
+		liveValue.SetPragueMetadata(timestamp.UnixTimestampMs, offset, raw.Partition.Value);
 		_enricher.Enrich(liveValue, raw.Headers, timestamp);
 		PublishRaw(RAW_KIND_UPDATE, key, liveValue, timestamp.UnixTimestampMs);
 	}
@@ -332,7 +389,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 	}
 
 	internal override void FlushRawLoadBufferAndGoLive(AsyncCountdownEvent countdownEvent, long offset, CancellationToken ct) {
-		var loadTime = Stopwatch.GetElapsedTime(_startTimestamp);
+		var loadTime = Stopwatch.GetElapsedTime(LoadStartTimestamp);
 		FlushRawLoadBufferToCache();
 		_rawLoadBuffer = null;
 		_logger.CacheLoaded(Name, offset, loadTime.TotalMilliseconds);
@@ -398,11 +455,6 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		public void OnError(Exception error) => owner._logger.LiveApplyError(error, owner.Name);
 
 		public ValueTask OnCompletedAsync(Exception? error) => default;
-	}
-
-	internal override void SetHighWatermarkOffset(long offset) {
-		_startTimestamp = Stopwatch.GetTimestamp();
-		HighWatermarkOffset = offset;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -568,7 +620,7 @@ internal class KafkaCacheConsumer : IDisposable {
 			_statistics.SetAssignedPartitions(_assignedPartitions);
 			_statistics.HasLostPartitions = false;
 			foreach (var partition in partitions) {
-				_logger.AssignedToTopic(partition.Topic);
+				_logger.AssignedToTopic(partition.Topic, partition.Partition.Value);
 				var watermaker = c.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(10));
 				if (watermaker is null) {
 					_logger.NullWatermark(partition.Topic);
@@ -577,7 +629,8 @@ internal class KafkaCacheConsumer : IDisposable {
 
 				if (!_handlers.TryGetValue(partition.Topic, out var handler))
 					continue;
-				handler.SetHighWatermarkOffset(watermaker.High.Value);
+				if (!handler.TrackAssignedPartition(partition.Partition.Value, watermaker.High.Value))
+					_logger.PartitionAddedAfterLoad(handler.Name, partition.Topic, partition.Partition.Value);
 				_statistics.Caches[partition.Topic].AssignedPartitionCount++;
 			}
 		});
@@ -611,6 +664,26 @@ internal class KafkaCacheConsumer : IDisposable {
 		return rawBuilder.BuildRaw();
 	}
 
+	/// <summary>
+	///   Sets each cache's load target to its topic's partition count, so the load waits for every partition of
+	///   the topic, not only those a given assign callback delivered. Read once, before subscribing. A topic the
+	///   metadata does not list (not created yet) or a metadata failure leaves the target at 0, and the
+	///   handshake falls back to the partitions actually assigned.
+	/// </summary>
+	private void ResolveExpectedPartitionCounts(IClient client) {
+		try {
+			using var admin = new DependentAdminClientBuilder(client.Handle).Build();
+			foreach (var (topic, handler) in _handlers) {
+				var metadata = admin.GetMetadata(topic, TimeSpan.FromSeconds(10));
+				foreach (var topicMetadata in metadata.Topics)
+					if (topicMetadata.Topic == topic && topicMetadata.Error.Code == ErrorCode.NoError)
+						handler.SetExpectedPartitionCount(topicMetadata.Partitions.Count);
+			}
+		} catch (KafkaException) {
+			// Fall back to the assigned partitions; the load still completes, as it did before the lookup existed.
+		}
+	}
+
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private KafkaCacheHandler? ResolveHandler(ReadOnlySpan<byte> topicUtf8, Span<char> scratch) {
 		var charCount = System.Text.Encoding.UTF8.GetChars(topicUtf8, scratch);
@@ -620,6 +693,7 @@ internal class KafkaCacheConsumer : IDisposable {
 	private void ConsumeRawLoop(IRawConsumer consumer, CancellationToken ct) {
 		Span<char> topicScratch = stackalloc char[256];
 		try {
+			ResolveExpectedPartitionCounts(consumer);
 			consumer.Subscribe(_topics);
 			var loadingCount = _topics.Length;
 			while (!ct.IsCancellationRequested)
@@ -636,7 +710,7 @@ internal class KafkaCacheConsumer : IDisposable {
 						if (loadingCount == 0
 						    || handler is null
 						    || handler.IsInitialConsumeDone
-						    || raw.Offset.Value < handler.HighWatermarkOffset)
+						    || !handler.TryCompletePartitionLoad(raw.Partition.Value, raw.Offset.Value))
 							continue;
 
 						loadingCount--;
@@ -789,8 +863,14 @@ internal static partial class KafkaCacheConsumerLog {
 	// KafkaCacheConsumer logs
 
 	[LoggerMessage(Level = LogLevel.Information,
-		Message = "[Prague] assigned to topic {Topic} - starting cache load")]
-	public static partial void AssignedToTopic(this ILogger logger, string topic);
+		Message = "[Prague] assigned to topic {Topic} partition {Partition}")]
+	public static partial void AssignedToTopic(this ILogger logger, string topic, int partition);
+
+	[LoggerMessage(Level = LogLevel.Warning,
+		Message = "[Prague] {CacheName}: partition {Partition} of {Topic} was assigned after the initial load. "
+			+ "Adding partitions to a cache topic at runtime is unsupported: its records are applied through the live "
+			+ "path, and per-key order is lost for any key the new partition count re-maps.")]
+	public static partial void PartitionAddedAfterLoad(this ILogger logger, string cacheName, string topic, int partition);
 
 	[LoggerMessage(Level = LogLevel.Critical,
 		Message = "[Prague] Kafka returned null watermark for topic: {Topic}")]

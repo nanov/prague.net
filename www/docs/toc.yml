@@ -54,6 +54,8 @@
   items:
     - name: Kafka Integration
       href: articles/advanced/kafka-integration.md
+    - name: Multi-Partition Topics
+      href: articles/advanced/multi-partition-topics.md
     - name: Global Last Update Index
       href: articles/advanced/global-last-update-index.md
     - name: Performance Tuning

@@ -119,6 +119,18 @@ public sealed class KafkaCachesHealthPredicatesTests {
 	}
 
 	[Test]
+	public void HasNoPartitionAssigned_is_true_while_any_partition_of_the_topic_is_unassigned() {
+		var cache = FirstCache(MakeHealthyStats());
+		cache.PartitionCount = 3;
+
+		cache.AssignedPartitionCount = 2;
+		Assert.That(KafkaCachesHealthPredicates.HasNoPartitionAssigned(cache), Is.True);
+
+		cache.AssignedPartitionCount = 3;
+		Assert.That(KafkaCachesHealthPredicates.HasNoPartitionAssigned(cache), Is.False);
+	}
+
+	[Test]
 	public void IsConsumerHealthy_is_true_on_healthy_and_false_on_each_individual_condition() {
 		var opts = DefaultOptions();
 

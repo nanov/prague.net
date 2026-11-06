@@ -119,7 +119,7 @@ Assert.That(parcel.Carrier, Is.EqualTo("DHL"));
 The pipeline, deserialization end to end, initial load and health need Kafka. There is no in-memory broker. Use Testcontainers (Docker); once the container is up, a test takes about a second. Then:
 - give each consumer under test its own `group.id` (the default is shared by every consumer in the process, so two providers would split partitions);
 - produce fixtures with a plain Kafka producer: a process drops messages carrying its own `X-Producer-Id`, so it never consumes what Prague produced in the same process;
-- create cache topics compacted, with one partition;
+- create cache topics compacted; one partition unless the test is about multi-partition loading;
 - `await host.DataCachesLoadCompletion()` before producing live messages;
 - poll for the result with a deadline (the live worker applies messages asynchronously), never assert right after producing.
 
