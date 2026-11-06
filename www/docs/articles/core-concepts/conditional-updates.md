@@ -69,6 +69,24 @@ The equality gate compares the incoming value with the resident one. Hand it the
 
 To change a row, clone it, change the clone and write the clone: `var next = current.Clone(); next.Status = …; cache.AddOrUpdate(next);`. The generated `Clone()` is deep. From then on `next` is the resident instance; the next change starts from another clone. `ExecuteCloned()` and `ExecutePooledCloned()` return copies that can be changed and written back. With `init` setters the compiler enforces the rule, and the next value is built with an object initializer. `ChangeAResidentRowTests` in `Prague.Generated.Tests` pins both the rule and the failure.
 
+## Stamping a write
+
+`AddOrUpdate` and `AddOrUpdateAndProduce` take an optional callback that changes the incoming row once the cache has decided to write it. It gets the incoming row and the resident one (`null` on an add), so a revision counter or a changed-at time can be derived from the current state without a separate `TryGet` that another writer could race.
+
+[!code-csharp[](../../../../samples/Prague.Samples/Concepts/ConditionalUpdates.cs#on-write)]
+
+The callback runs at most once per call, inside the store's lock for that key, after the equality check and before the row is stored. It does not run when the incoming row is cache-equal to the resident one, so nothing is stamped and nothing is produced. Indexes and the produced record see the row as the callback left it. A second writer to the same key waits for the lock and sees the first writer's stored row as `resident`, so a counter loses no increments. The lock covers the stored row only: index maintenance runs after it is released, as for every write.
+
+- Change only the incoming row. The resident row is still indexed under its current values and readers may hold it.
+- Do not change the key. The call throws `InvalidOperationException` and nothing is written.
+- Do not read or write the cache from the callback; it runs while a lock is held.
+- An exception from the callback leaves the cache unchanged.
+- Put the stamped properties under `[DataCacheIgnoreEquality]`. A stamp that takes part in equality never matches the incoming row's stale value, so every write becomes an `Update`. The stamped properties need a `set` accessor; the rest of the row can stay `init`.
+- Pass values through the `state` argument (`now` above) and keep the lambda `static`, so no closure is allocated per write.
+- `AddOrUpdateAndProduce(value, force: true)` has no callback form: force only matters when the write reported no change, and then the callback does not run.
+
+[!code-csharp[](../../../../samples/Prague.Samples/Concepts/ConditionalUpdates.cs#on-write-entity)]
+
 ## Why this matters
 
 Compacted Kafka topics naturally re-emit the latest state on each rebalance and rebuild. Without conditional updates a downstream projector would see thousands of `Update` events on startup that are no-ops. With them the count of `Update` events is exactly the number of state transitions across the topic's lifetime.

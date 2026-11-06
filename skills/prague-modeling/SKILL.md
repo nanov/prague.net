@@ -136,6 +136,22 @@ A resident instance changed in place equals itself, so writing it back is `Same`
 
 With `init` setters the compiler enforces the rule; build the next value with an object initializer from the current one. `ExecuteCloned()` / `ExecutePooledCloned()` return copies that can be changed and written back.
 
+## Stamping a write
+
+To derive fields from the resident row at write time (a revision, a changed-at time), pass an on-write callback instead of `TryGet` + write:
+
+```csharp
+orders.AddOrUpdate(order, now, static (next, resident, ts) => {
+	next.Revision = (resident?.Revision ?? 0) + 1;   // resident is null on an add
+	next.ChangedAtUnixMs = ts;
+});
+```
+
+- It runs at most once, under the store lock for the key, after `CacheEquals` decided to write and before the row is stored. It does not run on `Same`.
+- Change only `next`. Never change `resident` and never the key (that throws, nothing is written). Do not touch the cache inside it.
+- Stamped properties are `[DataCacheIgnoreEquality]` with a `set` accessor. An `init` property cannot be assigned from the callback; a stamped property inside equality makes every write an `Update`.
+- Keep the lambda `static` and pass values through `state`.
+
 ## Types you cannot annotate
 
 For a generated class you own but cannot edit (protobuf, OpenAPI), put `[DataCache<TExternal>(nameof(TExternal.Id))]` on a `partial` cache class and declare indexes there with `[DataCacheIndex("PropertyName", DataCacheIndexType.Many)]`. `TExternal` must be `partial` and in your compilation. At class level only `[DataCacheIndex]`, `[DataCacheIgnoreEquality]` and `[DataCacheTopic]` are read; the property-name forms of the key-set attributes compile but produce nothing, and foreign keys, sorts and global indexes have no class-level form.

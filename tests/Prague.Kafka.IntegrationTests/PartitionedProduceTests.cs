@@ -135,6 +135,23 @@ public class PartitionedProduceTests {
 				$"key {group.Key} was re-produced to a different partition");
 	}
 
+	[Test]
+	public async Task OnWrite_mutation_is_what_gets_produced_and_an_unchanged_write_produces_nothing() {
+		var cache = await StartAsync();
+
+		cache.AddOrUpdateAndProduce(new FilterEntity { Id = 60, Name = "raw", Value = 1 },
+			static (next, resident) => next.Name = resident is null ? "created" : "updated");
+		cache.AddOrUpdateAndProduce(new FilterEntity { Id = 60, Name = "raw", Value = 2 }, "stamped",
+			static (next, _, name) => next.Name = name);
+		cache.AddOrUpdateAndProduce(new FilterEntity { Id = 60, Name = "stamped", Value = 2 },
+			static (next, _) => next.Name = "never");
+
+		var records = ReadTopic(expected: 2);
+		Assert.That(records.Select(r => r.Name), Is.EqualTo(new[] { "created", "stamped" }),
+			"each produced record carries the callback's mutation; the cache-equal third write produced nothing");
+		Assert.That(cache.Cache.TryGet(60, out var resident) && resident.Name == "stamped");
+	}
+
 	/// <summary>
 	///   A partition the producer's partitioner does not choose for <paramref name="id" />: probes the choice with an
 	///   unpartitioned produce to a scratch topic of the same partition count, then takes the next partition.
