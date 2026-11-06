@@ -11,7 +11,8 @@ public interface IKafkaConfigurable<TSelf> where TSelf : IKafkaConfigurable<TSel
 	static abstract void ConfigureTopic(TSelf cache, string topicName);
 
 	/// <summary>
-	///   Configures the partition count of the cache's topic, read from topic metadata at startup.
+	///   Configures the partition count of the cache's topic, read from topic metadata at startup. Generated caches
+	///   implement it; the empty default keeps a cache written before partitions compiling.
 	/// </summary>
-	static abstract void ConfigurePartitionCount(TSelf cache, int partitionCount);
+	static virtual void ConfigurePartitionCount(TSelf cache, int partitionCount) { }
 }

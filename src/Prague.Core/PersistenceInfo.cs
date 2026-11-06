@@ -56,7 +56,13 @@ public interface IPragueMetadataSettable
     PersistenceInfo __PragueMetadata__ { get; }
 
     /// <summary>
-    /// Sets the persistence metadata for this cache item.
+    /// Sets the persistence metadata for this cache item, on partition 0 (the pre-partition form).
     /// </summary>
-    void SetPragueMetadata(long timestamp, long offset, int partition);
+    void SetPragueMetadata(long timestamp, long offset);
+
+    /// <summary>
+    /// Sets the persistence metadata for this cache item, including its source partition. Generated items
+    /// implement it; the default keeps an implementation written before partitions compiling, and drops the partition.
+    /// </summary>
+    void SetPragueMetadata(long timestamp, long offset, int partition) => SetPragueMetadata(timestamp, offset);
 }

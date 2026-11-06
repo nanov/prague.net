@@ -6640,6 +6640,11 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine("        [Prague.Core.DataCacheIgnoreEquality]");
 		sb.AppendLine("        public Prague.Core.PersistenceInfo __PragueMetadata__ => __pragueMetadata__;");
 		sb.AppendLine();
+		sb.AppendLine("        void Prague.Core.IPragueMetadataSettable.SetPragueMetadata(long timestamp, long offset)");
+		sb.AppendLine("        {");
+		sb.AppendLine("            __pragueMetadata__ = new Prague.Core.PersistenceInfo(timestamp, offset);");
+		sb.AppendLine("        }");
+		sb.AppendLine();
 		sb.AppendLine("        void Prague.Core.IPragueMetadataSettable.SetPragueMetadata(long timestamp, long offset, int partition)");
 		sb.AppendLine("        {");
 		sb.AppendLine("            __pragueMetadata__ = new Prague.Core.PersistenceInfo(timestamp, offset, partition);");
