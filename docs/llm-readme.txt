@@ -142,6 +142,13 @@ InvoiceNumber (Unique), sort "ByPriority":
     orderCache.ForceProduceAll() → int              REPAIR ONLY: snapshot every resident record (all store
                                                     locks held during the copy), produce each one, return count
     orderCache.RemoveAndProduce(key) → bool         local remove + tombstone (published either way)
+    orderCache.AddOrUpdateAndProduce(int partition, order [, force])  / RemoveAndProduce(int partition, key)
+                                                    partition first. Resident key → must equal its stored
+                                                    partition (InvalidOperationException), must exist on the
+                                                    topic (ArgumentOutOfRangeException); checked before the
+                                                    local write. Without a partition: resident key → its stored
+                                                    partition, otherwise librdkafka's partitioner.
+    orderCache.PartitionCount → int                 topic partition count from metadata (0 until consumer starts)
     IEnrichable<Order>                              header/timestamp enrichment
 
 Generated files are under obj/ (never committed, never edited). Prague.Core also ships T4-generated

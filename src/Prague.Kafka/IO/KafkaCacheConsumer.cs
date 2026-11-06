@@ -18,8 +18,11 @@ internal abstract class KafkaCacheHandler {
 
 	public readonly KafkaHeaderFilters HeadersFilters;
 
-	public KafkaCacheHandler(KafkaHeaderFilters headersFilters) {
+	private readonly Action<int>? _partitionCountResolved;
+
+	public KafkaCacheHandler(KafkaHeaderFilters headersFilters, Action<int>? partitionCountResolved = null) {
 		HeadersFilters = headersFilters;
+		_partitionCountResolved = partitionCountResolved;
 	}
 
 	public abstract KafkaDataCacheStatistics Statistics { get; }
@@ -125,6 +128,7 @@ internal abstract class KafkaCacheHandler {
 	internal void SetExpectedPartitionCount(int count) {
 		_expectedPartitions = count;
 		Statistics.PartitionCount = count;
+		_partitionCountResolved?.Invoke(count);
 	}
 
 	/// <summary>
@@ -200,7 +204,8 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 		KafkaKeyFilters<TKey> keyFilters,
 		KafkaValueFilters<TVlaue> valueFilters,
 		IEnumerable<ICacheAfterHandler<TKey, TVlaue>> afterHandlers,
-		ILogger logger) : base(filtes) {
+		ILogger logger,
+		Action<int>? partitionCountResolved = null) : base(filtes, partitionCountResolved) {
 		_cache = cache;
 		_statistics = statistics;
 		_keyFilters = keyFilters;
@@ -301,7 +306,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 				}
 			}
 
-			value.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
+			value.SetPragueMetadata(timestamp.UnixTimestampMs, offset, raw.Partition.Value);
 			_enricher.Enrich(value, raw.Headers, timestamp);
 			var buffer = _rawLoadBuffer ??= new ValueCompactingBuffer<TKey, TVlaue>(COMPACTING_BUFFER_CAPACITY);
 			buffer.AddOrReplace(key, value, timestamp.UnixTimestampMs);
@@ -334,7 +339,7 @@ internal class KafkaCacheHandler<TCacheEntity, TKey, TVlaue> : KafkaCacheHandler
 			}
 		}
 
-		liveValue.SetPragueMetadata(timestamp.UnixTimestampMs, offset);
+		liveValue.SetPragueMetadata(timestamp.UnixTimestampMs, offset, raw.Partition.Value);
 		_enricher.Enrich(liveValue, raw.Headers, timestamp);
 		PublishRaw(RAW_KIND_UPDATE, key, liveValue, timestamp.UnixTimestampMs);
 	}

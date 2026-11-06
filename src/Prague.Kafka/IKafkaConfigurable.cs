@@ -9,4 +9,9 @@ public interface IKafkaConfigurable<TSelf> where TSelf : IKafkaConfigurable<TSel
 	///   Configures the Kafka topic for a cache instance.
 	/// </summary>
 	static abstract void ConfigureTopic(TSelf cache, string topicName);
+
+	/// <summary>
+	///   Configures the partition count of the cache's topic, read from topic metadata at startup.
+	/// </summary>
+	static abstract void ConfigurePartitionCount(TSelf cache, int partitionCount);
 }
