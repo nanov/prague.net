@@ -943,14 +943,15 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
-	private AddOrUpdateOperation TryAddOrUpdateInternal(
+	private AddOrUpdateOperation TryAddOrUpdateInternal<TPolicy, TArgs>(
 		Tables tables,
 		TKey key,
 		int hashcode,
 		TValue value,
-		Func<TKey, TValue, TValue, bool> shouldAdd,
+		ref TArgs args,
 		bool acquireLock,
-		out TValue? prevValue) {
+		out TValue? prevValue)
+		where TPolicy : struct, IAddOrUpdatePolicy<TKey, TValue, TArgs> {
 		bool resizeDesired;
 		while (true) {
 			var locks = tables.Locks;
@@ -969,7 +970,8 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 						if (hashcode == curr.Hashcode && KeyEquals(curr.Key, key)) {
 							var oldValue = curr.Value;
 							if (oldValue is not null) {
-								if (shouldAdd(key, value, oldValue)) {
+								if (TPolicy.ShouldUpdate(key, value, oldValue, ref args)) {
+									TPolicy.OnWrite(key, value, oldValue, ref args);
 									if (!typeof(TValue).IsValueType || ConcurrentDictionaryTypeProps<TValue>._isWriteAtomic) {
 										curr.Value = value;
 									} else {
@@ -993,6 +995,7 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 						curr = curr.Next;
 					}
 
+					TPolicy.OnWrite(key, value, default, ref args);
 					var added = new Node(key, value, hashcode, local);
 					Volatile.Write(ref local, added);
 					if (++tables.CountPerLock[(int)lockNo] > _budget)
@@ -1031,10 +1034,19 @@ internal class ConcurrentCacheStore<TKey, TValue> where TKey : notnull {
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public UpdateResult AddOrUpdate(TKey key, TValue newValue, Func<TKey, TValue, TValue, bool> shouldUpdate) {
+	public UpdateResult AddOrUpdate(TKey key, TValue newValue, Func<TKey, TValue, TValue, bool> shouldUpdate)
+		=> AddOrUpdate<ShouldUpdateFuncPolicy<TKey, TValue>, Func<TKey, TValue, TValue, bool>>(key, newValue, ref shouldUpdate);
+
+	/// <summary>
+	///   Writes <paramref name="newValue"/> unless <typeparamref name="TPolicy"/> reports it the same as the resident value.
+	///   The policy's <c>ShouldUpdate</c> and <c>OnWrite</c> run under the bucket lock, each at most once.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public UpdateResult AddOrUpdate<TPolicy, TArgs>(TKey key, TValue newValue, ref TArgs args)
+		where TPolicy : struct, IAddOrUpdatePolicy<TKey, TValue, TArgs> {
 		var tables = _tables;
 		var hashCode = GetHashCode(key);
-		return TryAddOrUpdateInternal(tables, key, hashCode, newValue, shouldUpdate, true, out var prevValue) switch {
+		return TryAddOrUpdateInternal<TPolicy, TArgs>(tables, key, hashCode, newValue, ref args, true, out var prevValue) switch {
 			AddOrUpdateOperation.Add => new UpdateResult(AddOrUpdateOperation.Add, newValue, default, hashCode),
 			AddOrUpdateOperation.Update => new UpdateResult(AddOrUpdateOperation.Update, newValue, prevValue, hashCode),
 			AddOrUpdateOperation.Same => new UpdateResult(AddOrUpdateOperation.Same, prevValue!, default, hashCode),

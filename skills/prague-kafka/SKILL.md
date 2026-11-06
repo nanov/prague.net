@@ -58,7 +58,10 @@ A process never consumes its own writes (an `X-Producer-Id` header self-filter).
 orders.AddOrUpdateAndProduce(order);               // local write; produces only if the value changed
 orders.AddOrUpdateAndProduce(order, force: true);  // produces always
 orders.RemoveAndProduce(order.OrderId);            // local remove + tombstone
+orders.AddOrUpdateAndProduce(order, now, static (next, resident, ts) => next.ChangedAt = ts); // stamp, then produce
 ```
+
+The on-write callback runs only when the local write goes ahead (after the equality check), so the produced record is the stamped one and an unchanged write produces nothing. It has no `force` form. The rules are in `prague-modeling`, Stamping a write.
 
 Write a new instance: a resident row changed in place compares equal to itself, so `AddOrUpdateAndProduce` produces nothing and the change never leaves the process. Clone, change the clone, write the clone (`prague-modeling`, Changing a cached row).
 

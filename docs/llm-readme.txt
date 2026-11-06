@@ -117,6 +117,10 @@ InvoiceNumber (Unique), sort "ByPriority":
     void AddOrUpdate(Order doc)                     timestamp = now
     void AddOrUpdate(Order doc, long timestampMs)
     bool AddOrUpdate(Order doc, out Order? old)     true = Add or Update, false = structurally Same
+    bool AddOrUpdate(Order doc, Action<Order, Order?> onWrite)
+    bool AddOrUpdate<TState>(Order doc, TState state, Action<Order, Order?, TState> onWrite)
+    bool AddOrUpdate(Order doc, long timestampMs, [TState state,] onWrite, out Order? old)
+                                                    on-write callback: see 4. WRITING
     Query()                                         eager fluent builder
     Prepare()  /  Prepare<TArgs>()                  prepared builder (TArgs : struct)
     static readonly IComparer<Order> ByPriorityComparer
@@ -139,6 +143,9 @@ InvoiceNumber (Unique), sort "ByPriority":
   With Prague.Kafka referenced, extension methods:
     orderCache.AddOrUpdateAndProduce(order)         local write; produces ONLY if changed
     orderCache.AddOrUpdateAndProduce(order, force: true)   local write; produces ALWAYS
+    orderCache.AddOrUpdateAndProduce([int partition,] order, [TState state,] onWrite)
+                                                    on-write callback, produces the mutated doc ONLY if
+                                                    written; no force form
     orderCache.ForceProduceAll() → int              REPAIR ONLY: snapshot every resident record (all store
                                                     locks held during the copy), produce each one, return count
     orderCache.RemoveAndProduce(key) → bool         local remove + tombstone (published either way)
@@ -166,6 +173,13 @@ at most MaxJoins = 5 joins, result structs go to MaxJoinResults = 15 slots). Nev
   cache.Cache.TryGet(ICollection<TKey> keys, Span<TValue> results [, predicate]) → int  (hit count)
 Semantics: AddOrUpdate compares with CacheEquals; equal → nothing swapped, no index touched, result
 "Same". Timestamps are Unix ms and feed LastUpdated indices.
+  cache.AddOrUpdate(doc, [timestampMs,] [state,] static (next, resident[, state]) => ... [, out old])
+    On-write callback. Runs at most once, under the store lock for the key, AFTER the CacheEquals check
+    and before the doc is stored: Add → resident null; Update → resident = current row; Same → NOT run.
+    Indexes and the produced record see the mutated doc. Mutate ONLY next (never resident); changing the
+    key throws InvalidOperationException and writes nothing; never touch the cache inside it; a throw
+    leaves the cache unchanged. Stamped fields: [DataCacheIgnoreEquality] + a set accessor (init cannot
+    be assigned). Concurrent writers to one key see each other's stored row → counters lose nothing.
   cache.AddOrUpdateAndProduce(doc)               local conditional write, Produce only if it changed
   cache.AddOrUpdateAndProduce(doc, force: true)  same local write, Produce ALWAYS (re-publish current
                                                  state; consumers still apply it through CacheEquals)

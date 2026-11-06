@@ -1442,10 +1442,52 @@ public sealed class InMemoryDataCache<TKey, TValue>
 
 	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
 	public bool AddOrUpdate(TKey key, TValue value, long timestamp, out TValue? oldValue) {
-		var r = _cache.AddOrUpdate(key,
-			value,
-			static (_, ov, nv) => !ov!.CacheEquals(nv));
+		var none = default(NoArgs);
+		return Apply(key, _cache.AddOrUpdate<ChangedPolicy, NoArgs>(key, value, ref none), timestamp, out oldValue);
+	}
 
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	public bool AddOrUpdate(TKey key, TValue value) {
+		return AddOrUpdate(key, value, DateTimeOffset.Now.ToUnixTimeMilliseconds());
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	public bool AddOrUpdate(TKey key, TValue value, long timestamp) {
+		return AddOrUpdate(key, value, timestamp, out _);
+	}
+
+	/// <summary>
+	///   <see cref="AddOrUpdate(TKey,TValue,long,out TValue)"/> with an on-write callback. <paramref name="onWrite"/> runs
+	///   under the store's bucket lock, at most once, after the equality check decided to write and before the value is
+	///   stored: on an add with the resident argument <c>null</c>, on an update with the resident value. It does not run
+	///   when the value is cache-equal to the resident one. Indexes are maintained from the mutated value.
+	/// </summary>
+	/// <remarks>
+	///   The callback may mutate only the incoming value, never the resident one (indexes need its old field values and
+	///   readers hold it), must not change the key, and must not touch the cache. A throw leaves the cache unchanged.
+	/// </remarks>
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	public bool AddOrUpdate(TKey key, TValue value, long timestamp, Action<TValue, TValue?> onWrite, out TValue? oldValue) {
+		ArgumentNullException.ThrowIfNull(onWrite);
+		return Apply(key, _cache.AddOrUpdate<ChangedOnWritePolicy, Action<TValue, TValue?>>(key, value, ref onWrite), timestamp,
+			out oldValue);
+	}
+
+	/// <summary>
+	///   <see cref="AddOrUpdate(TKey,TValue,long,Action{TValue,TValue},out TValue)"/> with caller state passed to a static
+	///   callback, so no closure is allocated.
+	/// </summary>
+	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
+	public bool AddOrUpdate<TState>(TKey key, TValue value, long timestamp, TState state, Action<TValue, TValue?, TState> onWrite,
+		out TValue? oldValue) {
+		ArgumentNullException.ThrowIfNull(onWrite);
+		var args = new OnWriteArgs<TState>(onWrite, state);
+		return Apply(key, _cache.AddOrUpdate<ChangedOnWritePolicy<TState>, OnWriteArgs<TState>>(key, value, ref args), timestamp,
+			out oldValue);
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private bool Apply(TKey key, in ConcurrentCacheStore<TKey, TValue>.UpdateResult r, long timestamp, out TValue? oldValue) {
 		if (r.Operation is AddOrUpdateOperation.Same) {
 			oldValue = default;
 			return false;
@@ -1460,8 +1502,7 @@ public sealed class InMemoryDataCache<TKey, TValue>
 					index.Update(key, r.KeyHash, r.OldValue, r.Value, timestamp);
 				else
 					index.Add(key, r.KeyHash, r.Value, timestamp);
-			}
-			else {
+			} else {
 				index.Add(key, r.KeyHash, r.Value, timestamp);
 			}
 
@@ -1469,35 +1510,40 @@ public sealed class InMemoryDataCache<TKey, TValue>
 		return true;
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
-	public bool AddOrUpdate(TKey key, TValue value) {
-		return AddOrUpdate(key, value, DateTimeOffset.Now.ToUnixTimeMilliseconds());
+	private readonly struct NoArgs;
+
+	private readonly struct OnWriteArgs<TState>(Action<TValue, TValue?, TState> onWrite, TState state) {
+		public readonly Action<TValue, TValue?, TState> OnWrite = onWrite;
+		public readonly TState State = state;
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveOptimization)]
-	public bool AddOrUpdate(TKey key, TValue value, long timestamp) {
-		var r = _cache.AddOrUpdate(key,
-			value,
-			static (_, ov, nv) => !ov!.CacheEquals(nv));
+	/// <summary>Write unless cache-equal; nothing runs on write.</summary>
+	private readonly struct ChangedPolicy : IAddOrUpdatePolicy<TKey, TValue, NoArgs> {
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool ShouldUpdate(TKey key, TValue next, TValue current, ref NoArgs args) => !next.CacheEquals(current);
 
-		if (r.Operation is AddOrUpdateOperation.Same)
-			return false;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void OnWrite(TKey key, TValue next, TValue? current, ref NoArgs args) {
+		}
+	}
 
-		StatisticsCollector.Performed(r.Operation);
+	private readonly struct ChangedOnWritePolicy : IAddOrUpdatePolicy<TKey, TValue, Action<TValue, TValue?>> {
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool ShouldUpdate(TKey key, TValue next, TValue current, ref Action<TValue, TValue?> args)
+			=> !next.CacheEquals(current);
 
-		foreach (var index in _indeces)
-			if (r.Operation is AddOrUpdateOperation.Update) {
-				// Only update if OldValue is not null
-				if (r.OldValue is not null)
-					index.Update(key, r.KeyHash, r.OldValue, r.Value, timestamp);
-				else
-					index.Add(key, r.KeyHash, r.Value, timestamp);
-			}
-			else {
-				index.Add(key, r.KeyHash, r.Value, timestamp);
-			}
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void OnWrite(TKey key, TValue next, TValue? current, ref Action<TValue, TValue?> args) => args(next, current);
+	}
 
-		return true;
+	private readonly struct ChangedOnWritePolicy<TState> : IAddOrUpdatePolicy<TKey, TValue, OnWriteArgs<TState>> {
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool ShouldUpdate(TKey key, TValue next, TValue current, ref OnWriteArgs<TState> args)
+			=> !next.CacheEquals(current);
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void OnWrite(TKey key, TValue next, TValue? current, ref OnWriteArgs<TState> args)
+			=> args.OnWrite(next, current, args.State);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

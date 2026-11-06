@@ -2630,6 +2630,52 @@ public class CacheGenerator : IIncrementalGenerator {
 						});
 					});
 
+					// AddOrUpdateAndProduce with an on-write callback: the callback runs inside the local write (after the
+					// equality check, under the store lock) so the produced record is the mutated document. There is no
+					// force variant: force only matters when the write reported Same, and then the callback does not run.
+					var onWrite = $"System.Action<{typeName}, {typeName}?>";
+					var onWriteState = $"System.Action<{typeName}, {typeName}?, TState>";
+					const string onWriteDoc = "<paramref name=\"onWrite\"/> mutates the document inside the local write, after the equality check and only when it writes; see the cache's on-write <c>AddOrUpdate</c> for its contract.";
+
+					w.Line();
+					w.Summary("Adds or updates a document in the cache and produces it to Kafka if changed.", onWriteDoc);
+					w.Line($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, {typeName} document, {onWrite} onWrite) => AddOrUpdateAndProduce(cache, Prague.Core.PersistenceInfo.UnknownPartition, document, onWrite);");
+
+					w.Line();
+					w.Summary("Adds or updates a document in the cache and produces it to Kafka partition <paramref name=\"partition\"/> if changed.",
+						onWriteDoc,
+						"<exception cref=\"System.ArgumentOutOfRangeException\">The topic has no such partition.</exception>",
+						"<exception cref=\"System.InvalidOperationException\">The key is stored on a different partition, or the callback changed the key.</exception>");
+					w.Method($"public static void AddOrUpdateAndProduce(this {cacheFullName} cache, int partition, {typeName} document, {onWrite} onWrite)", (ref CodeWriter w) => {
+						w.Line($"var key = {keyExpression};");
+						w.Line("var target = ResolvePartition(cache, partition, key);");
+						w.Line("var metadata = ((Prague.Core.IPragueMetadataSettable)document).__PragueMetadata__;");
+						w.Line("((Prague.Core.IPragueMetadataSettable)document).SetPragueMetadata(metadata.Timestamp, metadata.Offset, target);");
+						w.If("cache.AddOrUpdate(document, onWrite)", (ref CodeWriter w) => {
+							w.Line($"{namespaceName}.CacheMarshall.Produce(cache, target, key, document);");
+						});
+					});
+
+					w.Line();
+					w.Summary("Adds or updates a document in the cache and produces it to Kafka if changed.", onWriteDoc,
+						"<paramref name=\"state\"/> is passed to a static <paramref name=\"onWrite\"/>, so no closure is allocated.");
+					w.Line($"public static void AddOrUpdateAndProduce<TState>(this {cacheFullName} cache, {typeName} document, TState state, {onWriteState} onWrite) => AddOrUpdateAndProduce(cache, Prague.Core.PersistenceInfo.UnknownPartition, document, state, onWrite);");
+
+					w.Line();
+					w.Summary("Adds or updates a document in the cache and produces it to Kafka partition <paramref name=\"partition\"/> if changed.",
+						onWriteDoc,
+						"<exception cref=\"System.ArgumentOutOfRangeException\">The topic has no such partition.</exception>",
+						"<exception cref=\"System.InvalidOperationException\">The key is stored on a different partition, or the callback changed the key.</exception>");
+					w.Method($"public static void AddOrUpdateAndProduce<TState>(this {cacheFullName} cache, int partition, {typeName} document, TState state, {onWriteState} onWrite)", (ref CodeWriter w) => {
+						w.Line($"var key = {keyExpression};");
+						w.Line("var target = ResolvePartition(cache, partition, key);");
+						w.Line("var metadata = ((Prague.Core.IPragueMetadataSettable)document).__PragueMetadata__;");
+						w.Line("((Prague.Core.IPragueMetadataSettable)document).SetPragueMetadata(metadata.Timestamp, metadata.Offset, target);");
+						w.If("cache.AddOrUpdate(document, state, onWrite)", (ref CodeWriter w) => {
+							w.Line($"{namespaceName}.CacheMarshall.Produce(cache, target, key, document);");
+						});
+					});
+
 					// RemoveAndProduce extension methods
 					w.Line();
 					w.Summary("Removes a document from the cache and produces a delete (tombstone) message to Kafka.",
@@ -7961,6 +8007,8 @@ public class CacheGenerator : IIncrementalGenerator {
 		else
 			sb.AppendLine("            => Cache.AddOrUpdate(document.GetKey(), document, timestamp, out oldDocument);");
 
+		GenerateOnWriteAddOrUpdateMethods(sb, documentTypeName, keyTypeName, keyPropertyName);
+
 		// Remove overloads
 		sb.AppendLine();
 		sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
@@ -7988,6 +8036,63 @@ public class CacheGenerator : IIncrementalGenerator {
 		sb.AppendLine(
 			$"        public bool TryGet({keyTypeName} key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out {documentTypeName} document)");
 		sb.AppendLine("            => Cache.TryGet(key, out document);");
+	}
+
+	/// <summary>
+	/// Generates the AddOrUpdate overloads that take an on-write callback. Every overload routes through the core
+	/// <c>AddOrUpdate&lt;TState&gt;</c> with a static wrapper that runs the user callback and then re-reads the key,
+	/// still under the store's bucket lock: a callback that changed the key throws before anything is written.
+	/// </summary>
+	private static void GenerateOnWriteAddOrUpdateMethods(StringBuilder sb, string documentTypeName, string keyTypeName,
+		string? keyPropertyName) {
+		var keyOf = keyPropertyName != null ? "." + keyPropertyName : ".GetKey()";
+		var onWrite = $"System.Action<{documentTypeName}, {documentTypeName}?>";
+		var onWriteState = $"System.Action<{documentTypeName}, {documentTypeName}?, TState>";
+		var keyGuard =
+			$"if (!System.Collections.Generic.EqualityComparer<{keyTypeName}>.Default.Equals(next{keyOf}, s.Key)) ThrowOnWriteKeyChanged();";
+
+		sb.AppendLine();
+		sb.AppendLine("        /// <summary>");
+		sb.AppendLine("        /// Adds or updates a document; when the write goes ahead, <paramref name=\"onWrite\"/> mutates the incoming");
+		sb.AppendLine("        /// document first. It runs at most once, under the store lock, after the equality check: on an add with the");
+		sb.AppendLine("        /// resident argument <c>null</c>, on an update with the resident document, never when the document is");
+		sb.AppendLine("        /// cache-equal to the resident one. Mutate only the incoming document; changing its key throws");
+		sb.AppendLine("        /// <see cref=\"System.InvalidOperationException\"/> and leaves the cache unchanged. Do not touch the cache from it.");
+		sb.AppendLine("        /// Returns whether the document was written.");
+		sb.AppendLine("        /// </summary>");
+		sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+		sb.AppendLine($"        public bool AddOrUpdate({documentTypeName} document, {onWrite} onWrite)");
+		sb.AppendLine("            => AddOrUpdate(document, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), onWrite, out _);");
+
+		sb.AppendLine();
+		sb.AppendLine("        /// <summary>The on-write <c>AddOrUpdate</c>; see the overload without a timestamp for the callback contract.</summary>");
+		sb.AppendLine($"        public bool AddOrUpdate({documentTypeName} document, long timestamp, {onWrite} onWrite, out {documentTypeName}? oldDocument) {{");
+		sb.AppendLine("            System.ArgumentNullException.ThrowIfNull(onWrite);");
+		sb.AppendLine($"            var key = document{keyOf};");
+		sb.AppendLine("            return Cache.AddOrUpdate(key, document, timestamp, (Key: key, OnWrite: onWrite),");
+		sb.AppendLine($"                static (next, current, s) => {{ s.OnWrite(next, current); {keyGuard} }}, out oldDocument);");
+		sb.AppendLine("        }");
+
+		sb.AppendLine();
+		sb.AppendLine("        /// <summary>The on-write <c>AddOrUpdate</c>; see the overload without a timestamp for the callback contract.</summary>");
+		sb.AppendLine("        /// <remarks><paramref name=\"state\"/> is passed to a static <paramref name=\"onWrite\"/>, so no closure is allocated.</remarks>");
+		sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+		sb.AppendLine($"        public bool AddOrUpdate<TState>({documentTypeName} document, TState state, {onWriteState} onWrite)");
+		sb.AppendLine("            => AddOrUpdate(document, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), state, onWrite, out _);");
+
+		sb.AppendLine();
+		sb.AppendLine("        /// <summary>The on-write <c>AddOrUpdate</c>; see the overload without a timestamp for the callback contract.</summary>");
+		sb.AppendLine($"        public bool AddOrUpdate<TState>({documentTypeName} document, long timestamp, TState state, {onWriteState} onWrite, out {documentTypeName}? oldDocument) {{");
+		sb.AppendLine("            System.ArgumentNullException.ThrowIfNull(onWrite);");
+		sb.AppendLine($"            var key = document{keyOf};");
+		sb.AppendLine("            return Cache.AddOrUpdate(key, document, timestamp, (Key: key, OnWrite: onWrite, State: state),");
+		sb.AppendLine($"                static (next, current, s) => {{ s.OnWrite(next, current, s.State); {keyGuard} }}, out oldDocument);");
+		sb.AppendLine("        }");
+
+		sb.AppendLine();
+		sb.AppendLine("        [System.Diagnostics.CodeAnalysis.DoesNotReturn, MethodImpl(MethodImplOptions.NoInlining)]");
+		sb.AppendLine("        private static void ThrowOnWriteKeyChanged()");
+		sb.AppendLine("            => throw new System.InvalidOperationException(\"An AddOrUpdate onWrite callback changed the document's key; nothing was written.\");");
 	}
 
 	/// <summary>

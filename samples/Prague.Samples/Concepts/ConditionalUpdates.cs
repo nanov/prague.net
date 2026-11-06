@@ -1,5 +1,5 @@
 // docs: every code block of www/docs/articles/core-concepts/conditional-updates.md — the out overload of
-// AddOrUpdate, [DataCacheIgnoreEquality], generated CacheEquals, and an ICacheAfterHandler with its
+// AddOrUpdate, [DataCacheIgnoreEquality], generated CacheEquals, the on-write callback, and an ICacheAfterHandler with its
 // registration. The handler only ever fires on the Kafka live phase, so the registration test asserts
 // the DI wiring, not a delivery.
 namespace Prague.Samples.Concepts;
@@ -10,6 +10,22 @@ using NUnit.Framework;
 using Prague.Core;
 using Prague.Kafka;
 using Prague.Samples.Models;
+
+#region on-write-entity
+[DataCache]
+public partial class BinCount {
+	[DataCacheKey]
+	public required string Sku { get; init; }
+
+	public required int OnHand { get; init; }
+
+	[DataCacheIgnoreEquality]                                      // stamped by the on-write callback, so settable
+	public int Revision { get; set; }
+
+	[DataCacheIgnoreEquality]
+	public long ChangedAtUnixMs { get; set; }
+}
+#endregion
 
 #region after-handler
 public sealed class OrderProjector : ICacheAfterHandler<string, Order> {
@@ -71,6 +87,33 @@ public class ConditionalUpdates {
 
 		Assert.That(changed, Is.False);
 		Assert.That(products.Cache.TryGet(1, out var resident) && resident.LastSeenAtUnixMs == Now, "the earlier value stays resident");
+	}
+
+	[Test]
+	public void OnWriteStampsOnlyARealWrite() {
+		var stock = new BinCountCache();
+		stock.AddOrUpdate(new BinCount { Sku = "SKU-1", OnHand = 10 });
+
+		#region on-write
+		var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+		// Runs only when the write goes ahead: after CacheEquals found a change (or the key is new), under the
+		// store lock, before the row is stored. resident is null on an add. Change only next, never resident or the key.
+		var changed = stock.AddOrUpdate(new BinCount { Sku = "SKU-1", OnHand = 7 }, now,
+			static (next, resident, stamp) => {
+				next.Revision = (resident?.Revision ?? 0) + 1;
+				next.ChangedAtUnixMs = stamp;
+			});
+		#endregion
+
+		Assert.That(changed, Is.True);
+		Assert.That(stock.Cache.TryGet("SKU-1", out var resident) && resident is { Revision: 1, OnHand: 7 } && resident.ChangedAtUnixMs == now);
+
+		var calls = 0;
+		changed = stock.AddOrUpdate(new BinCount { Sku = "SKU-1", OnHand = 7 }, (_, _) => calls++);
+
+		Assert.That(changed, Is.False, "cache-equal: the callback never ran and the stamp stays");
+		Assert.That(calls, Is.Zero);
 	}
 
 	[Test]
