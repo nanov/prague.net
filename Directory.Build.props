@@ -33,6 +33,17 @@
     <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
         <MicrosoftRuntimeVersion>10.*</MicrosoftRuntimeVersion>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+        <MicrosoftRuntimeVersion>11.*</MicrosoftRuntimeVersion>
+    </PropertyGroup>
+
+    <!-- OpenTelemetry 1.21 dropped its net9.0 asset: on net9.0 it resolves the netstandard2.0 build, which
+         drags Microsoft.Extensions.* 11.x into a net9.0 graph. Stay on 1.20.1 (last release with a net9.0
+         asset) there; every other target takes the current line. -->
+    <PropertyGroup>
+        <OpenTelemetryVersion>1.21.0</OpenTelemetryVersion>
+        <OpenTelemetryVersion Condition="'$(TargetFramework)' == 'net9.0'">1.20.1</OpenTelemetryVersion>
+    </PropertyGroup>
 
     <!-- MessagePack floats on the 3.x line so the library always builds against the
          latest 3.x; consumers are free to pull any newer 3.x of their own. -->

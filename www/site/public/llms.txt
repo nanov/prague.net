@@ -1,6 +1,6 @@
 # Prague
 
-> Prague is a compile-time-safe, in-memory event cache for .NET (net9.0 and net10.0). A Roslyn source generator turns `[DataCache]` POCOs into typed caches with secondary indices, a fluent compile-time-checked query API, pooled zero-allocation results, compile-time joins and prepared/frozen queries. Caches are hydrated from compacted Kafka topics by Prague.Kafka. It is a library, not a server: not a distributed cache, not SQL, no eviction.
+> Prague is a compile-time-safe, in-memory event cache for .NET (net9.0, net10.0 and net11.0). A Roslyn source generator turns `[DataCache]` POCOs into typed caches with secondary indices, a fluent compile-time-checked query API, pooled zero-allocation results, compile-time joins and prepared/frozen queries. Caches are hydrated from compacted Kafka topics by Prague.Kafka. It is a library, not a server: not a distributed cache, not SQL, no eviction.
 
 Packages: `Prague` (facade: Core + Attributes + Codegen), `Prague.Kafka`, optional `Prague.Api` and `Prague.Api.UI`.
 Repository: https://github.com/nanov/prague.net — License: MIT.

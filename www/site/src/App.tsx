@@ -293,7 +293,7 @@ dotnet add package Prague.Api      # optional: HTTP inspection endpoints
 dotnet add package Prague.Api.UI   # optional: Blazor UI over Prague.Api`}</code>
 					</pre>
 					<p className="mt-6 text-brand-black/75 max-w-3xl leading-relaxed">
-						Every package targets <code className="font-mono text-sm">net9.0</code> and <code className="font-mono text-sm">net10.0</code>.
+						Every package targets <code className="font-mono text-sm">net9.0</code>, <code className="font-mono text-sm">net10.0</code> and <code className="font-mono text-sm">net11.0</code>.
 						Published versions are on <a href={NUGET_URL} className="font-bold underline underline-offset-4 decoration-brand-orange decoration-2">NuGet</a>.
 						MIT licensed.
 					</p>

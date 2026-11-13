@@ -7,7 +7,7 @@ description: Prague NuGet packages, supported target frameworks and the project 
 
 ## Requirements
 
-- **.NET 9 or .NET 10 SDK.** Every Prague package multi-targets `net9.0` and `net10.0`. The library itself is compiled as C# 14; set `LangVersion` to `latest` in consumer projects so the generated code (static-abstract interface members, `static` lambdas, `in` parameters) compiles.
+- **.NET 9, .NET 10 or .NET 11 SDK.** Every Prague package multi-targets `net9.0`, `net10.0` and `net11.0`. The library itself is compiled as C# 14; set `LangVersion` to `latest` in consumer projects so the generated code (static-abstract interface members, `static` lambdas, `in` parameters) compiles.
 - No `AllowUnsafeBlocks` is needed in consumer projects; the unsafe code lives inside `Prague.Core` and `Prague.Kafka`.
 
 ## Packages
@@ -49,7 +49,7 @@ Prague generates a `partial` companion class per `[DataCache]` POCO (the `XxxCac
 
 ```xml
 <PropertyGroup>
-  <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+  <TargetFrameworks>net9.0;net10.0;net11.0</TargetFrameworks>
   <LangVersion>latest</LangVersion>
   <Nullable>enable</Nullable>
 </PropertyGroup>

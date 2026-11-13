@@ -43,7 +43,7 @@ npm install
 npm run dev       # http://localhost:5173  (dev server, live React)
 npm run build     # dist/ — static HTML + one stylesheet
 
-# Docs (requires .NET 9 and .NET 10 SDKs, because the projects multi-target both)
+# Docs (requires .NET 9, 10 and 11 SDKs, because the projects multi-target all three)
 dotnet tool install -g docfx     # one-time
 www/docs/scripts/release-notes.sh   # generates articles/reference/release-notes.md from GitHub Releases
 cd www/docs

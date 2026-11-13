@@ -111,7 +111,7 @@ short-circuits on the first empty set — no further index walks, no allocations
   (plan once, bind one of three executors, execute at 0 B from any thread)
 
 ### **⚡ Modern .NET**
-- Targets `net9.0` and `net10.0`; C# 14
+- Targets `net9.0`, `net10.0` and `net11.0`; C# 14
 - Source generators, `Span<T>`, `stackalloc`, `ArrayPool<T>`, static-abstract strategy structs,
   SIMD bitmap unions, lock-free readers
 
@@ -134,7 +134,7 @@ dotnet add package Prague.Api.UI   # optional: Blazor UI over Prague.Api
 | `Prague.Kafka` | Consumer/producer on the `Nanov.Kafka` fork, SerDe, filters, health checks, OTel. |
 | `Prague.Api` / `Prague.Api.UI` | `MapPragueEndpoints()` HTTP surface over live caches, and a MudBlazor UI for it. |
 
-Every package multi-targets `net9.0;net10.0`. Published versions are on the `0.6.0-pre.*` line.
+Every package multi-targets `net9.0;net10.0;net11.0`. Published versions are on the `0.6.0-pre.*` line.
 
 ---
 

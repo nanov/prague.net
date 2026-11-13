@@ -35,14 +35,15 @@ jobs:
           cache: npm
           cache-dependency-path: www/site/package-lock.json
 
-      # Every project multi-targets net9.0;net10.0, and DocFX compiles them
-      # to extract the API reference, so both SDKs are needed.
-      - name: Setup .NET 9 + 10
+      # Every project multi-targets net9.0;net10.0;net11.0, and DocFX compiles them
+      # to extract the API reference, so all three SDKs are needed.
+      - name: Setup .NET 9 + 10 + 11
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
             9.0.x
             10.0.x
+            11.0.x
 
       - name: Restore .NET solution
         run: dotnet restore Prague.Publish.slnf

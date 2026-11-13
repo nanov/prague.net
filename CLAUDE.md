@@ -22,7 +22,7 @@ dotnet test  tests/Prague.Core.Tests    # one project
 dotnet run -c Release -f net9.0 --project benchmarks/Prague.Benchmarks -- --inProcess --anyCategories <cat>
 ```
 
-- Every project multi-targets `net9.0;net10.0` (`Prague.Codegen` is `netstandard2.0`), so `dotnet run` needs `-f`.
+- Every project multi-targets `net9.0;net10.0;net11.0` (`Prague.Codegen` is `netstandard2.0`), so `dotnet run` needs `-f`.
 - Solution filters split scope: `*.Publish.slnf` (shippable) vs `*.Tests.slnf` (test-only). A project in neither ships nor tests — check when adding one.
 - `Prague.Kafka.IntegrationTests` need Docker (Testcontainers). Without it ~55 tests fail instantly on the socket; that is the only cause.
 - Benchmarks: `--inProcess`, one category per run, nothing else running. Record machine load next to the numbers — 5–10 µs rows move more than the deltas being claimed. Measured tables live in `benchmarks/Prague.Benchmarks/RESULTS.MD`.

@@ -87,7 +87,7 @@ public class LoadFailureTests {
 		// The buffer flush hits AddOrUpdate -> index.Add -> the throwing selector. That must reach
 		// ConsumeRawLoop, latch fatal and fault the load — not be swallowed per value, which would
 		// bring the cache up with a store/index divergence and no signal to the caller.
-		Assert.ThrowsAsync<InvalidOperationException>(async () => await hosted.StartAsync(cts.Token));
+		await Assert.ThrowsAsync<InvalidOperationException>(async () => await hosted.StartAsync(cts.Token));
 
 		var consumerStats = sp.GetRequiredService<KafkaCachesStatistics>().Consumers.Values.Single();
 		Assert.That(consumerStats.IsFatalLatchedUnsafe, Is.True,

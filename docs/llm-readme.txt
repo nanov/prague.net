@@ -12,7 +12,7 @@ www/docs/articles/**. Design specs: docs/superpowers/specs/.
 
 0. ONE-PARAGRAPH SUMMARY
 ------------------------
-Prague is an in-process, in-memory event cache for .NET (net9.0 and net10.0, C# 14). You annotate a
+Prague is an in-process, in-memory event cache for .NET (net9.0, net10.0 and net11.0, C# 14). You annotate a
 `partial` POCO with [DataCache]; a Roslyn source generator emits a strongly typed cache class
 ("XxxCache") with index storage, a fluent compile-time-checked Query() builder, a Prepare() builder
 for build-once/execute-many queries, generated deep equality (CacheEquals) and Clone(). Caches are

@@ -9,7 +9,7 @@ metadata:
 
 # Prague: modelling a cache
 
-Prague is an in-process, in-memory cache for .NET (net9.0/net10.0). A `partial` class marked `[DataCache]` gets a source-generated `XxxCache` with index storage and a compile-time-checked query builder. Not a server, not distributed, not SQL, no eviction.
+Prague is an in-process, in-memory cache for .NET (net9.0/net10.0/net11.0). A `partial` class marked `[DataCache]` gets a source-generated `XxxCache` with index storage and a compile-time-checked query builder. Not a server, not distributed, not SQL, no eviction.
 
 Verified against Prague 0.9.1. When this file and the code disagree, the code wins: read the generated source under `obj/`.
 

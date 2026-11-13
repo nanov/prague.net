@@ -5,7 +5,7 @@ description: Documentation for Prague, a compile-time-safe in-memory event cache
 
 # Prague
 
-**Prague** is a compile-time-safe, in-memory event cache for .NET (`net9.0` and `net10.0`). You annotate a `partial` POCO with `[DataCache]`, `[DataCacheKey]`, `[DataCacheIndex]` and `[DataCacheForeignKey<T>]`; a Roslyn source generator emits a typed cache with secondary indices, a fluent query API that the compiler checks, foreign-key joins, and prepared queries that plan once and execute at zero allocations. `Prague.Kafka` keeps those caches hydrated from compacted Kafka topics inside your process. No network hop, no reflection, no eviction.
+**Prague** is a compile-time-safe, in-memory event cache for .NET (`net9.0`, `net10.0` and `net11.0`). You annotate a `partial` POCO with `[DataCache]`, `[DataCacheKey]`, `[DataCacheIndex]` and `[DataCacheForeignKey<T>]`; a Roslyn source generator emits a typed cache with secondary indices, a fluent query API that the compiler checks, foreign-key joins, and prepared queries that plan once and execute at zero allocations. `Prague.Kafka` keeps those caches hydrated from compacted Kafka topics inside your process. No network hop, no reflection, no eviction.
 
 Every C# block on this site is pulled from the [compiled samples project](https://github.com/nanov/prague.net/tree/main/samples/Prague.Samples) and runs as a test, so what you read is what compiles against the current release.
 

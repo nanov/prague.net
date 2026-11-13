@@ -59,6 +59,6 @@ public class ValueDictionaryCapacityTests {
 		}
 	}
 
-	private static void AssertCapacityGuardTrips(TestDelegate insert) =>
+	private static void AssertCapacityGuardTrips(Action insert) =>
 		Assert.That(Assert.Catch(insert)?.Message, Does.Contain("ValueDictionary capacity exceeded"));
 }
