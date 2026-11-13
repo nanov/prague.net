@@ -13,7 +13,7 @@ using Core;
 using Models;
 
 /// <summary>
-///   Cross-runtime (net9.0 + net10.0) single-query-per-op benchmark contrasting the non-join path
+///   Cross-runtime (net9.0 + net10.0 + net11.0) single-query-per-op benchmark contrasting the non-join path
 ///   with the heavy 3-level join (Product → ProductInfo (1:1) → Offers (1:N)), each via the
 ///   allocating <c>Execute()</c> and the pooled <c>ExecutePooled()</c> path. Runs out-of-process so
 ///   BenchmarkDotNet builds and executes on both runtimes; [MemoryDiagnoser] surfaces the GC/Allocated
@@ -170,7 +170,7 @@ public class JoinRuntimeBenchmarks {
 
 	private class Config : ManualConfig {
 		public Config() {
-			// BenchmarkDotNet 0.15.8 has no built-in .NET 10 runtime moniker, so drive each TFM via the
+			// BenchmarkDotNet 0.15.8 has no built-in .NET 10/11 runtime monikers, so drive each TFM via the
 			// CsProj toolchain directly — it builds + runs the benchmark out-of-process per framework.
 			AddJob(Job.Default
 				.WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net9.0", null, ".NET 9.0")))
@@ -178,6 +178,9 @@ public class JoinRuntimeBenchmarks {
 			AddJob(Job.Default
 				.WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net10.0", null, ".NET 10.0")))
 				.WithId("net10.0"));
+			AddJob(Job.Default
+				.WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net11.0", null, ".NET 11.0")))
+				.WithId("net11.0"));
 			AddColumn(StatisticColumn.OperationsPerSecond);
 			AddColumn(new ReadsPerSecondColumn());
 		}

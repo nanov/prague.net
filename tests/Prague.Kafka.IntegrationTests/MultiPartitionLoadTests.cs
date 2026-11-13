@@ -144,7 +144,7 @@ public class MultiPartitionLoadTests {
 		var (_, first) = await StartAsync(new RecordingAfterHandler(), groupId);
 		Assert.That(first.Cache.Count, Is.EqualTo(2), "the sole member is assigned both partitions");
 
-		Assert.ThrowsAsync<TimeoutException>(() => StartAsync(new RecordingAfterHandler(), groupId, TimeSpan.FromSeconds(15)));
+		await Assert.ThrowsAsync<TimeoutException>(() => StartAsync(new RecordingAfterHandler(), groupId, TimeSpan.FromSeconds(15)));
 
 		var second = _providers[^1];
 		var consumerStats = second.GetRequiredService<KafkaCachesStatistics>().Consumers.Values.Single();

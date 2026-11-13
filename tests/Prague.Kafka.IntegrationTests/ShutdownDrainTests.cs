@@ -71,7 +71,7 @@ public class ShutdownDrainTests {
 		using var stopCts = new CancellationTokenSource();
 		await stopCts.CancelAsync();
 		var sw = Stopwatch.StartNew();
-		Assert.DoesNotThrowAsync(async () => await hosted.StopAsync(stopCts.Token),
+		await Assert.DoesNotThrowAsync(async () => await hosted.StopAsync(stopCts.Token),
 			"the host giving up on the wait is not a Prague fault");
 		sw.Stop();
 

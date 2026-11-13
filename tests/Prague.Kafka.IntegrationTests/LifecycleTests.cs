@@ -102,7 +102,7 @@ public class LifecycleTests {
 		await loader.StartAsync(cts.Token);
 
 		// A clean stop must complete without throwing.
-		Assert.DoesNotThrowAsync(async () => await hosted.StopAsync(CancellationToken.None));
+		await Assert.DoesNotThrowAsync(async () => await hosted.StopAsync(CancellationToken.None));
 	}
 
 	/// <summary>
@@ -154,7 +154,7 @@ public class LifecycleTests {
 		Assert.DoesNotThrow(() => (hosted as IDisposable)?.Dispose(),
 			"disposing the worker must release the loader and consumer sources without throwing");
 		Assert.DoesNotThrow(() => (hosted as IDisposable)?.Dispose(), "Dispose must be idempotent");
-		Assert.DoesNotThrowAsync(async () => await hosted.StopAsync(CancellationToken.None),
+		await Assert.DoesNotThrowAsync(async () => await hosted.StopAsync(CancellationToken.None),
 			"a stop after disposal must not touch the released source");
 		Assert.DoesNotThrow(() => sp.Dispose(), "DI teardown after a manual dispose must be safe");
 	}

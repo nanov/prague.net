@@ -5,7 +5,7 @@ description: What Prague is, what it is not, and how data flows from a compacted
 
 # Introduction
 
-Prague (`Prague`) is a compile-time-safe, in-memory event cache for .NET (`net9.0` and `net10.0`). It is built for one workload: turning event-sourced data streams (typically compacted Kafka topics) into typed, queryable, low-latency views inside your process.
+Prague (`Prague`) is a compile-time-safe, in-memory event cache for .NET (`net9.0`, `net10.0` and `net11.0`). It is built for one workload: turning event-sourced data streams (typically compacted Kafka topics) into typed, queryable, low-latency views inside your process.
 
 ## What Prague is
 
