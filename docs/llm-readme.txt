@@ -313,7 +313,7 @@ global indices between the registered caches.
 11. KAFKA (Prague.Kafka)
 ------------------------
   services.AddKafkaCaches(
-      o => { o.BootstrapServers = "kafka:9092"; o.ClientSettings["group.id"] = "svc"; o.Vars["env"] = "prod"; },
+      o => { o.BootstrapServers = "kafka:9092"; o.ClientSettings["client.id"] = "svc" /* leave group.id unset: each process reads the whole topic */; o.Vars["env"] = "prod"; },
       b => {
           b.AddCache<OrderCache, string, Order>()               // topic from [DataCacheTopic] / default
               .WithHeaderEqualsFilter("tenant", "acme")        // string | int | long, 1..n values (OR)

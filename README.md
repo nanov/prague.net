@@ -638,7 +638,7 @@ OrderCache.TopicNameTemplate                // "orders.[v:env]" — compile-time
 services.AddKafkaCaches(
     o => {
         o.BootstrapServers = "kafka:9092";
-        o.ClientSettings["group.id"] = "my-service";      // forwarded to librdkafka
+        o.ClientSettings["client.id"] = "my-service";     // forwarded to librdkafka; leave group.id unset
         o.Vars["env"] = "prod";                           // topic-template placeholders
     },
     b => {
