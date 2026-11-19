@@ -62,6 +62,8 @@ public partial class Order {
 
 	[DataCacheHasValueIndex]                                       // WithSettledAtUnixMs() = non-null
 	public long? SettledAtUnixMs { get; init; }
+
+	public required decimal Total { get; init; }                   // not indexed: .Where(o => o.Total > x)
 }
 ```
 
