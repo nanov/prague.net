@@ -1,15 +1,16 @@
 ---
 name: prague-queries
-description: "Query Prague in-memory caches in .NET: cache.Query() lanes and Or, Execute vs ExecutePooled with mandatory Dispose of QueryResults<T>, Sort vs SortBounded paging, Prepare()/Build()/BuildFrozen() with the frozen row-order contract, JoinWith{T}/InnerJoinWith{T}/CountJoinWith{T} joins, DataCacheRegistryBuilder, global last-update queries, the concurrency contract. Use when writing or reviewing code that reads a Prague cache, pages an API over one, builds a FrozenQuery, or joins caches. Declaring caches lives in prague-modeling."
+description: "Reading Prague caches: Query() lanes, ExecutePooled and QueryResults disposal, Sort/SortBounded paging, Prepare/BuildFrozen, JoinWith{T}, UpdatedAfter, DataCacheRegistryBuilder. Use when writing or reviewing code that reads, pages or joins a cache. Not for declaring caches (use prague-modeling)."
 license: MIT
 metadata:
-  package: Prague
+  applies-to: "Prague >= 0.9.0, <= 0.10.0"
+  verified: 2026-11-19
   docs: https://nanov.github.io/prague.net/docs/articles/core-concepts/query-engine.html
 ---
 
 # Prague: querying
 
-Reads go through the generated `XxxCache` (see `prague-modeling` for declaring it). Verified against Prague 0.9.0; when this file and the code disagree, the code wins. `using Prague.Core;`.
+Reads go through the generated `XxxCache` (see `prague-modeling` for declaring it). When this file and the code disagree, the code wins. `using Prague.Core;`.
 
 ## Eager queries
 
@@ -18,11 +19,12 @@ using var orders = cache.Query()
 	.WithCustomerId(42)                                   // most selective lane first
 	.WithCreatedAtUnixMs(q => q.Gte(yesterdayUnixMs))
 	.ExecutePooled();
-foreach (var order in orders) { ... }
+foreach (var order in orders)
+	Console.WriteLine(order.OrderId);
 ```
 
 - Each `WithXxx` is a lane. Lanes intersect (AND); the first empty lane short-circuits. On the eager path the lane order is the plan: put the most selective first.
-- `WithXxx(T | T? | ReadOnlySpan<T> | T[] | List<T>)`: a null `T?` skips the lane; several values = OR within the lane. `WithKey(...)` narrows by primary key.
+- `WithXxx(T | T? | ReadOnlySpan<T> | T[] | List<T>)`: a null `T?` skips the lane; several values = OR within the lane. A collection expression (`WithStatus([a, b])`) is ambiguous between the overloads (CS0121): pass `new[] { a, b }` or a span. `WithKey(...)` narrows by primary key.
 - Range lanes: `q => q.Gte(a).Lt(b)` is `[a, b)`. Open with `Gt`/`Gte` or `Lt`/`Lte`, optionally close the other side; a single value is `Gte(x).Lte(x)`, a disjunction the query-level `.Or(...)`. A sentinel-keyed range (`?? long.MinValue`, see `prague-modeling`) opens with `Gt(long.MinValue)` or `Gte(Math.Max(from, long.MinValue + 1))` so the null rows stay out.
 - `.Or(b1, b2)` or `.Or(static (b, a) => ..., static (b, a) => ..., arg)`: union of two branches, intersected with the rest. Branches take `WithXxx` / `UseIndex` / nested `Or` only.
 - `.Where(v => ...)` filters survivors after all lanes; it never uses an index.
@@ -34,7 +36,7 @@ Terminals:
 - `ExecutePooled()` / `ExecutePooledCloned()`, same parameters: rented from the pool; **always `using var`**.
 - `Count()`: no parameters, materializes nothing.
 
-`QueryResults<T>` is a readonly struct and is the list itself: `Count`, `TotalCount` (before paging), `Truncated`, indexer, `AsSpan()`, `Slice`, `ToArray()`, `ToList()`, `ToDictionary(...)`, ref enumerator. `results.Map(f)` disposes the source and returns a new result of the same pooled kind: dispose the mapped one. Project into a `readonly record struct` row type: it lives inline in the pooled buffer, where a `record class` row is one heap object per row per call. Rows of an unmapped result are the cached instances: read them. To change one, clone, change the clone, write the clone (`prague-modeling`, Changing a cached row); `ExecuteCloned` / `ExecutePooledCloned` return copies.
+`QueryResults<T>` is a readonly struct and is the list itself: `Count`, `TotalCount` (before paging), `Truncated`, indexer, `AsSpan()`, `Slice`, ref enumerator. `Map(f)`, `ToArray()`, `ToList()`, `ToHashSet()` and `ToDictionary(...)` consume it: they dispose the source, so read anything else from it first. `Map` returns a new result of the same pooled kind: dispose the mapped one. Project into a `readonly record struct` row type: it lives inline in the pooled buffer, where a `record class` row is one heap object per row per call. Rows of an unmapped result are the cached instances: read them. To change one, clone, change the clone, write the clone (`prague-modeling`, Changing a cached row); `ExecuteCloned` / `ExecutePooledCloned` return copies.
 
 ## Sorting and paging
 
@@ -105,7 +107,7 @@ var customers = registry.GetCache<CustomerCache>();
 
 ## Changed since a watermark
 
-With `[DataCacheGlobalLastUpdateIndex<TIndex>]` on the cache's primary key: `cache.Query().UpdatedAfter(afterMs [, out long maxMs])` (also `DateTime`/`DateTimeOffset`, and `(after, untilInclusive)`). "After" is strictly greater. On a non-key group key read the index itself: `registry.GetGlobalIndex<TIndex>().Index.GetValuesGt(ms)` returns the changed group keys. Watermarks across caches are not transactional: take the minimum.
+With `[DataCacheGlobalLastUpdateIndex<TIndex>]` on the cache's primary key (see `prague-modeling`): `cache.Query().UpdatedAfter(afterMs [, out long maxMs])`, or a `DateTimeOffset`. The prepared builder adds `(after, untilInclusive)` windows and argument selectors (`UpdatedAfter(static a => a.Since)`). "After" is strictly greater. On a non-key group key read the index itself: `registry.GetGlobalIndex<TIndex>().Index.GetValuesGt(ms)` returns the changed group keys. Watermarks across caches are not transactional: take the minimum.
 
 ## Concurrency
 
@@ -120,6 +122,7 @@ One writer per cache, lock-free readers, no snapshot isolation. A query never th
 | `q => q.Between(a, b)`, `q.Eq(x)` | `q => q.Gte(a).Lt(b)`; disjunction via `.Or(...)` |
 | `.Map(...)` on the builder | execute first, then `results.Map(...)` |
 | `results.Items` | `QueryResults` is the list: `Count`, indexer, `AsSpan()` |
+| reading `results` after `ToList()` / `ToArray()` / `ToDictionary()` | they consume it: read it first, or use the copy |
 | `.SortByPriority()` | `.Sort(OrderCache.ByPriorityComparer)` or `SortBounded` |
 | paging with a non-total comparer | end the comparer with the primary key |
 | `Gte(from)` on a sentinel-keyed range with `from = long.MinValue` | `Gt(long.MinValue)`, or clamp `from` to `long.MinValue + 1` |
