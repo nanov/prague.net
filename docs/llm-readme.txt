@@ -69,7 +69,7 @@ Attributes (all in namespace Prague.Core):
                                                 Key-set index of keys where `Prop op constant` holds /
                                                 does not hold. CompareOp: Equal, NotEqual, GreaterThan,
                                                 GreaterThanOrEqual, LessThan, LessThanOrEqual.
-                                                Optional IndexName; verb With{IndexName}() / Without{IndexName}().
+                                                Optional IndexName (default: Prop+Op+Value, e.g. StockGreaterThan0); verb With{IndexName}() for both.
   [DataCacheForeignKey<T>(DataCacheJoinType)]   property holding the FK. See §7.
   [DataCacheForeignKey<T>(joinType, nameof(T.FkProp))]   "dual form" — placed on the TARGET's PK when you
                                                 cannot annotate the FK owner; equivalent to the direct
@@ -96,8 +96,9 @@ Attributes (all in namespace Prague.Core):
   [DataCacheHeader("header-name")]              property. Filled from a Kafka header (MessagePack-first
                                                 numeric SerDe for int/long).
   [DataCacheFrom<TSource>]                      class. IDE refactoring helper: copy properties from TSource.
-  [DataCacheJsonSerializables]                  on a partial JsonSerializerContext: registers
-                                                QueryResults<T> types for System.Text.Json source gen.
+  [DataCacheJsonSerializables]                  emits nothing today. JSON for QueryResults<T>: the generated
+                                                {RootNamespace}.Serialization.DataCachesResolver and
+                                                services.ConfigureDataCachesJsonOptions() (ASP.NET Core).
 
 DataCacheJoinType: OneToOne, OneToMany (legacy, target's perspective), ManyToOne (canonical, FK
 holder's perspective).
@@ -134,7 +135,7 @@ InvoiceNumber (Unique), sort "ByPriority":
     WithInvoiceNumber(...)                          same overloads
     WithCreatedAt(q => q.Gte(a).Lt(b))              range sub-builder
     WithXxx() / WithoutXxx()                        key-set indices
-    UpdatedAfter(long|DateTime|DateTimeOffset [, out long max]) / UpdatedAfter(after, untilInclusive)
+    UpdatedAfter(long|DateTimeOffset [, out long max]); window and arg forms on the prepared builder
                                                     only when a global last-update index sits on the PK
     JoinWith{T}() / InnerJoinWith{T}()              from FKs, 3 overloads each (no filter, filter, filter+arg)
     CountJoinWith{T}() / InnerCountJoinWith{T}()    for every JoinWith{T} with a QueryResults slot: slot is int (right count), same 3 overloads
@@ -208,7 +209,7 @@ Return type QueryResults<T> (readonly struct, IList<T>, IReadOnlyList<T>, IDispo
   Count, TotalCount (pre-paging), Truncated, this[i], AsSpan(), AsMemory(), Slice(i[,n]),
   Sort<TComparer>(cmp), Map<TMapped>(Func) — Map CONSUMES/disposes the source and returns a new result
   of the same pooled kind, so dispose the mapped one —, ToArray(), ToPooledArray(), ToList(),
-  ToHashSet(), ToDictionary(...), CloneElements(), implicit → ReadOnlySpan<T>,
+  ToHashSet(), ToDictionary(...) (these consume/dispose the source too), CloneElements(), implicit → ReadOnlySpan<T>,
   ref enumerator (`foreach (ref var x in results)` edits in place). QueryResults<T>.Empty exists.
 Range sub-builder (type-state): start with Gt/Gte OR Lt/Lte, then optionally the other side.
   There is NO Between, NO Eq, NO Or on the range builder. `q => q.Gte(a).Lt(b)` is [a, b).
@@ -391,10 +392,9 @@ are the floor under slot sizing and are expected to be false / 0.
   deriving from KafkaCachesBackgroundService (obsolete)    → BackgroundService + `await registry.LoadingCompletion.WaitAsync(stoppingToken)`
   `cache.Cache.TryGetValues(...)`                          → `cache.Cache.TryGet(keys, span)` / `TryGet(keys)`
   `.SortByPriority()`                                      → `.Sort(OrderCache.ByPriorityComparer)` or SortBounded
-  `OrderCache.Topic`                                       → `OrderCache.TopicNameTemplate`
+  `OrderCache.Topic` (static)                              → `OrderCache.TopicNameTemplate`; `orders.Topic` = resolved name
   `[DataCacheTopic("a.{version}")]`                        → `[DataCacheTopic("a.[v:version]")]` + o.Vars["version"]
   `services.AddPragueKafka(...).AddConsumer(...)`          → `services.AddKafkaCaches(o => ..., b => b.AddCache<..>())`
-  `b.AddOrderCache()`                                      → `b.AddCache<OrderCache, string, Order>()`
   `Prepare<MyArgsClass>()`                                 → make TArgs a struct / record struct / tuple
   `.Where((v, a) => ...)` on a prepared builder            → `.Where(static (v, in a) => ...)`
   Match without Default                                    → end with .Default(...) or .Default()

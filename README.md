@@ -251,7 +251,7 @@ var recentIds  = cache.CreatedAtIndex.GetValuesBetween(startMs, endMs);    // Ra
 | `[DataCacheIndex(Many, Symmetric = true)]` | `CacheSymmetricKeyValueListIndex` | 1:N + reverse map | as `Many`; enables left-index-driven joins |
 | `[DataCacheIndex(Unique, Symmetric = true)]` | `CacheSymmetricUniqueIndex` | 1:1 + reverse map | as `Unique` |
 | `[DataCacheHasValueIndex]` / `[DataCacheHasNotValueIndex]` | `CacheKeySetIndex` | keys with non-null / null (or `true` / `false`) | `WithXxx()` / `WithoutXxx()` |
-| `[DataCacheValueIndex(CompareOp, value)]` / `[DataCacheNoValueIndex(…)]` | `CacheKeySetIndex` | keys matching / not matching a constant comparison | `With{IndexName}()` / `Without{IndexName}()` |
+| `[DataCacheValueIndex(CompareOp, value)]` / `[DataCacheNoValueIndex(…)]` | `CacheKeySetIndex` | keys matching / not matching a constant comparison | `With{IndexName}()` for both; the default name spells the predicate (`WithStockGreaterThan0()`) |
 | `[DataCacheGlobalLastUpdateIndex<TIndex>]` | `LastUpdatedIndex` | recency per group key, shared across caches | `UpdatedAfter(...)` — see below |
 
 - A `Many` index takes an `InitialCapacity` hint for its per-key buckets: `[DataCacheIndex(Many, 4)]`.
