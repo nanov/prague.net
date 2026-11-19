@@ -1,16 +1,16 @@
 ---
 name: prague-handlers
-description: "Prague message filters and after-handlers: WithHeaderEqualsFilter, WithKeyFilter, WithValueFilter(treatAsDelete), ICacheAfterHandler, UpdateType, projections that include the loaded data. Use when filtering a cache's messages or reacting to its changes. Not for cache wiring (use prague-kafka)."
+description: "Prague filters and after-handlers: WithHeaderEqualsFilter, WithValueFilter(treatAsDelete), ICacheAfterHandler, UpdateType, projections over loaded data. Use when filtering a cache's messages, reacting to its changes, or when a handler misses or double-counts. Not for wiring (use prague-kafka)."
 license: MIT
 metadata:
-  applies-to: "Prague >= 0.9.0, <= 0.10.0"
+  applies-to: "Prague >= 0.9.0"
   verified: 2026-11-19
   docs: https://nanov.github.io/prague.net/docs/articles/how-to/react-to-changes.html
 ---
 
 # Prague: filters and after-handlers
 
-Both hang off a cache registered with `AddKafkaCaches` (see `prague-kafka`). Filters decide whether a message enters the cache; after-handlers run once the cache has applied it. When this file and the code disagree, the code wins. Namespaces `Prague.Kafka` and `Prague.Core`.
+Both hang off a cache registered with `AddKafkaCaches` (see `prague-kafka`). Filters decide whether a message enters the cache; after-handlers run once the cache has applied it. Namespaces `Prague.Kafka` and `Prague.Core`.
 
 ## Pipeline per message
 
@@ -20,7 +20,7 @@ Both hang off a cache registered with `AddKafkaCaches` (see `prague-kafka`). Fil
 4. `AddOrUpdate` / `Remove` on the cache: `CacheEquals` decides Add, Update or Same.
 5. After-handlers, live phase only, sequentially, on the cache's live worker.
 
-Everything up to step 4 runs on the single consume thread, for every message, including the initial replay.
+Steps 1-3 run on the single consume thread for every message, including the initial replay. Step 4 runs there during the load and on the cache's live worker afterwards, just before step 5.
 
 ## Filters
 
@@ -42,6 +42,7 @@ b.AddCache<OrderCache, string, Order>()
   A plain filter placed before it still wins: a message it rejects is skipped, not deleted.
 - A throwing predicate is a plain reject (skip), never a delete.
 - Header filters have no `treatAsDelete`. A header value filter drops a tombstone that carries a rejected value; `WithHeaderExistsFilter` lets tombstones through.
+- Value filters see the deserialized value before enrichment: `[DataCacheHeader]` and `[DataCacheFromTimestamp]` properties are still default there. Filter on a header with `WithHeaderEqualsFilter` / `WithHeaderFilter<T>`.
 - Filters never re-run over data already in memory. Changing a filter affects only later messages; restart to reload under the new filter.
 
 Filters with DI state:
@@ -117,6 +118,8 @@ services.AddKafkaCaches(b => b.AddCache<OrderCache, string, Order>()
 	.WithAfterHandler(sp => sp.GetRequiredService<OpenTotals>()));
 ```
 
+A handler whose state nobody else reads can be registered by type, `.WithAfterHandler<OrderAuditLog>()`; Prague creates the singleton.
+
 | `UpdateType` | `key` | `newValue` | `oldValue` | When |
 |---|---|---|---|---|
 | `Add` | set | set | null | key was not resident |
@@ -148,6 +151,7 @@ The cache compares the incoming value with the resident one using the generated 
 | adding deltas in both the seed and the handler | absolute per-key contributions under one lock |
 | awaiting IO in `Handle` | enqueue and return |
 | changing `newValue` in place | clone it, change the clone |
+| `WithValueFilter(o => o.Tenant == "acme")` on a `[DataCacheHeader]` property | `WithHeaderEqualsFilter("tenant-id", "acme")`: the property is filled after value filters |
 | a default (skip) filter for "no longer qualifies" | `treatAsDelete: true` |
 | `treatAsDelete` filter after a plain filter that rejects the same messages | put the `treatAsDelete` filter first |
 | IO or a DB call inside a filter predicate | snapshot via the factory overload, or a live in-memory service |
