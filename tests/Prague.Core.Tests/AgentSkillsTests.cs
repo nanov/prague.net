@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 /// </summary>
 [TestFixture]
 public partial class AgentSkillsTests {
-	// Packed by src/Prague/Prague.csproj only (one package per skill). It packs skills/**/SKILL.md; this list makes adding or renaming a skill a deliberate change.
+	// Packed by src/Prague/Prague.csproj only (one package per skill). It packs skills/**/*.md (SKILL.md plus references/); this list makes adding or renaming a skill a deliberate change.
 	private static readonly string[] _expectedSkills = ["prague-handlers", "prague-kafka", "prague-modeling", "prague-queries", "prague-testing"];
 
 	[GeneratedRegex("^[a-z0-9]+(-[a-z0-9]+)*$")]
@@ -45,6 +45,17 @@ public partial class AgentSkillsTests {
 
 		Assert.That(fields["description"].Length, Is.InRange(1, 1024));
 		Assert.That(lines.Length, Is.LessThanOrEqualTo(500), "spec recommends a body under 500 lines");
+	}
+
+	[GeneratedRegex(@"\]\((references/[^)#]+)")]
+	private static partial Regex ReferenceLinkRegex();
+
+	[TestCaseSource(nameof(_expectedSkills))]
+	public void Skill_ReferenceLinksResolve(string skill) {
+		var dir = Path.Combine(SkillsRoot(), skill);
+		var text = File.ReadAllText(Path.Combine(dir, "SKILL.md"));
+		foreach (Match link in ReferenceLinkRegex().Matches(text))
+			Assert.That(File.Exists(Path.Combine(dir, link.Groups[1].Value)), Is.True, link.Groups[1].Value);
 	}
 
 	private static string SkillsRoot() {

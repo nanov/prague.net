@@ -1,15 +1,16 @@
 ---
 name: prague-testing
-description: "Test .NET code that uses Prague caches: broker-free unit tests with new XxxCache() or DataCacheRegistryBuilder seeded via AddOrUpdate, driving ICacheAfterHandler by hand, asserting on pooled QueryResults, frozen-vs-eager query tests, building the AddKafkaCaches container without a broker, verifying a copied contract against producer bytes, and Testcontainers integration tests. Use when writing or fixing tests for code that reads, filters or reacts to a Prague cache."
+description: "Testing code that uses Prague caches: seeding caches and the registry without a broker, after-handlers called by hand, frozen-vs-eager checks, copied-contract wire tests, Testcontainers. Use when writing or fixing tests for Prague code. Not for production wiring (use prague-kafka)."
 license: MIT
 metadata:
-  package: Prague
+  applies-to: "Prague >= 0.9.0"
+  verified: 2026-11-19
   docs: https://nanov.github.io/prague.net/docs/articles/how-to/test-without-a-broker.html
 ---
 
 # Prague: testing
 
-Two layers, two kinds of test. Verified against Prague 0.9.0. Examples use NUnit; the patterns are framework-neutral.
+Two layers, two kinds of test. Examples use NUnit; the patterns are framework-neutral.
 
 - **Your code, no broker:** queries, after-handler logic called by hand, the DI wiring, the wire format of a copied contract.
 - **The pipeline, real broker:** filters, `treatAsDelete`, tombstones, which `UpdateType` a message produces, handlers skipped during the initial load. The consumer decides all of these. A write through `AddOrUpdate` runs no filter and no after-handler, so no broker-free test reaches them.
@@ -37,6 +38,10 @@ orders.AddOrUpdate(order);                              // the same call the con
 orders.AddOrUpdate(other, timestamp: 1_700_000_000_000);   // when a last-update index matters
 ```
 
+## Code that writes through the cache
+
+`AddOrUpdateAndProduce` and `RemoveAndProduce` on a cache built with `new OrderCache()` or a registry make the local write, then throw `InvalidOperationException` ("Producer not configured"): no producer is attached outside `AddKafkaCaches`. Put the write behind a seam the test can replace (an `IOrderWriter` whose production implementation calls `AddOrUpdateAndProduce`, whose test implementation calls `AddOrUpdate`), and test what is produced in a broker test.
+
 ## Several caches, joins, global indexes
 
 ```csharp
@@ -49,15 +54,22 @@ Two hand-built caches can be joined after one call: `orders.AddJoinedCaches(cust
 
 ## After-handlers
 
-Call `Handle` with the sequence a topic would produce. Include `Same` (re-emit) and `Filtered` (`key` = default, both values null) so the handler is proven to ignore them:
+Call `Handle` with the sequence a topic would produce. Include `Same` (re-emit) and `Filtered` (`key` = default, both values null) so the handler is proven to ignore them. For a projection seeded after the load (the `OpenTotals` sample in `prague-handlers`), seed first and then deliver a live `Add` for a key the seed already counted: a delta-adding projection counts it twice.
 
 ```csharp
-var projector = new OrderProjector();
-await projector.Handle(UpdateType.Add, "ORD-001", pending, null);
-await projector.Handle(UpdateType.Same, "ORD-001", pending, null);
-await projector.Handle(UpdateType.Update, "ORD-001", paid, pending);
-await projector.Handle(UpdateType.Delete, "ORD-001", null, paid);
-await projector.Handle(UpdateType.Filtered, default!, null, null);
+var orders = new OrderCache();
+orders.AddOrUpdate(paid);                                    // in the topic before startup
+var totals = new OpenTotals();
+totals.Seed(orders);
+await totals.Handle(UpdateType.Add, "ORD-001", paid, null);        // also seen live: counted once
+await totals.Handle(UpdateType.Same, "ORD-001", paid, null);       // re-emit
+Assert.That(totals.Get(42), Is.EqualTo(paid.Total));
+await totals.Handle(UpdateType.Add, "ORD-002", pending, null);
+await totals.Handle(UpdateType.Update, "ORD-001", cancelled, paid);
+await totals.Handle(UpdateType.Filtered, default!, null, null);
+Assert.That(totals.Get(42), Is.EqualTo(pending.Total));
+await totals.Handle(UpdateType.Delete, "ORD-002", null, pending);
+Assert.That(totals.Get(42), Is.Zero);
 ```
 
 To test which `UpdateType` a write produces, use the cache: `AddOrUpdate(value, out var previous)` returns false for `Same`.
@@ -90,6 +102,8 @@ For a sequence assertion, build the frozen side with `new FrozenOptions { Preser
 `AddKafkaCaches` creates no consumer until the hosted service is resolved. Build the provider, resolve the cache singletons, seed them, and test the services the app would inject. This proves the wiring, not the flow: seeding goes around the consumer, so the handler receives nothing.
 
 ```csharp
+var services = new ServiceCollection();
+services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());   // AddKafkaCaches binds options from it
 services.AddSingleton<OpenTotals>();                     // read by an endpoint, fed by the cache
 services.AddKafkaCaches(o => o.BootstrapServers = "unreachable:9092",
 	b => b.AddCache<OrderCache, string, Order>().WithAfterHandler(sp => sp.GetRequiredService<OpenTotals>()));
@@ -99,7 +113,7 @@ provider.GetRequiredService<OrderCache>().AddOrUpdate(order);
 Assert.That(provider.GetRequiredService<ICacheAfterHandler<string, Order>>(), Is.SameAs(provider.GetRequiredService<OpenTotals>()));
 ```
 
-The last line is the DI identity assertion: the handler the cache calls is the instance readers inject (`WithAfterHandler<T>()` beside `AddSingleton<T>()` makes two, see `prague-handlers`). The container needs `IConfiguration` registered: `services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());`.
+The last line is the DI identity assertion: the handler the cache calls is the instance readers inject (`WithAfterHandler<T>()` beside `AddSingleton<T>()` makes two, see `prague-handlers`).
 
 ## A copied contract against producer bytes
 
@@ -132,6 +146,7 @@ The pipeline, deserialization end to end, initial load and health need Kafka. Th
 | `Is.TypeOf<T>` as the only check on a handler whose state is read elsewhere | `Is.SameAs` the injected instance |
 | `ExecutePooled()` without `using` in a test | `using var rows = ...` |
 | starting the hosted service in a unit test | build the provider and stop there |
+| calling `AddOrUpdateAndProduce` on a stand-alone cache | `AddOrUpdate` behind a seam; produce only in a broker test |
 | expecting `AddOrUpdate` on a seeded cache to call the after-handler | call `Handle` by hand; test the flow with a broker |
 | a filter or `treatAsDelete` with only unit tests | one broker test per filter |
 | resolving an FK-pulled cache from DI | register a factory from `IDataCacheRegistry` |
