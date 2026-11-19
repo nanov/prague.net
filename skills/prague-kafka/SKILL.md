@@ -46,7 +46,7 @@ Payload attributes (`[DataCacheFromTimestamp]`, `[DataCacheHeader]`, `[DataCache
 
 ## Initial load
 
-The hosted service's `StartAsync` returns once every cache reaches end-of-topic. Outside a host: `await host.DataCachesLoadCompletion();`.
+The hosted service's `StartAsync` returns once every cache reaches end-of-topic. To load before `host.Run()` (a tool, a test), `await host.DataCachesLoadCompletion();`.
 
 A seeder, projector or job that reads loaded caches is a `BackgroundService` whose `ExecuteAsync` opens with the wait:
 
