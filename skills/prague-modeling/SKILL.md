@@ -79,7 +79,7 @@ Index the properties your queries narrow by; everything else is filtered with `.
 | "has a value" / "is true" | `[DataCacheHasValueIndex]` | `WithXxx()` |
 | "is null" / "is false" | `[DataCacheHasNotValueIndex]` (its own set) | `WithoutXxx()` |
 | fixed predicate `Prop op constant` | `[DataCacheValueIndex(CompareOp.GreaterThan, 0, IndexName = "InStock")]` | `WithInStock()` |
-| its complement | `[DataCacheNoValueIndex(CompareOp.GreaterThan, 0, IndexName = "OutOfStock")]` (its own name and set) | `WithOutOfStock()` |
+| its complement | `[DataCacheNoValueIndex(CompareOp.GreaterThan, 0, IndexName = "OutOfStock")]` (its own set) | `WithOutOfStock()`, never `WithoutInStock()` |
 | a join from this cache | `[DataCacheForeignKey<T>(...)]` on the FK property | `JoinWith{T}()` |
 
 A Range index needs a non-nullable comparable type: `[DataCacheIndex(Range)]` on `long?` is CACHE002. Index a computed, non-serialized key instead, with the sentinel below every real value:
@@ -94,7 +94,7 @@ public long DeliveredKey => DeliveredAtUnixMs ?? long.MinValue; // undelivered r
 
 Every query on such a key opens above the sentinel so the null rows stay out: `q => q.Gt(long.MinValue)` for "has a value", `q.Gte(Math.Max(from, long.MinValue + 1))` for a caller-supplied lower bound (`Gte(long.MinValue)` would count every undelivered row). `[DataCacheHasValueIndex]` on the nullable property is the cheaper lane when the query only asks "is set".
 
-A key-set index (the has-value, value and no-value rows) stores keys only and is cheaper than a `Many` index for a fixed predicate. `Symmetric = true` on `Unique`/`Many` adds a reverse map for left-index-driven joins; `ManyToOne` foreign keys get it automatically.
+A key-set index (the has-value, value and no-value rows) stores keys only and is cheaper than a `Many` index for a fixed predicate. Without `IndexName` the verb spells out the predicate (`WithStockGreaterThan0()`, `WithStockLessThanOrEqual0()`); a value and a no-value index given the same `IndexName` do not compile. `Symmetric = true` on `Unique`/`Many` adds a reverse map for left-index-driven joins; `ManyToOne` foreign keys get it automatically.
 
 ## Foreign keys and joins
 
@@ -158,7 +158,7 @@ invoices.AddOrUpdate(invoice, now, static (next, resident, ts) => {
 | implementing `IDataCacheItem` / `GetKey()` / `Equals` | remove; `[DataCacheKey]` is enough |
 | indexing every property | index what queries narrow by; `.Where` the rest |
 | `Many` index for a fixed predicate (`Stock > 0`) | `[DataCacheValueIndex(...)]` key-set index |
-| `WithoutInStock()` after a `[DataCacheValueIndex]` | a `[DataCacheNoValueIndex]` with its own `IndexName` |
+| `WithoutInStock()` after a `[DataCacheValueIndex]` | a `[DataCacheNoValueIndex]`, then `With{ItsIndexName}()` |
 | `Range` on a `long?` (CACHE002) | computed `long` key with a `long.MinValue` sentinel; queries open with `Gt(long.MinValue)` |
 | `OneToOne` FK where several rows can hold the same target key | `ManyToOne` |
 | `[DataCacheIndex]` next to a `ManyToOne` FK (CACHE041/042) | the FK alone; a separate property for a range |

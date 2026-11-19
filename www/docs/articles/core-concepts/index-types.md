@@ -62,7 +62,7 @@ When a query is repeatedly filtered by `value OP constant` against a property, a
 | `[DataCacheHasValueIndex]` | `With{Property}()` | Keys where `Property != null` (for ref / nullable types) or `Property == true` (for `bool`). |
 | `[DataCacheHasNotValueIndex]` | `Without{Property}()` | Keys where `Property == null` (for ref / nullable types) or `Property == false` (for `bool`). |
 | `[DataCacheValueIndex(CompareOp, value)]` | `With{IndexName}()` | Keys where `Property OP value` is true. |
-| `[DataCacheNoValueIndex(CompareOp, value)]` | `Without{IndexName}()` | Keys where `Property OP value` is false. |
+| `[DataCacheNoValueIndex(CompareOp, value)]` | `With{IndexName}()` | Keys where `Property OP value` is false. |
 
 Each attribute emits exactly the verb in its row: a has-value index gives you `WithSettledAtUnixMs()` and nothing else; the complement needs its own `[DataCacheHasNotValueIndex]` (and its own set), which `ShipmentLeg` declares:
 
@@ -72,7 +72,7 @@ The four lanes in use — a nullable, a `bool`, a named value index and a has-no
 
 [!code-csharp[](../../../../samples/Prague.Samples/Concepts/IndexTypes.cs#key-set-lanes)]
 
-All four are backed by `CacheKeySetIndex<TKey, TValue>`; the predicate is evaluated once per write. `CompareOp` is `Equal`, `NotEqual`, `GreaterThan`, `GreaterThanOrEqual`, `LessThan`, `LessThanOrEqual`. `IndexName` names the generated verb and defaults to the property name; `Product.Stock` sets it to `InStock` so the verb reads `WithInStock()` rather than `WithStock()`.
+All four are backed by `CacheKeySetIndex<TKey, TValue>`; the predicate is evaluated once per write. `CompareOp` is `Equal`, `NotEqual`, `GreaterThan`, `GreaterThanOrEqual`, `LessThan`, `LessThanOrEqual`. `IndexName` names the generated verb (a trailing `Index` is dropped) and defaults to the property, operator and value: `[DataCacheValueIndex(CompareOp.GreaterThan, 0)]` on `Stock` gives `WithStockGreaterThan0()`, and the same arguments on `[DataCacheNoValueIndex]` give `WithStockLessThanOrEqual0()`. `Product.Stock` sets it to `InStock` so the verb reads `WithInStock()`.
 
 ## Sort definitions
 

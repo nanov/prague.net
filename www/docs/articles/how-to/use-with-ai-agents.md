@@ -15,13 +15,13 @@ The `Prague` package carries five [agent skills](https://agentskills.io): Markdo
 
 | Skill | Covers |
 |---|---|
-| `prague-modeling` | declaring caches, keeping your own copy of a topic's contract, choosing indexes, foreign keys, equality |
+| `prague-modeling` | declaring caches, referencing or copying a topic's contract, choosing indexes, foreign keys, changing a cached row |
 | `prague-queries` | eager queries, pooled results, sorting and paging, prepared and frozen queries, joins, the registry |
 | `prague-kafka` | `AddKafkaCaches`, topic templates, initial load, hosting, producing, health checks, metrics |
 | `prague-handlers` | header, key and value filters, `treatAsDelete`, after-handlers and every `UpdateType` |
 | `prague-testing` | broker-free tests, driving handlers by hand, frozen-against-eager checks, Testcontainers |
 
-They sit at `skills/<name>/SKILL.md` inside the package. After `dotnet restore` they are in the NuGet cache, for example `~/.nuget/packages/prague/<version>/skills/prague-queries/SKILL.md`. Every Prague release ships skills written for that release.
+They sit at `skills/<name>/SKILL.md` inside the package, with detail some of them load on demand in `skills/<name>/references/`. After `dotnet restore` they are in the NuGet cache, for example `~/.nuget/packages/prague/<version>/skills/prague-queries/SKILL.md`. Every Prague release ships skills written for that release.
 
 Only the `Prague` package carries them. `Prague.Core`, `Prague.Kafka` and the other packages do not, so referencing `Prague.Kafka` next to `Prague` does not give the install tool two copies of a skill (it refuses to install a skill name that two packages share).
 
