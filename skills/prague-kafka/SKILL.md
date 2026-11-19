@@ -1,16 +1,16 @@
 ---
 name: prague-kafka
-description: "Wiring Prague caches to Kafka: AddKafkaCaches, [DataCacheTopic], AddOrUpdateAndProduce, multi-partition topics, AddPragueKafkaLiveness/Readiness. Use when registering caches, waiting for the initial load, producing to a cache topic, or adding probes. Not for filters (use prague-handlers)."
+description: "Wiring Prague caches to Kafka: AddKafkaCaches, [DataCacheTopic], AddOrUpdateAndProduce, WithMessagePackResolver, multi-partition topics, AddPragueKafkaLiveness/Readiness. Use when registering caches, waiting for the initial load, or producing to a cache topic. Not for filters (use prague-handlers)."
 license: MIT
 metadata:
-  applies-to: "Prague >= 0.9.0, <= 0.10.0"
+  applies-to: "Prague >= 0.9.0"
   verified: 2026-11-19
   docs: https://nanov.github.io/prague.net/docs/articles/advanced/kafka-integration.html
 ---
 
 # Prague.Kafka
 
-Hydrates `[DataCache]` caches (see `prague-modeling`) from Kafka and keeps them live. When this file and the code disagree, the code wins. Namespaces: `Prague.Kafka` (registration, `PragueMessagePack`), `Prague.Kafka.IO` (`KafkaCacheProducer`), `Prague.Kafka.Health`, `Prague.Kafka.OpenTelemetry`, plus `Prague.Core` for the cache types.
+Hydrates `[DataCache]` caches (see `prague-modeling`) from Kafka and keeps them live. Namespaces: `Prague.Kafka` (registration, `PragueMessagePack`), `Prague.Kafka.IO` (`KafkaCacheProducer`), `Prague.Kafka.Health`, `Prague.Kafka.OpenTelemetry`, plus `Prague.Core` for the cache types.
 
 ## The model
 
@@ -24,7 +24,7 @@ Hydrates `[DataCache]` caches (see `prague-modeling`) from Kafka and keeps them 
 services.AddKafkaCaches(
 	o => {
 		o.BootstrapServers = "kafka:9092";
-		o.ClientSettings["group.id"] = "orders-view";       // any librdkafka setting
+		o.ClientSettings["client.id"] = "orders-view";      // any librdkafka setting; leave group.id alone
 		o.Vars["env"] = "prod";                             // [v:env] in a topic template
 	},
 	builder => {
@@ -35,7 +35,7 @@ services.AddKafkaCaches(
 var orders = provider.GetRequiredService<OrderCache>();
 ```
 
-- Topic template: `[DataCacheTopic("orders.[v:env]")]` on the class (default `Cache.<ClassName>`), exposed as `XxxCache.TopicNameTemplate`. `[v:name]` resolves from `o.Vars`, `[e:NAME]` from environment variables. Placeholders expand in topic templates only: `BootstrapServers` and `ClientSettings` take plain values.
+- Topic template: `[DataCacheTopic("orders.[v:env]")]` on the class (default `Cache.<ClassName>`), exposed as the static `XxxCache.TopicNameTemplate`; the instance property `orders.Topic` is the resolved name once the cache is registered. `[v:name]` resolves from `o.Vars`, `[e:NAME]` from environment variables. Placeholders expand in topic templates only: `BootstrapServers` and `ClientSettings` take plain values.
 - `builder.AddCache<X, K, V>(sp => topic)` computes the topic from DI. `builder.AddInternalCache<X, K, V>()` registers a cache in the registry (joinable) without consuming it. The generator also emits `builder.AddOrderCache()` / `AddInternalOrderCache()` as shorthands.
 - `KafkaCachesOptions` is always bound from the `kafkaCaches` configuration section first (so DI needs an `IConfiguration`), and the options lambda applies on top. `AddKafkaCaches("sectionName", ...)` registers another cluster from its own section; one call per cluster.
 - MessagePack resolvers go in the last argument: `AddKafkaCaches(o => ..., b => ..., opts => opts.WithMessagePackResolver(def => CompositeResolver.Create(Mine.Instance, def)))`. Put your resolvers before `def`. The setting is process-wide (`PragueMessagePack.Options`); mutating `MessagePackSerializer.DefaultOptions` has no effect on Prague.
@@ -120,14 +120,14 @@ Query and handler logic needs no broker; Kafka paths need Testcontainers with on
 | Wrong | Right |
 |---|---|
 | `services.AddPragueKafka(...).AddConsumer(...)` | `services.AddKafkaCaches(o => ..., b => b.AddCache<..>())` |
-| `OrderCache.Topic` | `OrderCache.TopicNameTemplate` |
+| `OrderCache.Topic` (static) | `OrderCache.TopicNameTemplate` for the template, `orders.Topic` on the instance for the resolved name |
 | `[DataCacheTopic("a.{version}")]` | `[DataCacheTopic("a.[v:version]")]` + `o.Vars["version"]` |
 | `[v:env]` in `BootstrapServers` or `ClientSettings` | a plain value; placeholders expand in topic templates only |
 | relying on registration order to run after the load | `await registry.LoadingCompletion.WaitAsync(stoppingToken)` first in `ExecuteAsync` |
 | waiting for the load in a hosted service's `StartAsync` | wait in `ExecuteAsync`; `StartAsync` must return |
 | deriving from `KafkaCachesBackgroundService` (obsolete) | a `BackgroundService` that waits in `ExecuteAsync`, as above |
 | expecting the local cache to see `producer.Produce(...)` | `AddOrUpdateAndProduce` / `RemoveAndProduce` |
-| `row.Status = x; orders.AddOrUpdateAndProduce(row);` on a resident row | `var next = row.Clone(); next.Status = x; orders.AddOrUpdateAndProduce(next);` |
+| `ticket.State = x; tickets.AddOrUpdateAndProduce(ticket);` on a resident row | `var next = ticket.Clone(); next.State = x; tickets.AddOrUpdateAndProduce(next);` |
 | a shared `group.id` across instances | leave the default, or one id per instance |
 | mutating `MessagePackSerializer.DefaultOptions` | `WithMessagePackResolver(...)` in `AddKafkaCaches`' last argument |
 | a consumer producing from its own partial copy of the contract | only the topic's owner produces, from the full contract |

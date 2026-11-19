@@ -3,7 +3,7 @@ name: prague-modeling
 description: "Declaring Prague caches: [DataCache] partial classes, [DataCacheKey], Unique/Many/Range and key-set indexes, [DataCacheForeignKey], Clone before write. Use when adding a cache type, copying a producer's message type, choosing indexes, or on a CACHE0xx error. Not for queries (use prague-queries)."
 license: MIT
 metadata:
-  applies-to: "Prague >= 0.9.0, <= 0.10.0"
+  applies-to: "Prague >= 0.9.0"
   verified: 2026-11-19
   docs: https://nanov.github.io/prague.net/docs/articles/core-concepts/index-types.html
 ---
@@ -74,7 +74,7 @@ Index the properties your queries narrow by; everything else is filtered with `.
 | Query shape | Declare | Verb |
 |---|---|---|
 | exact match, one row per value (`InvoiceNumber`) | `[DataCacheIndex(DataCacheIndexType.Unique)]` | `WithInvoiceNumber(x)` |
-| exact match, many rows per value (`Status`, `CustomerId`) | `[DataCacheIndex]` (default `Many`) | `WithStatus(x)`; an array or span of values = OR |
+| exact match, many rows per value (`Status`, `CustomerId`) | `[DataCacheIndex]` (default `Many`); `(Many, 4)` sizes each value's bucket | `WithStatus(x)`; an array or span of values = OR |
 | range or ordered walk (timestamps, prices); type is `IComparable<T>` | `[DataCacheIndex(DataCacheIndexType.Range)]` | `WithCreatedAtUnixMs(q => q.Gte(a).Lt(b))` |
 | "has a value" / "is true" | `[DataCacheHasValueIndex]` | `WithXxx()` |
 | "is null" / "is false" | `[DataCacheHasNotValueIndex]` (its own set) | `WithoutXxx()` |
@@ -112,9 +112,18 @@ Using joins: see `prague-queries`.
 
 ## Changing a cached row
 
-Every instance the cache holds or hands out is the cache's own: query rows, `TryGet` results, after-handler values, and any instance once you have passed it to `AddOrUpdate`. To change a row: **clone, change the clone, write the clone.**
+Every instance the cache holds or hands out is the cache's own: query rows, `TryGet` results, after-handler values, and any instance once you have passed it to `AddOrUpdate`. To change a row: **clone, change the clone, write the clone.** The clone needs `set` accessors on what you change:
 
 ```csharp
+[DataCache]
+public partial class Ticket {
+	[DataCacheKey]
+	public required string TicketId { get; init; }
+
+	[DataCacheIndex]
+	public TicketState State { get; set; }   // set: changed on a clone
+}
+
 if (tickets.Cache.TryGet(id, out var current)) {
 	var next = current.Clone();          // generated, deep: nested lists and objects are copied
 	next.State = TicketState.Closed;
@@ -124,7 +133,7 @@ if (tickets.Cache.TryGet(id, out var current)) {
 
 A resident instance changed in place equals itself, so writing it back is `Same`. The index still files the row under the old value (`WithState(Open)` returns a row whose `State` is `Closed`, `WithState(Closed)` misses it), after-handlers get no `Update`, and `AddOrUpdateAndProduce` produces nothing, so other replicas never see the change. Changing it without writing back does the same damage.
 
-With `init` setters the compiler enforces the rule; build the next value with an object initializer from the current one. `ExecuteCloned()` / `ExecutePooledCloned()` return copies that can be changed and written back.
+With `init` setters (like `Order` above) `next.Status = ...` does not compile (CS8852), which enforces the rule: build the next value with an object initializer that copies the current one's properties. `ExecuteCloned()` / `ExecutePooledCloned()` return copies that can be changed and written back.
 
 ## Stamping a write (since 0.10.0)
 
@@ -159,7 +168,7 @@ invoices.AddOrUpdate(invoice, now, static (next, resident, ts) => {
 | indexing every property | index what queries narrow by; `.Where` the rest |
 | `Many` index for a fixed predicate (`Stock > 0`) | `[DataCacheValueIndex(...)]` key-set index |
 | `WithoutInStock()` after a `[DataCacheValueIndex]` | a `[DataCacheNoValueIndex]`, then `With{ItsIndexName}()` |
-| `Range` on a `long?` (CACHE002) | computed `long` key with a `long.MinValue` sentinel; queries open with `Gt(long.MinValue)` |
+| `Range` on a `long?` (CACHE002) | a computed sentinel key, as in [Choosing indexes](#choosing-indexes) |
 | `OneToOne` FK where several rows can hold the same target key | `ManyToOne` |
 | `[DataCacheIndex]` next to a `ManyToOne` FK (CACHE041/042) | the FK alone; a separate property for a range |
 | `[DataCacheSort]` without a final key column | end with the key for a total order |

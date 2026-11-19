@@ -4,7 +4,7 @@ The attributes `SKILL.md` does not cover, with the rule for each that a build do
 
 | Attribute | Effect and rule |
 |---|---|
-| `[DataCacheSort("Name", "Prop:1", "Other:-1")]` | Class-level, repeatable. Emits `static readonly IComparer<T> NameComparer` (a sealed class; `string` columns compare ordinally); `:1` asc, `:-1` desc. End with the key so the order is total. It is the default comparer for a sort that is a property of the entity; a sort that belongs to one endpoint, or a 10k+/s hot path, gets a struct comparer (see `prague-queries`). |
+| `[DataCacheSort("Name", "Prop:1", "Other:-1")]` | Class-level, repeatable. Emits `static readonly IComparer<T> NameComparer` (a sealed class; `string` columns compare ordinally); `:1` asc, `:-1` desc. End with the key so the order is total. When to use it and when a struct comparer: `prague-queries`, Sorting and paging. |
 | `[DataCacheIgnoreEquality]` | Excluded from `CacheEquals`: for audit fields or timestamps that change on every emit without being a state change. `Clone()` still copies it. Stamped fields (see Stamping a write) carry it. |
 | `[DataCacheTopic("orders.[v:env]")]` | Kafka topic template (default `Cache.<ClassName>`), exposed as `XxxCache.TopicNameTemplate`; see `prague-kafka`. |
 | `[DataCacheFromTimestamp]` | Filled from the Kafka message timestamp on every consumed message: `long` (Unix ms), `DateTime` or `DateTimeOffset`, nullable allowed. Needs a `set` accessor. Consume-only: never written to a header. |
