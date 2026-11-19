@@ -1,16 +1,16 @@
 ---
 name: prague-queries
-description: "Reading Prague caches: Query() lanes, ExecutePooled and QueryResults disposal, Sort/SortBounded paging, Prepare/BuildFrozen, JoinWith{T}, UpdatedAfter, DataCacheRegistryBuilder. Use when writing or reviewing code that reads, pages or joins a cache. Not for declaring caches (use prague-modeling)."
+description: "Reading Prague caches: Query() lanes, ExecutePooled and QueryResults disposal, Sort/SortBounded paging, Prepare/BuildFrozen, JoinWith{T}, UpdatedAfter, DataCacheRegistryBuilder. Use when writing or reviewing code that reads, pages or joins a cache. Not for tests (use prague-testing)."
 license: MIT
 metadata:
-  applies-to: "Prague >= 0.9.0, <= 0.10.0"
+  applies-to: "Prague >= 0.9.0"
   verified: 2026-11-19
   docs: https://nanov.github.io/prague.net/docs/articles/core-concepts/query-engine.html
 ---
 
 # Prague: querying
 
-Reads go through the generated `XxxCache` (see `prague-modeling` for declaring it). When this file and the code disagree, the code wins. `using Prague.Core;`.
+Reads go through the generated `XxxCache` (see `prague-modeling` for declaring it). `using Prague.Core;`.
 
 ## Eager queries
 
@@ -25,7 +25,7 @@ foreach (var order in orders)
 
 - Each `WithXxx` is a lane. Lanes intersect (AND); the first empty lane short-circuits. On the eager path the lane order is the plan: put the most selective first.
 - `WithXxx(T | T? | ReadOnlySpan<T> | T[] | List<T>)`: a null `T?` skips the lane; several values = OR within the lane. A collection expression (`WithStatus([a, b])`) is ambiguous between the overloads (CS0121): pass `new[] { a, b }` or a span. `WithKey(...)` narrows by primary key.
-- Range lanes: `q => q.Gte(a).Lt(b)` is `[a, b)`. Open with `Gt`/`Gte` or `Lt`/`Lte`, optionally close the other side; a single value is `Gte(x).Lte(x)`, a disjunction the query-level `.Or(...)`. A sentinel-keyed range (`?? long.MinValue`, see `prague-modeling`) opens with `Gt(long.MinValue)` or `Gte(Math.Max(from, long.MinValue + 1))` so the null rows stay out.
+- Range lanes: `q => q.Gte(a).Lt(b)` is `[a, b)`. Open with `Gt`/`Gte` or `Lt`/`Lte`, optionally close the other side; a single value is `Gte(x).Lte(x)`, a disjunction the query-level `.Or(...)`. A range over a sentinel key for a nullable property has its own bounds rule: `prague-modeling`, Choosing indexes.
 - `.Or(b1, b2)` or `.Or(static (b, a) => ..., static (b, a) => ..., arg)`: union of two branches, intersected with the rest. Branches take `WithXxx` / `UseIndex` / nested `Or` only.
 - `.Where(v => ...)` filters survivors after all lanes; it never uses an index.
 - `.UseIndex(cache.SomeIndex, value)` narrows by an index field; the only form on the raw `cache.Cache`.
@@ -93,6 +93,7 @@ foreach (var row in rows)
 - Outer joins keep the row with a null or empty slot; `InnerJoinWith{T}()` drops it. `CountJoinWith{T}()` / `InnerCountJoinWith{T}()` turn a `QueryResults` slot into an `int`.
 - Filtered: `.JoinWith{T}(q => q.WithStatus(x))` or `.JoinWith{T}(static (q, arg) => ..., arg)`; the callback builder takes `WithXxx` / `UseIndex` / `Or` only.
 - At most 5 joins per query. Pooled join results share one buffer: dispose the outer `QueryResults` exactly once.
+- A join that returns one holder per target, or drops holders, comes from a `OneToOne` foreign key over many-to-one data: make it `ManyToOne` (`prague-modeling`, Foreign keys and joins).
 - Caches from `DataCacheRegistryBuilder` or `AddKafkaCaches` are wired automatically. Hand-built caches need one call first: `orders.AddJoinedCaches(customers, lines, ...)`.
 
 ## Registry without Kafka
@@ -125,7 +126,6 @@ One writer per cache, lock-free readers, no snapshot isolation. A query never th
 | reading `results` after `ToList()` / `ToArray()` / `ToDictionary()` | they consume it: read it first, or use the copy |
 | `.SortByPriority()` | `.Sort(OrderCache.ByPriorityComparer)` or `SortBounded` |
 | paging with a non-total comparer | end the comparer with the primary key |
-| `Gte(from)` on a sentinel-keyed range with `from = long.MinValue` | `Gt(long.MinValue)`, or clamp `from` to `long.MinValue + 1` |
 | `record class` rows from `Map` on a hot path | `readonly record struct` rows |
 | `Prepare<MyArgsClass>()` | make `TArgs` a struct, record struct or tuple |
 | `.Where((v, a) => ...)` on a prepared builder | `.Where(static (v, in a) => ...)` |
@@ -136,6 +136,5 @@ One writer per cache, lock-free readers, no snapshot isolation. A query never th
 | `new DataCacheRegistry()` | `new DataCacheRegistryBuilder().Register<..>().Build()` |
 | changing a returned row in place | `row.Clone()`, change the clone, `AddOrUpdate` it |
 
-`Prague.Api` exposes caches over HTTP for inspection: `app.MapPragueEndpoints()` (`GET /prague`, `/prague/{CacheName}`, `/prague/{CacheName}/{id}`); `Prague.Api.UI` adds `AddPragueUI()` / `MapPragueUI()`.
 
-Read next: [query engine](https://nanov.github.io/prague.net/docs/articles/core-concepts/query-engine.html), [sorted paging](https://nanov.github.io/prague.net/docs/articles/core-concepts/sorted-paging.html), [page an API](https://nanov.github.io/prague.net/docs/articles/how-to/page-an-api.html), [prepared queries](https://nanov.github.io/prague.net/docs/articles/core-concepts/prepared-queries.html), [joins](https://nanov.github.io/prague.net/docs/articles/core-concepts/joins.html), [incremental sync](https://nanov.github.io/prague.net/docs/articles/how-to/incremental-sync.html), [ordering and determinism](https://nanov.github.io/prague.net/docs/articles/explanation/ordering-and-determinism.html).
+Read next: [inspect over HTTP](https://nanov.github.io/prague.net/docs/articles/how-to/inspect-over-http.html) (`Prague.Api`), [query engine](https://nanov.github.io/prague.net/docs/articles/core-concepts/query-engine.html), [sorted paging](https://nanov.github.io/prague.net/docs/articles/core-concepts/sorted-paging.html), [page an API](https://nanov.github.io/prague.net/docs/articles/how-to/page-an-api.html), [prepared queries](https://nanov.github.io/prague.net/docs/articles/core-concepts/prepared-queries.html), [joins](https://nanov.github.io/prague.net/docs/articles/core-concepts/joins.html), [incremental sync](https://nanov.github.io/prague.net/docs/articles/how-to/incremental-sync.html), [ordering and determinism](https://nanov.github.io/prague.net/docs/articles/explanation/ordering-and-determinism.html).

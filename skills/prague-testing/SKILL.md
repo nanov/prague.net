@@ -1,9 +1,9 @@
 ---
 name: prague-testing
-description: "Testing code that uses Prague caches: seeded caches without a broker, after-handlers called by hand, frozen-vs-eager checks, copied-contract wire tests, Testcontainers. Use when writing or fixing tests for Prague code. Not for production wiring (use prague-kafka)."
+description: "Testing code that uses Prague caches: seeding caches and the registry without a broker, after-handlers called by hand, frozen-vs-eager checks, copied-contract wire tests, Testcontainers. Use when writing or fixing tests for Prague code. Not for production wiring (use prague-kafka)."
 license: MIT
 metadata:
-  applies-to: "Prague >= 0.9.0, <= 0.10.0"
+  applies-to: "Prague >= 0.9.0"
   verified: 2026-11-19
   docs: https://nanov.github.io/prague.net/docs/articles/how-to/test-without-a-broker.html
 ---
@@ -37,6 +37,10 @@ var orders = new OrderCache();                          // no registry, no Kafka
 orders.AddOrUpdate(order);                              // the same call the consumer makes per message
 orders.AddOrUpdate(other, timestamp: 1_700_000_000_000);   // when a last-update index matters
 ```
+
+## Code that writes through the cache
+
+`AddOrUpdateAndProduce` and `RemoveAndProduce` on a cache built with `new OrderCache()` or a registry make the local write, then throw `InvalidOperationException` ("Producer not configured"): no producer is attached outside `AddKafkaCaches`. Put the write behind a seam the test can replace (an `IOrderWriter` whose production implementation calls `AddOrUpdateAndProduce`, whose test implementation calls `AddOrUpdate`), and test what is produced in a broker test.
 
 ## Several caches, joins, global indexes
 
@@ -142,6 +146,7 @@ The pipeline, deserialization end to end, initial load and health need Kafka. Th
 | `Is.TypeOf<T>` as the only check on a handler whose state is read elsewhere | `Is.SameAs` the injected instance |
 | `ExecutePooled()` without `using` in a test | `using var rows = ...` |
 | starting the hosted service in a unit test | build the provider and stop there |
+| calling `AddOrUpdateAndProduce` on a stand-alone cache | `AddOrUpdate` behind a seam; produce only in a broker test |
 | expecting `AddOrUpdate` on a seeded cache to call the after-handler | call `Handle` by hand; test the flow with a broker |
 | a filter or `treatAsDelete` with only unit tests | one broker test per filter |
 | resolving an FK-pulled cache from DI | register a factory from `IDataCacheRegistry` |
