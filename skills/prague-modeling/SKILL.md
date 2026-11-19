@@ -1,17 +1,16 @@
 ---
 name: prague-modeling
-description: "Declare Prague in-memory caches in .NET: a consumer-owned [DataCache] partial copy of a topic's contract, [DataCacheKey], choosing [DataCacheIndex] Unique/Many/Range, key-set indexes, foreign keys for joins, [DataCacheSort], equality and [DataCacheIgnoreEquality], external types, global last-update indexes. Use when adding a cache for a topic or entity, choosing what to index, copying a message contract into a service, or when a [DataCache] class fails to compile. Querying lives in prague-queries, Kafka wiring in prague-kafka."
+description: "Declaring Prague caches: [DataCache] partial classes, [DataCacheKey], Unique/Many/Range and key-set indexes, [DataCacheForeignKey], Clone before write. Use when adding a cache type, copying a producer's message type, choosing indexes, or on a CACHE0xx error. Not for queries (use prague-queries)."
 license: MIT
 metadata:
-  package: Prague
+  applies-to: "Prague >= 0.9.0, <= 0.10.0"
+  verified: 2026-11-19
   docs: https://nanov.github.io/prague.net/docs/articles/core-concepts/index-types.html
 ---
 
 # Prague: modelling a cache
 
-Prague is an in-process, in-memory cache for .NET (net9.0/net10.0/net11.0). A `partial` class marked `[DataCache]` gets a source-generated `XxxCache` with index storage and a compile-time-checked query builder. Not a server, not distributed, not SQL, no eviction.
-
-Verified against Prague 0.9.1. When this file and the code disagree, the code wins: read the generated source under `obj/`.
+Prague is an in-process, in-memory cache for .NET (net9.0/net10.0/net11.0). A `partial` class marked `[DataCache]` gets a source-generated `XxxCache` with index storage and a compile-time-checked query builder. Not a server, not distributed, not SQL, no eviction. When this file and the code disagree, the code wins: set `<PragueCacheShowGeneratedFiles>true</PragueCacheShowGeneratedFiles>` and read the generated files in `Generated/`.
 
 ## Packages
 
@@ -19,20 +18,21 @@ Verified against Prague 0.9.1. When this file and the code disagree, the code wi
 - Broker-free: `Prague.Core` + `Prague.Attributes` + `Prague.Codegen` (as analyzer).
 - `using Prague.Core;` for everything, attributes included. The project needs `<LangVersion>latest</LangVersion>`.
 
-## Own the model: copy the contract
+## Where the cache type comes from
 
-A service that consumes a topic declares its **own** `[DataCache]` copy of the message type. Do not reference the producer's contracts package for the cached type.
+The generator completes only `partial` classes compiled in the same project:
 
-- A `[DataCache]` type must be `partial` and compiled in your project; a class from a referenced assembly cannot be cached at all, not even via `[DataCache<T>]`.
-- Indexes are the consumer's decision: index what *this* service queries by.
-- Hold only the properties this service reads. Fewer properties = less memory per row, and producer changes to fields you do not hold arrive as `Same` (no index write, no after-handler `Update`).
+- A package that ships a `[DataCache]` class built with `Prague.Codegen` ships its `XxxCache` too. Reference it and use the cache as it is; its indexes are the package's.
+- A plain contract class from a referenced assembly cannot be cached, not even through `[DataCache<T>]`. Declare a `[DataCache]` copy of it in this project, indexed for what this service queries by.
+
+A copy holds only the properties this service reads. Fewer properties mean less memory per row, and producer changes to fields you do not hold arrive as `Same` (no index write, no after-handler `Update`). With the source type referenced, `[DataCacheFrom<TSource>]` on the copy offers an IDE fix that writes the properties, and `DATACACHE002` warns when the source changes.
 
 The wire is a MessagePack map keyed by **property name**, with no type name. So the copy:
 - may use its own namespace, type name and enum types (enums travel as numbers; keep values aligned);
 - may drop properties (skipped on read) or widen numbers (`int` → `long`);
 - must spell every kept property **exactly** as the producer does: a renamed property silently reads as default, no error.
 
-Test each copied property by deserializing a producer-shaped message with `PragueMessagePack.Options` (namespace `Prague.Kafka`; see `prague-testing`). Only the topic's owner produces to it: a message produced from a partial copy lacks the dropped fields and, on a compacted topic, replaces the full record for every consumer.
+Test each copied property by deserializing a producer-shaped message with `PragueMessagePack.Options` (see `prague-testing`). Only the topic's owner produces to it: a message produced from a partial copy lacks the dropped fields and, on a compacted topic, replaces the full record for every consumer.
 
 ## Declaring
 
@@ -72,11 +72,12 @@ Index the properties your queries narrow by; everything else is filtered with `.
 | Query shape | Declare | Verb |
 |---|---|---|
 | exact match, one row per value (`InvoiceNumber`) | `[DataCacheIndex(DataCacheIndexType.Unique)]` | `WithInvoiceNumber(x)` |
-| exact match, many rows per value (`Status`, `CustomerId`) | `[DataCacheIndex]` (default `Many`); `(Many, capacity)` hints bucket size | `WithStatus(x)`, several values = OR |
+| exact match, many rows per value (`Status`, `CustomerId`) | `[DataCacheIndex]` (default `Many`) | `WithStatus(x)`; an array or span of values = OR |
 | range or ordered walk (timestamps, prices); type is `IComparable<T>` | `[DataCacheIndex(DataCacheIndexType.Range)]` | `WithCreatedAtUnixMs(q => q.Gte(a).Lt(b))` |
 | "has a value" / "is true" | `[DataCacheHasValueIndex]` | `WithXxx()` |
-| "is null" / "is false" | `[DataCacheHasNotValueIndex]` (separate set) | `WithoutXxx()` |
-| fixed predicate `Prop op constant` | `[DataCacheValueIndex(CompareOp.GreaterThan, 0, IndexName = "InStock")]` / `[DataCacheNoValueIndex(...)]` | `WithInStock()` / `WithoutInStock()` |
+| "is null" / "is false" | `[DataCacheHasNotValueIndex]` (its own set) | `WithoutXxx()` |
+| fixed predicate `Prop op constant` | `[DataCacheValueIndex(CompareOp.GreaterThan, 0, IndexName = "InStock")]` | `WithInStock()` |
+| its complement | `[DataCacheNoValueIndex(CompareOp.GreaterThan, 0, IndexName = "OutOfStock")]` (its own name and set) | `WithOutOfStock()` |
 | a join from this cache | `[DataCacheForeignKey<T>(...)]` on the FK property | `JoinWith{T}()` |
 
 A Range index needs a non-nullable comparable type: `[DataCacheIndex(Range)]` on `long?` is CACHE002. Index a computed, non-serialized key instead, with the sentinel below every real value:
@@ -91,7 +92,7 @@ public long DeliveredKey => DeliveredAtUnixMs ?? long.MinValue; // undelivered r
 
 Every query on such a key opens above the sentinel so the null rows stay out: `q => q.Gt(long.MinValue)` for "has a value", `q.Gte(Math.Max(from, long.MinValue + 1))` for a caller-supplied lower bound (`Gte(long.MinValue)` would count every undelivered row). `[DataCacheHasValueIndex]` on the nullable property is the cheaper lane when the query only asks "is set".
 
-A key-set index (the last three rows) stores keys only and is cheaper than a `Many` index for a fixed predicate. `Symmetric = true` on `Unique`/`Many` adds a reverse map for left-index-driven joins; `ManyToOne` foreign keys get it automatically.
+A key-set index (the has-value, value and no-value rows) stores keys only and is cheaper than a `Many` index for a fixed predicate. `Symmetric = true` on `Unique`/`Many` adds a reverse map for left-index-driven joins; `ManyToOne` foreign keys get it automatically.
 
 ## Foreign keys and joins
 
@@ -103,22 +104,9 @@ Declare `[DataCacheForeignKey<TTarget>(DataCacheJoinType)]` on the property that
 | `ManyToOne` on a scalar FK | holder: `JoinWith{Target}()`, slot `TRight?`; target: `JoinWith{Holder}()`, slot `QueryResults<THolder>` |
 | `ManyToOne` on `List<TKey>` | both directions, slot `QueryResults<TRight>` |
 
-`OneToOne` is a promise about the data: each target row has at most one holder. If several holders can carry the same target key (games of one sport type, orders of one customer), the FK is `ManyToOne`. A `OneToOne` over many-to-one data keeps only one holder per target in its index, so joins come back wrong: `JoinWith{Holder}()` returns one holder, and a filtered or inner `JoinWith{Target}()` can leave holders without their target.
+`OneToOne` is a promise about the data: each target row has at most one holder. If several holders can carry the same target key (games of one sport type, orders of one customer), the FK is `ManyToOne`. A `OneToOne` over many-to-one data builds and writes without error but keeps one holder per target key in its index: `JoinWith{Holder}()` returns one holder, and `With{Fk}(x)` and an inner `JoinWith{Target}()` return only the last holder written for that key.
 
 Using joins: see `prague-queries`.
-
-## Other attributes
-
-| Attribute | Effect |
-|---|---|
-| `[DataCacheSort("Name", "Prop:1", "Other:-1")]` | Class-level, repeatable. Emits `static readonly IComparer<T> NameComparer` (a sealed class; `string` columns compare ordinally); `:1` asc, `:-1` desc. End with the key so the order is total. The default comparer for a sort that is a property of the entity; a sort that belongs to one endpoint, or a 10k+/s hot path, gets a struct comparer (see `prague-queries`). |
-| `[DataCacheIgnoreEquality]` | Excluded from `CacheEquals`: for audit fields or timestamps that change on every emit without being a state change. `Clone()` still copies it. |
-| `[DataCacheGlobalLastUpdateIndex<TIndex>]` | Group key of a cross-cache last-update watermark. `TIndex` is `public partial class X : IDataCacheGlobalLastUpdateIndex<TGroupKey>;` (the generator completes it). |
-| `[DataCacheTopic("orders.[v:env]")]` | Kafka topic template (default `Cache.<ClassName>`); see `prague-kafka`. |
-| `[DataCacheFromTimestamp]` | `long` property filled from the Kafka message timestamp. |
-| `[DataCacheHeader("tenant-id")]` | Property filled from a Kafka header. |
-| `[DataCacheStringIntern(false)]` | Keeps a string out of the intern pool (ids, free text; interning is on by default). The property is `partial` (CACHE053 otherwise): the generator supplies its implementing part. |
-| `[DataCacheJsonSerializables]` | On a partial `JsonSerializerContext`: registers `QueryResults<T>` for System.Text.Json source generation. |
 
 ## Changing a cached row
 
@@ -136,45 +124,44 @@ A resident instance changed in place equals itself, so writing it back is `Same`
 
 With `init` setters the compiler enforces the rule; build the next value with an object initializer from the current one. `ExecuteCloned()` / `ExecutePooledCloned()` return copies that can be changed and written back.
 
-## Stamping a write
+## Stamping a write (since 0.10.0)
 
 To derive fields from the resident row at write time (a revision, a changed-at time), pass an on-write callback instead of `TryGet` + write:
 
 ```csharp
-orders.AddOrUpdate(order, now, static (next, resident, ts) => {
+invoices.AddOrUpdate(invoice, now, static (next, resident, ts) => {
 	next.Revision = (resident?.Revision ?? 0) + 1;   // resident is null on an add
 	next.ChangedAtUnixMs = ts;
 });
 ```
 
 - It runs at most once, under the store lock for the key, after `CacheEquals` decided to write and before the row is stored. It does not run on `Same`.
-- Change only `next`. Never change `resident` and never the key (that throws, nothing is written). Do not touch the cache inside it.
+- Change only `next`. Never change `resident` and never the key (that throws, nothing is written). Leave the cache alone inside it.
 - Stamped properties are `[DataCacheIgnoreEquality]` with a `set` accessor. An `init` property cannot be assigned from the callback; a stamped property inside equality makes every write an `Update`.
-- Keep the lambda `static` and pass values through `state`.
+- Keep the lambda `static` and pass values through the state argument (`now` above).
 
-## Types you cannot annotate
+## Other attributes
 
-For a generated class you own but cannot edit (protobuf, OpenAPI), put `[DataCache<TExternal>(nameof(TExternal.Id))]` on a `partial` cache class and declare indexes there with `[DataCacheIndex("PropertyName", DataCacheIndexType.Many)]`. `TExternal` must be `partial` and in your compilation. At class level only `[DataCacheIndex]`, `[DataCacheIgnoreEquality]` and `[DataCacheTopic]` are read; the property-name forms of the key-set attributes compile but produce nothing, and foreign keys, sorts and global indexes have no class-level form.
-
-## What the generator emits
-
-For `Order`: `OrderCache : IDataCache<OrderCache, string, Order>` with `new OrderCache()`, `.Cache` (raw `InMemoryDataCache<string, Order>`), one public `{Prop}Index` field per index, `AddOrUpdate(doc[, timestampMs][, out old])`, `Remove(key)`, `Query()`, `Prepare()`, `{Name}Comparer`, `TopicNameTemplate`, and `AddJoinedCaches(...)` when the type has foreign keys. `AddOrUpdate` compares with `CacheEquals`: an equal value swaps nothing and the `out` overload returns false.
+[references/attributes.md](references/attributes.md) covers `[DataCacheSort]`, `[DataCacheIgnoreEquality]`, `[DataCacheTopic]`, `[DataCacheFromTimestamp]`, `[DataCacheHeader]`, `[DataCacheStringIntern(false)]`, `[DataCacheGlobalLastUpdateIndex<T>]`, `[DataCache<TExternal>]` for generated types you cannot annotate, and what the generator emits. Read it before using any of them; two fail in ways the compiler explains badly:
+- `[DataCacheFromTimestamp]` and `[DataCacheHeader]` properties need a `set` accessor. With `init`, the build fails inside the generated `EnrichExtensions` (CS8852).
+- A field that changes on every emit without being a state change (an audit timestamp) turns every re-emit into an `Update` unless it carries `[DataCacheIgnoreEquality]`.
 
 ## Common mistakes
 
 | Wrong | Right |
 |---|---|
 | `[DataCache]` class without `partial` | add `partial` |
-| `[DataCache]` on (or `[DataCache<T>]` over) a type from a contracts package | copy the contract into this project |
+| `[DataCache]` on (or `[DataCache<T>]` over) a type from a referenced assembly | reference a package that ships the cache, or declare a copy here |
 | a copied property renamed to "fix" the producer's naming | keep the wire name exactly |
 | implementing `IDataCacheItem` / `GetKey()` / `Equals` | remove; `[DataCacheKey]` is enough |
 | indexing every property | index what queries narrow by; `.Where` the rest |
 | `Many` index for a fixed predicate (`Stock > 0`) | `[DataCacheValueIndex(...)]` key-set index |
+| `WithoutInStock()` after a `[DataCacheValueIndex]` | a `[DataCacheNoValueIndex]` with its own `IndexName` |
 | `Range` on a `long?` (CACHE002) | computed `long` key with a `long.MinValue` sentinel; queries open with `Gt(long.MinValue)` |
 | `OneToOne` FK where several rows can hold the same target key | `ManyToOne` |
 | `[DataCacheIndex]` next to a `ManyToOne` FK (CACHE041/042) | the FK alone; a separate property for a range |
 | `[DataCacheSort]` without a final key column | end with the key for a total order |
-| editing generated files under `obj/` | change the attributes |
+| editing generated files | change the attributes |
 | changing a row from `TryGet` or a query, then `AddOrUpdate(row)` | `var next = row.Clone();` change `next`, `AddOrUpdate(next)` |
 | changing an instance after passing it to `AddOrUpdate` | it is resident now: clone again |
 
