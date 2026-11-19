@@ -2,7 +2,7 @@
 
 Which skill should load for a prompt, judged from the descriptions alone, since the descriptions are all an agent sees before it opens a skill. The set assumes an agent that also has a KafkaLib skill set (`kafkalib-setup`, `kafkalib-consumers`, `kafkalib-producers`, `kafkalib-testing`), an org `kafka-contracts` skill and a general `high-performance-net` skill installed, because those are the neighbours the Prague descriptions compete with. "none" means no `prague-*` skill should load.
 
-Graded by reading each description against the prompt, not by running agent sessions. A row passes when exactly the expected skill is the best match. "tie" means two descriptions claim the prompt about equally; "risk" means a wrong skill claims it as strongly as the right one.
+Graded by the author of the descriptions, reading each description against the prompt, not by running agent sessions: an independent grader or real sessions may disagree. A row passes when exactly the expected skill is the best match. "tie" means two descriptions claim the prompt about equally; "risk" means a wrong skill claims it as strongly as the right one.
 
 | # | Prompt | Expected | Before | After |
 |---|---|---|---|---|
@@ -43,13 +43,18 @@ Graded by reading each description against the prompt, not by running agent sess
 | 35 | Add a field to the `BonusGranted` message without breaking consumers. | none (kafka-contracts) | risk: prague-modeling ("copying a message contract") | pass |
 | 36 | Test a KafkaLib handler with `default(Context)`. | none (kafkalib-testing) | pass | pass |
 | 37 | Cut allocations in this MessagePack parser. | none (high-performance-net) | pass | pass |
+| 38 | `JoinWithCustomer()` returns only one order per customer. | prague-queries (points to prague-modeling for the cause) | pass | pass |
+| 39 | Plug our own MessagePack resolver into Prague. | prague-kafka | pass | pass |
+| 40 | Seed a `DataCacheRegistryBuilder` registry in my unit tests. | prague-testing | tie: testing / queries | pass |
+| 41 | The open-totals projection double-counts orders after a restart. | prague-handlers | pass | pass |
+| 42 | My unit test fails: `AddOrUpdateAndProduce` throws "Producer not configured". | prague-testing | tie: testing / kafka | pass |
 
-Totals: the descriptions before this round (470 to 699 characters each, over the 300 limit) pass 30 of 37, with 5 ties and 2 risks; the current ones pass 37 of 37.
+Totals, as graded by the descriptions' author: the descriptions before this round (470 to 699 characters each, over the 300 limit) pass 33 of 42, with 7 ties and 2 risks; the current ones pass 42 of 42.
 
 ## How the ties were removed
 
-- One owner per trigger. "Work that must start after the initial load" was in both `prague-kafka` and `prague-handlers`; it is now only `prague-kafka` ("waiting for the initial load"), and `prague-handlers` keeps the projection case ("projections that include the loaded data"). `DataCacheRegistryBuilder` moved from `prague-testing` to `prague-queries`.
+- One owner per trigger. "Work that must start after the initial load" was in both `prague-kafka` and `prague-handlers`; it is now only `prague-kafka` ("waiting for the initial load"), and `prague-handlers` keeps the projection case ("projections over loaded data") and the symptom ("a handler misses or double-counts"). `DataCacheRegistryBuilder` is named only by `prague-queries`, whose `Not for` sends tests to `prague-testing`; `prague-testing` covers seeding the registry in tests.
 - Every description leads with "Prague" or a Prague type name, so a generic Kafka prompt (filter a header, add a field to a message) matches a KafkaLib or contracts description first.
 - `Not for` names the sibling that owns the neighbouring case.
 
-Rows 5, 26 and 27 still depend on the agent reading "Use when" over the type names: a prompt about a test that mentions `treatAsDelete` names a `prague-handlers` trigger. When a new row fails, fix the wording of the description that over-claims, not the prompt.
+Rows 5, 26, 27 and 42 still depend on the agent reading "Use when" over the type names: a prompt about a test that mentions `treatAsDelete` names a `prague-handlers` trigger. When a new row fails, fix the wording of the description that over-claims, not the prompt.
