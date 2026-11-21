@@ -8,7 +8,9 @@ using Prague.Kafka.Health;
 /// <summary>
 ///   <c>AddPragueKafkaLiveness</c> / <c>AddPragueKafkaReadiness</c> take a <c>failureStatus</c>; the checks must
 ///   report it, so a caller can make readiness <see cref="HealthStatus.Unhealthy" /> instead of remapping
-///   <see cref="HealthStatus.Degraded" /> to 503 on the endpoint.
+///   <see cref="HealthStatus.Degraded" /> to 503 on the endpoint. A registration not made by Prague carries
+///   <see cref="HealthCheckRegistration" />'s Unhealthy default, which is not a choice: readiness failures
+///   degrade there, as they did before the failureStatus was honoured.
 /// </summary>
 public sealed class KafkaCachesHealthFailureStatusTests {
 	private static async Task<HealthReport> Check(Action<IHealthChecksBuilder> register, Action<KafkaCachesConsumerStatistics> arrange) {
@@ -56,5 +58,36 @@ public sealed class KafkaCachesHealthFailureStatusTests {
 	public async Task Liveness_defaults_to_Unhealthy() {
 		var report = await Check(b => b.AddPragueKafkaLiveness(), PollStalled);
 		Assert.That(report.Entries["prague-kafka-live"].Status, Is.EqualTo(HealthStatus.Unhealthy));
+	}
+
+	// The .NET default registration is Unhealthy: a check added by hand (not through AddPragueKafkaReadiness)
+	// has made no choice, so readiness failures degrade rather than take the service out of rotation.
+	[Test]
+	public async Task Readiness_added_by_hand_degrades_at_the_Unhealthy_default() {
+		var report = await Check(b => {
+			b.Services.AddOptions<KafkaCachesHealthOptions>();
+			b.AddCheck<KafkaCachesReadinessHealthCheck>("hand-added", failureStatus: HealthStatus.Unhealthy);
+		}, BrokersDown);
+		Assert.That(report.Entries["hand-added"].Status, Is.EqualTo(HealthStatus.Degraded));
+	}
+
+	// The wrapper shape (svc-player-profile-api's PlatformCachesReadiness): the wrapper passes its own
+	// HealthCheckContext — an untagged registration — to the Prague check.
+	[Test]
+	public async Task A_wrapper_context_degrades() {
+		var services = new ServiceCollection();
+		services.AddLogging();
+		services.AddOptions<KafkaCachesHealthOptions>();
+		services.AddSingleton<KafkaCachesStatistics>();
+		using var provider = services.BuildServiceProvider();
+		BrokersDown(provider.GetRequiredService<KafkaCachesStatistics>().GetOrAddConsumer("c1"));
+		var check = new KafkaCachesReadinessHealthCheck(
+			provider.GetRequiredService<KafkaCachesStatistics>(),
+			provider.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<KafkaCachesHealthOptions>>());
+		var context = new HealthCheckContext {
+			Registration = new HealthCheckRegistration("wrapped", check, HealthStatus.Unhealthy, tags: null),
+		};
+		var result = await check.CheckHealthAsync(context);
+		Assert.That(result.Status, Is.EqualTo(HealthStatus.Degraded));
 	}
 }
