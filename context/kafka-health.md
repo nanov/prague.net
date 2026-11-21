@@ -16,6 +16,6 @@ Register via `AddPragueKafkaLiveness` / `AddPragueKafkaReadiness` on `IHealthChe
 
 ## `failureStatus`
 
-Both checks report `context.Registration?.FailureStatus` (defaults: liveness Unhealthy, readiness Degraded) — pinned by `KafkaCachesHealthFailureStatusTests`. Readiness with a liveness-side failure is always Unhealthy. Before this, the parameter was accepted and ignored.
+Both checks report the registration's `FailureStatus` (defaults: liveness Unhealthy, readiness Degraded) — pinned by `KafkaCachesHealthFailureStatusTests`. Readiness honours it only on a registration `AddPragueKafkaReadiness` made, which it marks with the internal tag `prague-kafka-readiness`; a hand-made `AddCheck<KafkaCachesReadinessHealthCheck>` or a wrapper passing its own `HealthCheckContext` carries `HealthCheckRegistration`'s Unhealthy default, which nobody chose, so readiness failures there report Degraded. Readiness with a liveness-side failure is always Unhealthy. Before this, the parameter was accepted and ignored.
 
 Integration tests do not override `PollLoopHeartbeatTimeout` — the default 3 s suffices because `StartAndLoadAsync` fully completes (poll loop already heartbeating) before any health assertions run.

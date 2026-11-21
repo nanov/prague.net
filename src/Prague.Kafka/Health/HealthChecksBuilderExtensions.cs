@@ -4,12 +4,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 
 public static class HealthChecksBuilderExtensions {
-	// Marks a registration as Prague's own, so the readiness check knows the failureStatus on it was chosen
-	// (AddPragueKafkaReadiness's default is Degraded). A check added any other way — plain AddCheck, or a
-	// wrapper passing its own context — carries no marker, and readiness failures there degrade, as they did
-	// before the failureStatus was honoured: HealthCheckRegistration's own default is Unhealthy, which would
-	// otherwise take services out of rotation on a lost partition or a down broker.
-	public const string ReadinessTag = "prague-kafka-readiness";
+	// Marks a registration AddPragueKafkaReadiness made, so the readiness check knows its failureStatus was chosen.
+	internal const string ReadinessTag = "prague-kafka-readiness";
 
 	public static IHealthChecksBuilder AddPragueKafkaLiveness(
 		this IHealthChecksBuilder builder,

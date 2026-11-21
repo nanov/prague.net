@@ -3,6 +3,7 @@ namespace Prague.Kafka.Tests;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Prague.Kafka.Health;
 
 /// <summary>
@@ -34,6 +35,15 @@ public sealed class KafkaCachesHealthFailureStatusTests {
 	public async Task Readiness_reports_its_failureStatus() {
 		var report = await Check(b => b.AddPragueKafkaReadiness(failureStatus: HealthStatus.Unhealthy), BrokersDown);
 		Assert.That(report.Entries["prague-kafka-ready"].Status, Is.EqualTo(HealthStatus.Unhealthy));
+	}
+
+	// Caller tags and Prague's marker together: the endpoint filter still matches, and failureStatus is honoured.
+	[Test]
+	public async Task Readiness_with_caller_tags_reports_its_failureStatus() {
+		var report = await Check(b => b.AddPragueKafkaReadiness(failureStatus: HealthStatus.Unhealthy, tags: ["ready"]), BrokersDown);
+		var entry = report.Entries["prague-kafka-ready"];
+		Assert.That(entry.Status, Is.EqualTo(HealthStatus.Unhealthy));
+		Assert.That(entry.Tags, Does.Contain("ready"));
 	}
 
 	[Test]
@@ -71,8 +81,8 @@ public sealed class KafkaCachesHealthFailureStatusTests {
 		Assert.That(report.Entries["hand-added"].Status, Is.EqualTo(HealthStatus.Degraded));
 	}
 
-	// The wrapper shape (svc-player-profile-api's PlatformCachesReadiness): the wrapper passes its own
-	// HealthCheckContext — an untagged registration — to the Prague check.
+	// A consumer's own readiness check that wraps Prague's and passes its own HealthCheckContext — an untagged
+	// registration.
 	[Test]
 	public async Task A_wrapper_context_degrades() {
 		var services = new ServiceCollection();
@@ -83,7 +93,7 @@ public sealed class KafkaCachesHealthFailureStatusTests {
 		BrokersDown(provider.GetRequiredService<KafkaCachesStatistics>().GetOrAddConsumer("c1"));
 		var check = new KafkaCachesReadinessHealthCheck(
 			provider.GetRequiredService<KafkaCachesStatistics>(),
-			provider.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<KafkaCachesHealthOptions>>());
+			provider.GetRequiredService<IOptionsMonitor<KafkaCachesHealthOptions>>());
 		var context = new HealthCheckContext {
 			Registration = new HealthCheckRegistration("wrapped", check, HealthStatus.Unhealthy, tags: null),
 		};
