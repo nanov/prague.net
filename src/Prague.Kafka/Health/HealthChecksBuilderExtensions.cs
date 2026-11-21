@@ -4,6 +4,9 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 
 public static class HealthChecksBuilderExtensions {
+	// Marks a registration AddPragueKafkaReadiness made, so the readiness check knows its failureStatus was chosen.
+	internal const string ReadinessTag = "prague-kafka-readiness";
+
 	public static IHealthChecksBuilder AddPragueKafkaLiveness(
 		this IHealthChecksBuilder builder,
 		string name = "prague-kafka-live",
@@ -19,6 +22,7 @@ public static class HealthChecksBuilderExtensions {
 		HealthStatus failureStatus = HealthStatus.Degraded,
 		IEnumerable<string>? tags = null) {
 		builder.Services.AddOptions<KafkaCachesHealthOptions>();
-		return builder.AddCheck<KafkaCachesReadinessHealthCheck>(name, failureStatus, tags ?? Array.Empty<string>());
+		return builder.AddCheck<KafkaCachesReadinessHealthCheck>(
+			name, failureStatus, tags is null ? [ReadinessTag] : [.. tags, ReadinessTag]);
 	}
 }

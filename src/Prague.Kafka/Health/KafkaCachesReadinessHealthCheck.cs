@@ -46,10 +46,15 @@ public sealed class KafkaCachesReadinessHealthCheck : IHealthCheck {
 		if (anyLivenessFailure)
 			return Task.FromResult(
 				HealthCheckResult.Unhealthy(description: null, exception: null, data: data));
-		// The failureStatus passed to AddPragueKafkaReadiness; a context built by hand has no registration.
-		if (anyReadinessFailure)
-			return Task.FromResult(new HealthCheckResult(
-				context.Registration?.FailureStatus ?? HealthStatus.Degraded, data: data));
+		// Only a registration AddPragueKafkaReadiness made (tagged) carries a chosen failureStatus. Any other — plain
+		// AddCheck, a wrapper passing its own context — has HealthCheckRegistration's Unhealthy default, which would
+		// take a pod serving from memory out of rotation on a lost partition: those degrade.
+		if (anyReadinessFailure) {
+			var status = context.Registration is { } r && r.Tags.Contains(HealthChecksBuilderExtensions.ReadinessTag)
+				? r.FailureStatus
+				: HealthStatus.Degraded;
+			return Task.FromResult(new HealthCheckResult(status, data: data));
+		}
 		return _healthy;
 	}
 }

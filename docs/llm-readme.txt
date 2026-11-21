@@ -362,7 +362,8 @@ Facts:
     KafkaCachesHealthOptions { PollLoopHeartbeatTimeout=3s, HandlerProcessingTimeout=5s, MinBrokersUp=1 }.
     MinBrokersUp needs KafkaCachesGlobalOptions.StatisticsEnabled (default true); set 0 if disabled.
     Default MapHealthChecks returns 200 for Degraded — map Degraded → 503 for k8s readiness, or pass
-    failureStatus: HealthStatus.Unhealthy to AddPragueKafkaReadiness (failureStatus is honoured by both checks).
+    failureStatus: HealthStatus.Unhealthy to AddPragueKafkaReadiness (honoured by both checks; readiness
+    registered any other way — plain AddCheck, a wrapper's own context — reports Degraded).
     Default host: the server starts after the Kafka worker's StartAsync, i.e. after the load — /health/* refuses
     connections while loading. k8s: a startupProbe sized to the load, or HostOptions.ServicesStartConcurrently = true
     (then readiness reports InitialLoadIncomplete during the load).
