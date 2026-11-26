@@ -104,7 +104,7 @@ internal sealed class PragueKafkaMetricsReporter : IDisposable {
 
 		_meter.CreateObservableUpDownCounter($"{prefix}prague.kafka.cache.index.capacity",
 			ObserveIndexCapacity, "{slot}",
-			"Slots currently rented by the index's backing sets (utilization = size/capacity)");
+			"Table slots of the index's live backing sets: a logical capacity, not bytes rented; 0 for an index without such sets");
 	}
 
 	private IEnumerable<Measurement<long>> ObserveConsumerPartitionsAssigned() {

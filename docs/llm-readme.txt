@@ -369,6 +369,9 @@ Facts:
     (then readiness reports InitialLoadIncomplete during the load).
   * OTel: meterProviderBuilder.AddPragueKafkaInstrumentation([prefix]) → prague.kafka.consumer.{partitions.assigned,
     broker.rtt.p99, health}, prague.kafka.cache.{size, messages.received, health, index.size, index.capacity}.
+    index.capacity = hash-table slots of the index's pooled sets (logical, not bytes; 0 for Unique / Range);
+    fill = index.size{kind="values"} / index.capacity where index.capacity > 0. A Many index on a collection
+    property: capacity covers both directions, values counts a link once → double the ratio.
   * Testing: no in-memory broker substitute (TestAdaptor was removed); use Testcontainers; give each
     consumer under test its own group.id.
 

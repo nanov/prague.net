@@ -117,7 +117,7 @@ public class PooledSetInitialCapacityTests {
 		var doomed = new PooledSet<long, DefaultKeyComparer<long>>();
 		doomed.Dispose();
 		doomed.Dispose(); // idempotent
-		Assert.That(doomed.CapacitySlots, Is.EqualTo(0), "a disposed set reports no rented slots");
+		Assert.That(doomed.CapacitySlots, Is.EqualTo(0), "a disposed set reports no capacity");
 
 		// Post-dispose reads stay safe and empty.
 		Assert.That(doomed.Contains(1), Is.False);

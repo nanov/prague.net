@@ -37,3 +37,5 @@ Meter `Prague.Kafka`. `AddPragueKafkaInstrumentation("acme")` prefixes every nam
 | `prague.kafka.cache.index.capacity` | `consumer`, `cache`, `index` |
 
 The `health` gauges are 1 or 0, from the same predicates as the checks.
+
+`index.capacity` is the hash-table slots of an index's pooled sets (a logical capacity, not bytes); `index.size{kind="values"} / index.capacity` is their fill, where `index.capacity > 0` (`Unique` and `Range` indexes report 0). For a `Many` index on a collection property the ratio is half the real fill: capacity covers both directions, `values` counts a link once. A table that doubles when full is a little under half full right after it grows, so a `Many` index whose ratio stays well under one half has one of three causes: many keys with few values each against the default first size of 59 (give it a small `InitialCapacity`); an `InitialCapacity` larger than its buckets need; or a past peak — a bucket keeps the capacity of its largest moment until it empties (1000 values then 10 still hold 1327 slots), and no hint changes that.

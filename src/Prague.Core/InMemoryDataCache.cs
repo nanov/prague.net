@@ -9,8 +9,10 @@ public interface ICountableCacheIndex {
 	public ulong GetCounters(out ulong values);
 
 	/// <summary>
-	///   Slots currently rented by the index's backing collections (live generations
-	///   only, retired-awaiting-reclaim excluded). Utilization = values / capacity.
+	///   Table slots of the index's backing collections: the logical capacity of their live
+	///   generations. Not a byte count — the pool rounds each rented array up, and a generation
+	///   retired but not yet reclaimed is excluded. Utilization = values / capacity — twice that
+	///   for a symmetric collection index, which reports the slots of both halves but a link once.
 	///   Defaults to 0 for index kinds that do not track slot capacity.
 	/// </summary>
 	public ulong GetCapacitySlots() => 0;

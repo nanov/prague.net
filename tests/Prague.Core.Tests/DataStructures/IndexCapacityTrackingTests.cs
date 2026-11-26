@@ -5,10 +5,11 @@ namespace Prague.Core.Tests.DataStructures;
 	using NUnit.Framework;
 
 /// <summary>
-///   Rented-slot capacity reporting: PooledSet fires deltas only from cold paths
+///   Table-slot capacity reporting: PooledSet fires deltas only from cold paths
 ///   (construction / Grow / Dispose), list indexes aggregate them per index,
-///   and DataCacheIndexStatistics exposes the live value for the OTel gauge
-///   (prague.kafka.cache.index.capacity). Utilization = values / capacity makes
+///   and DataCacheIndexStatistics exposes the live value for the OTel instrument
+///   (prague.kafka.cache.index.capacity). Utilization = values / capacity (doubled for a
+///   symmetric collection index, which reports both halves' slots but each link once) makes
 ///   oversized-bucket slack visible in monitoring instead of requiring a memory
 ///   dump to diagnose.
 /// </summary>

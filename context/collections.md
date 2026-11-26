@@ -45,6 +45,47 @@ Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `Inters
   outstanding enumerators. The ref struct enumerator pins via the per-thread
   `ReaderGate` slot (no shared-line Interlocked); only the boxed enumerator refcounts
   its generation.
+  **Reclaim clears `[0, LastIndex)`, not the array.** `Tables.ReclaimToPool` used to
+  return `Slots` with `clearArray: true` for reference-containing keys: O(array length), under
+  the gate's process-wide `_limboLock`, so one large string-keyed generation held up every other
+  writer's `Retire` for the length of the wipe — and most of that wipe was over slots that were
+  already empty. A slot at or past `LastIndex` holds no reference: either it was never written,
+  or `Remove` cleared it when it freed it (`_clearOnFree`) before `LastIndex` fell back to zero.
+  So `Array.Clear(Slots, 0, LastIndex)` leaves no reference behind: an emptied bucket
+  (`LastIndex` back at 0) clears nothing, and a grown generation skips the power-of-two tail. The
+  invariant is load-bearing now — **no slot at or past `LastIndex` may hold a reference** — and
+  it is local: `Tables` is the only renter of `HashSlot<T>[]`. What still clears under the lock
+  is a reference-keyed generation retired by `Grow` (it is full, so all `Size` slots) and a
+  non-empty set that is disposed (up to its `LastIndex`). Pinned by `Prague.Core.Tests/DataStructures/PooledSetReclaimClearTests`, which
+  keep the array and read it after it went back to the pool.
+  **`CapacitySlots` is a logical capacity.** It reads `Tables.Size` of the live generation, and
+  the index aggregate (`GetCapacitySlots`, the `prague.kafka.cache.index.capacity` instrument) sums
+  those. It is neither the array length — 293 table slots sit in 512-slot arrays — nor everything
+  still rented: a retired generation counts for nothing while it waits in the gate or under a
+  boxed enumerator's pin. `index.size{kind="values"} / index.capacity` is therefore the fill of
+  the tables, which is what the metric is for; do not read bytes off it. The `values` series, not
+  `keys`, and only where the capacity is above zero: `GetCapacitySlots` defaults to 0 for index
+  kinds without pooled sets (`Unique`, `Range`), and the reporter publishes that 0. One index kind
+  reads half: `CacheCollectionSymmetricKeyValueListIndex` (what the generator builds for a `Many`
+  index on a collection property) writes every link into `Forward` and into `Reverse`, sums the capacity of both, and
+  takes its counters from `Forward` alone. That is left as it is and documented. Counting only
+  `Forward`'s slots would hide `Reverse`, the half with many keys and few values each — the slack
+  the metric exists to show; doubling `values` would change what `index.size{kind="values"}`
+  means for this index (links) in every dashboard that already reads it.
+  The numerator was wrong until 2026-11: a `Many` index mutates a bucket in place and then
+  compared the bucket's `Count` "before" and "after" — one object — so `values` rose by one when
+  a bucket was created and never moved again, and `keys` went negative on an index whose key
+  changes through `Update` (buckets made there were not counted, but were subtracted on removal).
+  `CacheKeyValueListIndex` now counts inside the store callbacks of `Update`, `AddUnderKey` and
+  `RemoveUnderKey`: `values` from what `PooledSet.Add` / `Remove` return, `keys` when a bucket is
+  created or disposed. `Update` keeps callbacks of its own: one pair shared with the add and
+  remove paths measured 1–4 % slower on updates (see `RESULTS.MD`, 2026-11-25). Pinned by `Prague.Core.Tests/Indexing/ListIndexCounterTests`.
+  A bucket never shrinks: a `Many` bucket keeps the generation of its largest moment until it
+  empties and is disposed. A shrink-on-remove was built and dropped (2026-11): on the caches it
+  was meant for, tables were 35–59 % full — a table that doubles is a little under half full
+  right after it grows — so it would never have fired, while it cost 6–7 % on `AddRemoveChurn`. What does leave slots idle is the
+  default first generation of 59 on an index whose keys hold a value or two each; that is what
+  `InitialCapacity` is for.
   **Duplicates are the one shape the staleness model admits.** A walk (enumerator or
   `CopyKeysTo`) visits slots in order; a key removed and re-added while it is in flight is
   re-inserted wherever the LIFO free list points (a higher freed slot, or `LastIndex`), so a walk
