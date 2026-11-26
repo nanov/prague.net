@@ -148,7 +148,7 @@ public sealed class DataCacheIndexStatistics {
 	public ulong ValuesSize;
 
 	/// <summary>
-	/// Snapshot rented-slot capacity taken at the last snapshot time.
+	/// Snapshot table-slot capacity taken at the last snapshot time.
 	/// </summary>
 	public ulong CapacitySlots;
 
@@ -158,8 +158,10 @@ public sealed class DataCacheIndexStatistics {
 	public ulong LiveKeysSize => _index.GetCounters(out _);
 
 	/// <summary>
-	/// Live capacity - slots currently rented by the index's backing collections
-	/// (not snapshot). Utilization = LiveValuesSize / LiveCapacitySlots.
+	/// Live capacity - table slots of the live generations of the index's backing collections
+	/// (not snapshot): a logical capacity, not the bytes rented.
+	/// Utilization = LiveValuesSize / LiveCapacitySlots, doubled for a symmetric collection index
+	/// (see <see cref="ICountableCacheIndex.GetCapacitySlots" />).
 	/// </summary>
 	public ulong LiveCapacitySlots => _index.GetCapacitySlots();
 

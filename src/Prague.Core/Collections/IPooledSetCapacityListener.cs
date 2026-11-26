@@ -1,7 +1,8 @@
 namespace Prague.Core.Collections;
 
 /// <summary>
-///   Receives rented-slot-capacity deltas from a <see cref="PooledSet{T, TKeyComparer}" />.
+///   Receives table-slot capacity deltas from a <see cref="PooledSet{T, TKeyComparer}" />:
+///   the change in the size of its live generation, not in the bytes it rents.
 ///   Fired only from the set's cold paths — first table allocation, Grow and Dispose —
 ///   so an owner can aggregate live capacity across many sets (one per index key in a
 ///   list index) at zero Add/Remove/Contains cost. Callbacks arrive on the writer

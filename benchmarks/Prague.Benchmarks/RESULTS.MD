@@ -2480,3 +2480,69 @@ left-symmetric page −39 %.
   the shared-right inner shapes are 2.2–3.4× OLD for 5× to 136× the rows that carry a right — cheaper per delivered row
   (`SharedRight_Selector_Inner` at 10k: 128 → 76 ns/row in round 3). The struct-right chain and the many-buckets outer shape now
   run **faster** than OLD (0.87–0.91×, 0.89–0.92× at 10k–100k) while returning only the matched rows and the right on every row.
+
+# `PooledSet` reclaim clears `[0, LastIndex)`; `Many`-index counters (2026-11-25)
+
+OLD is `5d275fb`, NEW the branch: `Tables.ReclaimToPool` clears `[0, LastIndex)` instead of the whole array, and
+`CacheKeyValueListIndex` counts `values` from what `PooledSet.Add` / `Remove` return and `keys` when a bucket is created or
+disposed. Ryzen 9 9955HX3D, every process pinned to CCD0 (cores 0–7), Windows 11, .NET 9.0.23, `--inProcess`, one process
+per benchmark class and build, the builds alternating.
+
+`PooledSetBenchmarks`, the bucket lifecycle rows, two runs per build:
+
+| Method | ItemCount | OLD runs | NEW runs | NEW / OLD |
+|---|---|---|---|---|
+| CreateAddDispose_SingletonBucket_StringKey | 100 | 1.71 / 1.64 us | 1.43 / 1.45 us | 0.86 |
+| CreateAddDispose_SingletonBucket_StringKey | 5000 | 1.66 / 1.65 us | 1.44 / 1.46 us | 0.87 |
+| FillDrainDispose_StringKeys | 100 | 1.87 / 1.86 us | 1.87 / 1.85 us | 1.00 |
+| FillDrainDispose_StringKeys | 5000 | 123.77 / 124.73 us | 124.29 / 123.68 us | 1.00 |
+| CreateAddDispose_SingletonBucket | 100 | 1.22 / 1.22 us | 1.25 / 1.28 us | 1.04 |
+| CreateAddDispose_SingletonBucket | 5000 | 1.23 / 1.23 us | 1.26 / 1.25 us | 1.02 |
+
+The other rows of the class (`AddRemoveChurn`, `Contains_HitAndMiss`, `EnumerateStruct`, `EnumerateBoxed`) read 0.99–1.01,
+except two where one run of four is off by itself: `AddRemoveChurn` at 5000 (604.6 ns once on NEW, 541–544 otherwise) and
+`EnumerateStruct` at 5000 (1.86 us once on OLD, 1.96 otherwise).
+
+`CacheIndexMaintenanceBenchmarks` (N = 100 000; two `Many` and two range indexes), three runs per build:
+
+| Method | OLD runs | NEW runs | NEW / OLD (medians) |
+|---|---|---|---|
+| AddAll_Composite | 44.20 / 44.76 / 43.95 ms | 44.39 / 44.00 / 46.44 ms | 1.00 |
+| AddAll_String | 55.79 / 59.57 / 52.83 ms | 57.27 / 56.48 / 56.00 ms | 1.01 |
+| UpdateAll_Composite | 53.32 / 51.83 / 51.45 ms | 52.41 / 52.32 / 53.41 ms | 1.01 |
+| UpdateAll_String | 83.19 / 84.10 / 82.69 ms | 82.66 / 81.85 / 81.79 ms | 0.98 |
+| RemoveAll_Composite | 30.05 / 29.86 / 30.81 ms | 30.51 / 30.30 / 30.64 ms | 1.02 |
+| RemoveAll_String | 44.97 / 44.69 / 45.28 ms | 45.42 / 45.51 / 45.67 ms | 1.01 |
+
+The update rows alone in their process, each build against the OLD runs of its own sessions: the median's distance, and in
+how many rounds the build was the slower of the pair run back to back. SHARED is an earlier form of the counter change in
+which `Update`, `AddUnderKey` and `RemoveUnderKey` passed one pair of counting callbacks to the store; NEW gives each of the
+three its own, as OLD has.
+
+| Build | UpdateAll_Composite | UpdateAll_String |
+|---|---|---|
+| SHARED | +3.9 % / +1.2 % / +3.8 %; 13 of 15 rounds | +0.6 % / 0.0 % / +1.8 %; 12 of 15 |
+| SHARED, `values` not counted | +1.9 %; 5 of 5 | +0.7 %; 4 of 5 |
+| SHARED, `DOTNET_TieredPGO=0` | +1.5 %; 3 of 3 | +3.3 %; 3 of 3 |
+| NEW | +2.0 % / +0.5 %; 9 of 15 | −0.3 %; 2 of 5 |
+
+## Reading it
+
+- **A reference-keyed bucket that comes and goes is 12–14 % cheaper** (a row is 16 buckets): an emptied bucket used to have
+  its 64-slot array wiped on return although every slot had been cleared when its key was removed.
+- **A bucket that fills to thousands and drains shows no difference.** What the change is for at that size — how long the
+  wipe of a large array holds `ReaderGate`'s lock against other writers — is a contention effect this single-threaded
+  benchmark cannot show; it is **not measured**.
+- **The `long`-keyed lifecycle did not move**: its code path is the same in both builds, and alone in its process it reads
+  0.99–1.01 (three runs per build) against 1.02–1.04 inside the class run.
+- **Counting shows no cost on add and remove, and is not resolved from OLD on update.** Every row of the class run is within
+  2 % at the medians. Alone in its process the remove path had NEW the faster of the pair in 6 of 6 rounds on both rows
+  (−1.8 % and −1.4 %); the update path had it the slower in 9 of 15 on the composite key and 2 of 5 on the string key, while
+  OLD's own `UpdateAll_Composite` runs spread 2.5–6.7 % within a session. The add path was not measured alone.
+- **`Update` repeats the callbacks of the add and remove paths because sharing them was slower**, in 13 of 15 rounds on the
+  composite key. The counting is not the cause — the same build with the `values` counter taken out read the same — and
+  neither is dynamic PGO; why sharing costs is **not established**.
+- **Reads and ingest are where they were.** Production shapes A and B (`FrozenQueryBenchmarks`, eager / prepared / frozen):
+  0.98–1.01. `perf/run.sh all`: core ingest throughput within 0.5 % of OLD and every query p50 within 4.2 %, the size of the
+  gap OLD shows against itself (3.9 %). These and the `PooledSetBenchmarks` table were taken on SHARED and not repeated;
+  SHARED and NEW differ only in the callbacks those three index methods pass.

@@ -74,6 +74,8 @@ The meter publishes eight observable instruments; the test lists them with a `Me
 
 `consumer.health` and `cache.health` are 1 or 0 and use the same predicates as the checks (consumer-level failures on the first, per-cache ones on the second), so an alert on them and a 503 from `/health/ready` agree.
 
+`index.capacity` is the number of hash-table slots in an index's pooled sets, and `index.size{kind="values"} / index.capacity` is how full they are — where `index.capacity > 0`, since a `Unique` or `Range` index has no pooled sets and reports 0. A `Many` index on a collection property keeps every link in both directions and counts it once in `values`, so its ratio reads half of the real fill. Read it as a fill ratio, not as memory: the pool rounds each array up to a power of two, and arrays a set has replaced by growing are not counted, although a read in progress at that moment keeps them rented until a later release of pooled memory somewhere in the process (another set growing or being disposed, a range index dropping an emptied node).
+
 ## Pitfalls
 
 - **A liveness probe with no startup probe.** On a default host the endpoints are silent during the load, and the probe restarts the pod before the load finishes. See step 2.

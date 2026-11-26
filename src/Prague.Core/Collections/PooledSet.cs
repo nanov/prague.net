@@ -39,6 +39,9 @@ using Prague.Core.Utils;
 ///     (no Interlocked on shared lines). Tables._state (boxed-enumerator pins) is laid
 ///     out past the first cache line so its RMWs never invalidate the line that
 ///     lookups hash against.
+///   - A generation with reference keys is returned after clearing [0, LastIndex) only:
+///     a freed slot is cleared when it is freed, so an emptied bucket has nothing left
+///     to clear.
 ///   - Dispose publishes a shared, never-retired sentinel generation before retiring
 ///     the old one (the same publish-then-retire pattern as Grow) — post-seal readers
 ///     of a disposed set land on the sentinel and can never capture retiring memory.
@@ -75,7 +78,8 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 		public readonly int Size;
 
 		// Writer-mutated; published volatile AFTER a new slot's HashCode so a reader
-		// never scans a not-yet-published slot.
+		// never scans a not-yet-published slot. Also the bound ReclaimToPool clears to:
+		// no slot at or past it may hold a reference.
 		public int LastIndex;
 
 		public readonly ulong FastModMultiplier;
@@ -143,7 +147,14 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 		public void ReclaimToPool() {
 			PragueArrayPool<int>.Pool.Return(Buckets);
-			PragueArrayPool<HashSlot<T>>.Pool.Return(Slots, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+			// No slot at or past LastIndex holds a reference: it was never written, or it was
+			// cleared when it was freed. Clearing [0, LastIndex) therefore returns a clean array.
+			// Clearing all of it is O(length) under the gate's lock even for an emptied set.
+			if (RuntimeHelpers.IsReferenceOrContainsReferences<T>()) {
+				Array.Clear(Slots, 0, Volatile.Read(ref LastIndex));
+			}
+
+			PragueArrayPool<HashSlot<T>>.Pool.Return(Slots);
 			PragueArrayPool<int>.Pool.Return(FreeNext);
 			if (Versions != null)
 				PragueArrayPool<int>.Pool.Return(Versions);
@@ -350,8 +361,9 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 	}
 
 	/// <summary>
-	///   Slots rented by the current live generation; 0 after Dispose.
-	///   One volatile read — safe from any thread.
+	///   Table slots of the live generation (its <c>Size</c>); 0 after Dispose. A logical capacity:
+	///   the pool rounds each rented array up, and a retired generation not yet reclaimed is not
+	///   counted. One volatile read — safe from any thread.
 	/// </summary>
 	internal int CapacitySlots {
 		get {

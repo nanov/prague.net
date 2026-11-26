@@ -215,10 +215,14 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey>
 	where TIndexKey : notnull
 	where TKey : notnull {
 	private readonly ConcurrentCacheStore<TIndexKey, PooledSet<TKey, DefaultKeyComparer<TKey>>> _cache = new();
+
+	// Buckets alive. It and ApproximateCount are kept inside the store callbacks: values from
+	// what the bucket's Add and Remove report, keys when a bucket is created or disposed. A bucket
+	// is mutated in place, so its count "before" and "after" a callback is one object's count.
 	private ulong _keysSize;
 
-	// Live rented-slot capacity across all buckets, maintained from the buckets' cold
-	// paths (construction / Grow / Dispose) — see IPooledSetCapacityListener.
+	// Table-slot capacity of the live generations across all buckets, maintained from the
+	// buckets' cold paths (construction / Grow / Dispose) — see IPooledSetCapacityListener.
 	private long _capacitySlots;
 
 	// First-generation slot capacity for new per-key buckets. Plumbed from
@@ -317,38 +321,38 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey>
 
 		// Different index keys - add to new first, then remove from old
 		// This ensures the key is always visible (may temporarily duplicate, but won't disappear)
-		var r = _cache.AddOrUpdate(newIndexKey,
+		// The callbacks repeat AddUnderKey's and RemoveUnderKey's on purpose: sharing them
+		// with the add and remove paths measured up to 4 % slower on updates.
+		_cache.AddOrUpdate(newIndexKey,
 			static (_, a) => {
 				// The owner index rides along as the bucket's capacity listener; the
 				// hint itself is read through it to keep the args tuple to one reference.
-				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Owner, a.Owner._bucketInitialCapacity);
-				s.Add(a.Key, a.Hash);
+				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Owner, a.Owner._bucketInitialCapacity) {
+						{ a.Key, a.Hash }
+				};
+				a.Owner._keysSize++;
+				a.Owner.ApproximateCount++;
 				return s;
 			},
-			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; },
+			static (_, hs, a) => {
+				if (hs.Add(a.Key, a.Hash))
+					a.Owner.ApproximateCount++;
+				return hs;
+			},
 			(Key: key, Hash: keyHash, Owner: this));
 
-		var sizeDelta = (ulong)r.Value.Count;
-		if (r.OldValue is not null)
-			sizeDelta -= (ulong)r.OldValue.Count;
-		ApproximateCount += sizeDelta;
+		_cache.UpdateOrRemove(oldIndexKey,
+			static (_, hs, a) => {
+				if (hs.Remove(a.Key, a.Hash))
+					a.Owner.ApproximateCount--;
 
-		var rr = _cache.UpdateOrRemove(oldIndexKey, static (_, hs, a) => {
-			hs.Remove(a.Key, a.Hash);
-			if (hs.Count > 0)
-				return (true, hs);
-			hs.Dispose();
-			return (false, null);
-		}, (Key: key, Hash: keyHash));
+				if (hs.Count > 0)
+					return (true, hs);
+				hs.Dispose();
+				a.Owner._keysSize--;
+				return (false, null);
+			}, (Key: key, Hash: keyHash, Owner: this));
 
-		sizeDelta = 0UL;
-		if (rr.OldValue is not null)
-			sizeDelta -= (ulong)rr.OldValue.Count;
-
-		if (rr.NewValue is not null)
-			sizeDelta += (ulong)rr.NewValue.Count;
-
-		ApproximateCount += sizeDelta;
 		_cacheReverse?.Add(newIndexKey, keyHash, key, timestampMs);
 	}
 
@@ -390,50 +394,41 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey>
 	// Registers/unregisters one (indexKey -> key) edge. Idempotent on Add; a no-op on Remove once the
 	// edge is gone (so duplicate elements in a collection cannot mis-count _keysSize/ApproximateCount).
 	internal void AddUnderKey(TIndexKey indexKey, TKey key, int keyHash, long timestampMs) {
-		var r = _cache.AddOrUpdate(indexKey,
+		_cache.AddOrUpdate(indexKey,
 			static (_, a) => {
 				// The owner index rides along as the bucket's capacity listener; the
 				// hint itself is read through it to keep the args tuple to one reference.
-				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Owner, a.Owner._bucketInitialCapacity);
-				s.Add(a.Key, a.Hash);
+				var s = new PooledSet<TKey, DefaultKeyComparer<TKey>>(default, a.Owner, a.Owner._bucketInitialCapacity) {
+						{ a.Key, a.Hash }
+				};
+				a.Owner._keysSize++;
+				a.Owner.ApproximateCount++;
 				return s;
 			},
-			static (_, hs, a) => { hs.Add(a.Key, a.Hash); return hs; },
+			static (_, hs, a) => {
+				if (hs.Add(a.Key, a.Hash))
+					a.Owner.ApproximateCount++;			
+				return hs;
+			},
 			(Key: key, Hash: keyHash, Owner: this));
 
-		var sizeDelta = (ulong)r.Value.Count;
-		var keyDelta = 1UL;
-		if (r.OldValue is not null) {
-			sizeDelta -= (ulong)r.OldValue.Count;
-			keyDelta = 0;
-		}
-
-		_keysSize += keyDelta;
-		ApproximateCount += sizeDelta;
 		_cacheReverse?.Add(indexKey, keyHash, key, timestampMs);
 	}
 
 	internal void RemoveUnderKey(TIndexKey indexKey, TKey key, int keyHash, long timestampMs) {
 		_cacheReverse?.Remove(indexKey, keyHash, key, timestampMs);
-		var r = _cache.UpdateOrRemove(indexKey,
+		_cache.UpdateOrRemove(indexKey,
 			static (_, hs, a) => {
-				hs.Remove(a.Key, a.Hash);
+				if (hs.Remove(a.Key, a.Hash))
+					a.Owner.ApproximateCount--;
+
 				if (hs.Count > 0)
 					return (true, hs);
 				hs.Dispose();
+
+				a.Owner._keysSize--;
 				return (false, null);
-			}, (Key: key, Hash: keyHash));
-
-		var sizeDelta = 0UL;
-		if (r.OldValue is not null)
-			sizeDelta -= (ulong)r.OldValue.Count;
-
-		if (r.NewValue is not null)
-			sizeDelta += (ulong)r.NewValue.Count;
-		else if (r.OldValue is not null)
-			_keysSize--;
-
-		ApproximateCount += sizeDelta;
+			}, (Key: key, Hash: keyHash, Owner: this));
 	}
 
 	// ── Collection-backed population (register the owner under each element) ──
@@ -819,6 +814,8 @@ public sealed class CacheCollectionSymmetricKeyValueListIndex<TKey, TValue, TInd
 		Reverse = new(initialBucketCapacity);
 	}
 
+	// The counters are Forward's: a link counts once. The capacity adds both halves, and
+	// each link sits in both, so values / capacity reads half of this index's real fill.
 	public ulong GetCounters(out ulong values) => Forward.GetCounters(out values);
 
 	public ulong GetCapacitySlots() => Forward.GetCapacitySlots() + Reverse.GetCapacitySlots();
