@@ -48,8 +48,8 @@ Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `Inters
   **Reclaim clears `[0, LastIndex)`, not the array.** `Tables.ReclaimToPool` used to
   return `Slots` with `clearArray: true` for reference-containing keys: O(array length), under
   the gate's process-wide `_limboLock`, so one large string-keyed generation held up every other
-  writer's `Retire` for the length of the wipe — and most of that wipe was over slots that were
-  already empty. A slot at or past `LastIndex` holds no reference: either it was never written,
+  writer's `Retire` for the length of the wipe — even when the set had been emptied and
+  every slot was already clear. A slot at or past `LastIndex` holds no reference: either it was never written,
   or `Remove` cleared it when it freed it (`_clearOnFree`) before `LastIndex` fell back to zero.
   So `Array.Clear(Slots, 0, LastIndex)` leaves no reference behind: an emptied bucket
   (`LastIndex` back at 0) clears nothing, and a grown generation skips the power-of-two tail. The
@@ -79,7 +79,7 @@ Pooled set; `Dispose()` returns the rented array. Surface: `RetainOnly`, `Inters
   `CacheKeyValueListIndex` now counts inside the store callbacks of `Update`, `AddUnderKey` and
   `RemoveUnderKey`: `values` from what `PooledSet.Add` / `Remove` return, `keys` when a bucket is
   created or disposed. `Update` keeps callbacks of its own: one pair shared with the add and
-  remove paths measured 1–4 % slower on updates (see `RESULTS.MD`, 2026-11-25). Pinned by `Prague.Core.Tests/Indexing/ListIndexCounterTests`.
+  remove paths measured up to 4 % slower on updates (see `RESULTS.MD`, 2026-11-25). Pinned by `Prague.Core.Tests/Indexing/ListIndexCounterTests`.
   A bucket never shrinks: a `Many` bucket keeps the generation of its largest moment until it
   empties and is disposed. A shrink-on-remove was built and dropped (2026-11): on the caches it
   was meant for, tables were 35–59 % full — a table that doubles is a little under half full

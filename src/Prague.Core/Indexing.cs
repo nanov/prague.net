@@ -322,7 +322,7 @@ public class CacheKeyValueListIndex<TKey, TValue, TIndexKey>
 		// Different index keys - add to new first, then remove from old
 		// This ensures the key is always visible (may temporarily duplicate, but won't disappear)
 		// The callbacks repeat AddUnderKey's and RemoveUnderKey's on purpose: sharing them
-		// with the add and remove paths measured 1-4 % slower on updates.
+		// with the add and remove paths measured up to 4 % slower on updates.
 		_cache.AddOrUpdate(newIndexKey,
 			static (_, a) => {
 				// The owner index rides along as the bucket's capacity listener; the

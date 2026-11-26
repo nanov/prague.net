@@ -8,7 +8,7 @@ using Prague.Core.Tests.Infrastructure;
 ///   A generation with reference keys must go back to the pool holding no reference, and it gets
 ///   there by clearing only <c>[0, LastIndex)</c>: a slot at or past <c>LastIndex</c> was either
 ///   never written or cleared when it was freed. Clearing the whole array instead costs O(length)
-///   under the reclamation gate's lock, mostly over slots that are already empty.
+///   under the reclamation gate's lock even when the set was emptied first.
 ///   Each test keeps the array it captured and reads it after the set returned it.
 /// </summary>
 [TestFixture]

@@ -149,7 +149,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 			PragueArrayPool<int>.Pool.Return(Buckets);
 			// No slot at or past LastIndex holds a reference: it was never written, or it was
 			// cleared when it was freed. Clearing [0, LastIndex) therefore returns a clean array.
-			// Clearing all of it would be O(length) under the gate's lock, mostly over empty slots.
+			// Clearing all of it is O(length) under the gate's lock even for an emptied set.
 			if (RuntimeHelpers.IsReferenceOrContainsReferences<T>()) {
 				Array.Clear(Slots, 0, Volatile.Read(ref LastIndex));
 			}
@@ -362,7 +362,7 @@ internal sealed class PooledSet<T, TKeyComparer> : IReadOnlyCollection<T>, IEnum
 
 	/// <summary>
 	///   Table slots of the live generation (its <c>Size</c>); 0 after Dispose. A logical capacity:
-	///   the pool rounds each rented array up, and a retired generation readers still hold is not
+	///   the pool rounds each rented array up, and a retired generation not yet reclaimed is not
 	///   counted. One volatile read — safe from any thread.
 	/// </summary>
 	internal int CapacitySlots {
